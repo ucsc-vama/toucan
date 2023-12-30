@@ -33,3 +33,7 @@
 
 # Build directory
 build/
+
+# vscode files
+.vscode/
+compile_commands.json
