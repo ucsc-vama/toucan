@@ -41,4 +41,4 @@ add_subdirectory(external)
 # add_subdirectory(lib)
 add_subdirectory(tools)
 
-add_executable(toucan main.cpp)
+# add_executable(toucan main.cpp)
