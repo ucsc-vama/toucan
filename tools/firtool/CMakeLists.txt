@@ -2,15 +2,13 @@ set(LLVM_LINK_COMPONENTS
   Support
 )
 
-
-add_circt_tool(firtool
-  firtool.cpp
-
-  DEPENDS
-  SUPPORT_PLUGINS
+add_executable(
+    firtool_test
+    firtool_test.cpp
 )
-llvm_update_compile_flags(firtool)
-target_link_libraries(firtool PRIVATE
+
+llvm_update_compile_flags(firtool_test)
+target_link_libraries(firtool_test PRIVATE
   CIRCTExportVerilog
   CIRCTImportFIRFile
   CIRCTFIRRTLTransforms
