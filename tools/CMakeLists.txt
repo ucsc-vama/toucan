@@ -1,1 +1,2 @@
 add_subdirectory(firtool)
+add_subdirectory(toucan)
