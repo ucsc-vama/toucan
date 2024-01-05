@@ -38,3 +38,10 @@ install/
 # vscode files
 .vscode/
 compile_commands.json
+
+# cmake
+cmake-build-debug
+
+# ide
+.idea/
+.cache/
