@@ -40,7 +40,8 @@ install/
 compile_commands.json
 
 # cmake
-cmake-build-debug
+cmake-build-debug/
+cmake-build-release/
 
 # ide
 .idea/
