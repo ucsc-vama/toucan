@@ -9,6 +9,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED YES)
 
+list(APPEND CMAKE_PREFIX_PATH "./install/")
 
 find_package(MLIR REQUIRED CONFIG)
 find_package(CIRCT REQUIRED CONFIG)
@@ -35,8 +36,8 @@ include_directories(${LLVM_INCLUDE_DIRS} ${MLIR_INCLUDE_DIRS} ${CIRCT_MAIN_INCLU
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_BINARY_DIR}/include)
 
 add_subdirectory(external)
-# add_subdirectory(include)
-# add_subdirectory(lib)
+add_subdirectory(include)
+add_subdirectory(lib)
 add_subdirectory(tools)
 
 # add_executable(toucan main.cpp)

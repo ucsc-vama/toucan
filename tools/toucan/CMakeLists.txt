@@ -9,16 +9,17 @@ add_executable(
 
 llvm_update_compile_flags(toucan)
 target_link_libraries(toucan PRIVATE
-  CIRCTExportVerilog
-  CIRCTImportFIRFile
-  CIRCTFIRRTLTransforms
-  CIRCTHWTransforms
-  CIRCTOMTransforms
+  CIRCTHW
+  CIRCTComb
   CIRCTSeq
-  CIRCTSVTransforms
-  CIRCTTransforms
-  CIRCTFirtool
-  CIRCTTargetDebugInfo
+  CIRCTOM
+
+  # CIRCTImportFIRFile
+  # CIRCTFIRRTLTransforms
+  # CIRCTHWTransforms
+  # CIRCTOMTransforms
+  # CIRCTSVTransforms
+  # CIRCTTransforms
 
   MLIRBytecodeReader
   MLIRBytecodeWriter
