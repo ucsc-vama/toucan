@@ -16,6 +16,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/STLExtras.h"
 
+#include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/Mutex.h"
@@ -80,6 +81,11 @@ struct RemoveOMPass : toucan::impl::RemoveOMBase<RemoveOMPass> {
     }
 
     removeOps(toRemove);
+
+    DEBUG_WITH_TYPE("RemoveOMPass", llvm::dbgs() << "Found " << modulesToProcess.size() << " modules.\n");
+    // for_each(modulesToProcess, [=](auto submod) {
+    //   DEBUG_WITH_TYPE("RemoveOMPass", llvm::dbgs() << submod.getName() << "\n");
+    // });
 
     // Search all modules. Less likely return OMOps
     auto result = mlir::failableParallelForEach(&getContext(), modulesToProcess.begin(), modulesToProcess.end(), [&](auto mod) {
