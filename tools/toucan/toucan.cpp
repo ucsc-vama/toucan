@@ -25,6 +25,9 @@
 #include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include "toucan/ToucanDialect.h"
+#include "toucan/ToucanPasses.h"
+
 using namespace llvm;
 using namespace mlir;
 using namespace circt;
@@ -71,6 +74,7 @@ static LogicalResult compileAndEmit(
     if (inputLevel < ToucanHigh) {
         // Lower to ToucanHigh
         // pm.addPass(toucan::XXXPass());
+        pm.addPass(toucan::createRemoveOMPass());
         pm.addPass(mlir::createSymbolDCEPass());
     }
 
