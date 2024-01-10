@@ -4,10 +4,14 @@
 include "mlir/Pass/PassBase.td"
 
 
-def RemoveOM : Pass<"toucan-remove-om", "circt::ModuleOp"> {
+def RemoveOM: Pass<"toucan-remove-om", "circt::ModuleOp"> {
   let summary = "Remove OM Dialect";
   let description = summary;
   let constructor = "toucan::createRemoveOMPass()";
 }
+
+// def ExpandSVMacro: Pass<"toucan-expand-svmacro", "circt::ModuleOp"> {
+
+// }
 
 #endif

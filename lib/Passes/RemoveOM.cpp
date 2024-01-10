@@ -35,6 +35,8 @@ using namespace circt;
 using namespace mlir;
 using namespace llvm;
 
+#define DEBUG_TYPE "RemoveOMPass"
+
 struct RemoveOMPass : toucan::impl::RemoveOMBase<RemoveOMPass> {
   using RemoveOMBase<RemoveOMPass>::RemoveOMBase;
 
@@ -45,8 +47,8 @@ struct RemoveOMPass : toucan::impl::RemoveOMBase<RemoveOMPass> {
   static void removeOps(SmallVector<Operation*> &toRemove) {
     for(auto op: llvm::reverse(toRemove)) {
       // will print if -debug, or -debug-only RemoveOMPass
-      DEBUG_WITH_TYPE("RemoveOMPass", llvm::dbgs() << "Removing OM Op\n");
-      DEBUG_WITH_TYPE("RemoveOMPass", op->print(llvm::dbgs()));
+      LLVM_DEBUG(llvm::dbgs() << "Removing OM Op\n");
+      LLVM_DEBUG(op->print(llvm::dbgs()));
       op->erase();
     }
   }
@@ -82,9 +84,9 @@ struct RemoveOMPass : toucan::impl::RemoveOMBase<RemoveOMPass> {
 
     removeOps(toRemove);
 
-    DEBUG_WITH_TYPE("RemoveOMPass", llvm::dbgs() << "Found " << modulesToProcess.size() << " modules.\n");
+    LLVM_DEBUG(llvm::dbgs() << "Found " << modulesToProcess.size() << " modules.\n");
     // for_each(modulesToProcess, [=](auto submod) {
-    //   DEBUG_WITH_TYPE("RemoveOMPass", llvm::dbgs() << submod.getName() << "\n");
+    //   LVM_DEBUG(llvm::dbgs() << submod.getName() << "\n");
     // });
 
     // Search all modules. Less likely return OMOps
