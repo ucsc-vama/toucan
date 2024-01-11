@@ -3,6 +3,7 @@
 #include "circt/Dialect/HW/HWDialect.h"
 #include "circt/Dialect/HW/HWOps.h"
 #include "circt/Dialect/Comb/CombDialect.h"
+#include "circt/Dialect/Comb/CombPasses.h"
 #include "circt/Dialect/SV/SVDialect.h"
 #include "circt/Dialect/Seq/SeqDialect.h"
 #include "circt/Dialect/OM/OMDialect.h"
@@ -74,8 +75,10 @@ static LogicalResult compileAndEmit(
     if (inputLevel < ToucanHigh) {
         // Lower to ToucanHigh
         // pm.addPass(toucan::XXXPass());
-        pm.addPass(toucan::createRemoveOMPass());
-        pm.addPass(mlir::createSymbolDCEPass());
+        pm.addPass(toucan::createFactorSVPass());
+        pm.addPass(toucan::createRemoveSVnOMPass());
+        pm.addPass(mlir::createCanonicalizerPass());
+        // pm.addPass(mlir::createSymbolDCEPass());
     }
 
     if (inputLevel < Toucan4B) {
@@ -90,6 +93,7 @@ static LogicalResult compileAndEmit(
     if(failed(pm.run(mod.get())))
         return failure();
 
+    llvm::outs() << "Passes done\n";
 
     // print output
     auto outputTimer = ts.nest("Write MLIR output");
@@ -132,8 +136,8 @@ static LogicalResult toucanMain(MLIRContext &context) {
             seq::SeqDialect,
             sv::SVDialect,
             comb::CombDialect,
-            om::OMDialect
-            // toucan::ToucanDialect
+            om::OMDialect,
+            toucan::ToucanDialect
     >();
 
     llvm::SourceMgr sourceMgr;

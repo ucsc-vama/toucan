@@ -4,6 +4,8 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 
+#include "mlir/IR/PatternMatch.h"
+
 #include "toucan/ToucanDialect.cpp.inc"
 #include "mlir/IR/OperationSupport.h"
 #include "mlir/IR/Types.h"
@@ -12,6 +14,7 @@
 #include "mlir/Support/LogicalResult.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/Support/Casting.h"
 #include "llvm/Support/MathExtras.h"
 #include "circt/Dialect/HW/HWOps.h"
 
@@ -30,3 +33,15 @@ void ToucanDialect::initialize() {
 
 #define GET_OP_CLASSES
 #include "toucan/Toucan.cpp.inc"
+
+LogicalResult PrintOp::canonicalize(PrintOp op, PatternRewriter &rewriter) {
+  auto enSignal = op.getEn();
+  if (auto constOp = dyn_cast<hw::ConstantOp>(enSignal.getDefiningOp())) {
+    auto constVal = constOp.getValue();
+    if (!constVal.getBoolValue()) {
+      rewriter.eraseOp(op);
+      return success();
+    }
+  }
+  return failure();
+}

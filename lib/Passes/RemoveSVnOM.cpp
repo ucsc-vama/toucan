@@ -1,5 +1,5 @@
-#include "circt/Dialect/HW/HWOps.h"
-#include "circt/Dialect/SV/SVOps.h"
+
+#include "circt/Dialect/SV/SVDialect.h"
 #include "circt/Dialect/OM/OMDialect.h"
 #include "circt/Support/LLVM.h"
 
@@ -25,7 +25,7 @@
 
 
 
-#define GEN_PASS_DEF_REMOVEOM
+#define GEN_PASS_DEF_REMOVESVNOM
 #include "toucan/ToucanPassCommon.h"
 
 #include "toucan/ToucanUtils.h"
@@ -35,20 +35,21 @@ using namespace circt;
 using namespace mlir;
 using namespace llvm;
 
-#define DEBUG_TYPE "RemoveOMPass"
+#define DEBUG_TYPE "RemoveSVnOMPass"
 
-struct RemoveOMPass : toucan::impl::RemoveOMBase<RemoveOMPass> {
-  using RemoveOMBase<RemoveOMPass>::RemoveOMBase;
+struct RemoveSVnOMPass : toucan::impl::RemoveSVnOMBase<RemoveSVnOMPass> {
+  using RemoveSVnOMBase<RemoveSVnOMPass>::RemoveSVnOMBase;
 
   static inline bool shouldRemove(Operation * op) {
-    return op->getDialect()->getNamespace() == "om";
+    auto dialect = op->getDialect();
+    return isa_and_nonnull<om::OMDialect>(dialect) || isa_and_nonnull<sv::SVDialect>(dialect);
   }
 
   static void removeOps(SmallVector<Operation*> &toRemove) {
     for(auto op: llvm::reverse(toRemove)) {
-      // will print if -debug, or -debug-only RemoveOMPass
+      // will print if -debug, or -debug-only RemoveSVnOMPass
       LLVM_DEBUG(llvm::dbgs() << "Removing OM Op\n");
-      LLVM_DEBUG(op->print(llvm::dbgs()));
+      LLVM_DEBUG(llvm::dbgs() << op->getName());
       op->erase();
     }
   }
@@ -98,6 +99,6 @@ struct RemoveOMPass : toucan::impl::RemoveOMBase<RemoveOMPass> {
   }
 };
 
-std::unique_ptr<mlir::Pass> toucan::createRemoveOMPass() {
-  return std::make_unique<RemoveOMPass>();
+std::unique_ptr<mlir::Pass> toucan::createRemoveSVnOMPass() {
+  return std::make_unique<RemoveSVnOMPass>();
 }

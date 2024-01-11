@@ -2,7 +2,8 @@
 add_circt_dialect_library(
   ToucanPasses
 
-  RemoveOM.cpp
+  RemoveSVnOM.cpp
+  ExpandSVMacro.cpp
 
   DEPENDS
   ToucanPassesIncGen
