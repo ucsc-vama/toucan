@@ -74,9 +74,13 @@ static LogicalResult compileAndEmit(
 
     if (inputLevel < ToucanHigh) {
         // Lower to ToucanHigh
-        // pm.addPass(toucan::XXXPass());
+        
+        // Expand SV macros, generates Print and Stop
         pm.addPass(toucan::createFactorSVPass());
+        // Remove unsupported Ops (other SV Ops, OM Ops)
         pm.addPass(toucan::createRemoveSVnOMPass());
+
+        // After expanding SV macros, some signals may become constant
         pm.addPass(mlir::createCanonicalizerPass());
         // pm.addPass(mlir::createSymbolDCEPass());
     }
