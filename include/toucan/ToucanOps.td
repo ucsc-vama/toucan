@@ -17,6 +17,7 @@ class ToucanOp<string mnemonic, list<Trait> traits = []> : Op<ToucanDialect, mne
 def PrintOp: ToucanOp<"print"> {
   let summary = "print operation (no exit)";
   let description = summary;
+  let hasCanonicalizeMethod = 1;
 
   let arguments = (ins I1:$en, StrAttr:$msg);
 }
@@ -24,6 +25,7 @@ def PrintOp: ToucanOp<"print"> {
 def StopOp: ToucanOp<"stop"> {
   let summary = "end simulation";
   let description = summary;
+  let hasCanonicalizeMethod = 1;
 
   let arguments = (ins I1:$en);
 }

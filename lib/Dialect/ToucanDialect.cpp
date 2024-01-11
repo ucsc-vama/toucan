@@ -45,3 +45,15 @@ LogicalResult PrintOp::canonicalize(PrintOp op, PatternRewriter &rewriter) {
   }
   return failure();
 }
+
+LogicalResult StopOp::canonicalize(StopOp op, PatternRewriter &rewriter) {
+  auto enSignal = op.getEn();
+  if (auto constOp = dyn_cast<hw::ConstantOp>(enSignal.getDefiningOp())) {
+    auto constVal = constOp.getValue();
+    if (!constVal.getBoolValue()) {
+      rewriter.eraseOp(op);
+      return success();
+    }
+  }
+  return failure();
+}

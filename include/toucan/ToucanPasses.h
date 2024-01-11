@@ -11,7 +11,7 @@ namespace toucan {
 #include "toucan/ToucanPasses.h.inc"
 
 std::unique_ptr<mlir::Pass> createRemoveSVnOMPass();
-std::unique_ptr<mlir::Pass> createExpandSVMacroPass();
+std::unique_ptr<mlir::Pass> createFactorSVPass();
 
 #define GEN_PASS_REGISTRATION
 #include "toucan/ToucanPasses.h.inc"

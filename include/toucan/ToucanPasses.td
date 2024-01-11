@@ -5,15 +5,15 @@ include "mlir/Pass/PassBase.td"
 
 
 def RemoveSVnOM: Pass<"toucan-remove-sv-om", "circt::ModuleOp"> {
-  let summary = "Remove OM Dialect";
+  let summary = "Remove SV and OM dialect ops";
   let description = summary;
   let constructor = "toucan::createRemoveSVnOMPass()";
 }
 
-def ExpandSVMacro: Pass<"toucan-expand-svmacro", "circt::ModuleOp"> {
-  let summary = "Expand SystemVerilog macros";
-  let description = "Handles sv.macro.decl, sv.macro.def, sv.macro.ref, sv.ifdef, sv.ifdef.procedural";
-  let constructor = "toucan::createExpandSVMacroPass()";
+def FactorSV: Pass<"toucan-factor-sv", "circt::ModuleOp"> {
+  let summary = "Factor SystemVerilog Ops.";
+  let description = "Expand SystemVerilog macros; Replace sv.fwrite and sv.fatal with toucan.print and toucan.stop. Note this pass only supports partial of SV dialect that generates by FIRRTL frontend";
+  let constructor = "toucan::createFactorSVPass()";
 }
 
 #endif
