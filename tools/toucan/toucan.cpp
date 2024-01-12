@@ -62,7 +62,7 @@ static cl::opt<bool> verbose("v", cl::desc("verbose"), cl::init(false), cl::cat(
 
 static LogicalResult compileAndEmit(
         MLIRContext &context, TimingScope &ts, llvm::SourceMgr &sourceMgr,
-        std::unique_ptr<llvm::ToolOutputFile> &output, std::string* errorMsg) {
+        std::unique_ptr<llvm::ToolOutputFile> &output) {
     auto mod = parseSourceFile<ModuleOp>(sourceMgr, &context);
     if(!mod) return failure();
 
@@ -146,15 +146,12 @@ static LogicalResult toucanMain(MLIRContext &context) {
 
     llvm::SourceMgr sourceMgr;
     sourceMgr.AddNewSourceBuffer(std::move(input), llvm::SMLoc());
-    SourceMgrDiagnosticVerifierHandler sourceMgrHandler(sourceMgr, &context);
-    context.printOpOnDiagnostic(false);
+    SourceMgrDiagnosticHandler sourceMgrHandler(sourceMgr, &context);
+    context.printOpOnDiagnostic(true);
 
-    auto result = compileAndEmit(context, ts, sourceMgr, output, &errorMsg);
-    if (failed(result)) {
-        llvm::errs() << errorMsg << "\n";
-    }
-    return sourceMgrHandler.verify();
+    auto result = compileAndEmit(context, ts, sourceMgr, output);
 
+    return result;
 }
 
 int main(int argc, char ** argv) {
