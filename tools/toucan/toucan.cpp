@@ -166,7 +166,6 @@ int main(int argc, char ** argv) {
     mlir::registerMLIRContextCLOptions();
     mlir::registerPassManagerCLOptions();
     mlir::registerDefaultTimingManagerCLOptions();
-    mlir::registerAsmPrinterCLOptions();
 
     cl::ParseCommandLineOptions(argc, argv);
     auto result = toucanMain(context);
