@@ -158,7 +158,7 @@ int main(int argc, char ** argv) {
     llvm::InitLLVM y(argc, argv);
     mlir::MLIRContext context;
     cl::HideUnrelatedOptions(mainCategory);
-    // toucan::registerPasses();
+    toucan::registerPasses();
     mlir::registerCSEPass();
     mlir::registerCanonicalizerPass();
     mlir::registerSCCPPass();
