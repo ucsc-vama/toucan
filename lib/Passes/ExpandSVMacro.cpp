@@ -141,7 +141,7 @@ struct FactorSV : toucan::impl::FactorSVBase<FactorSV> {
     LLVM_DEBUG(llvm::dbgs() << "Macro " << macroName << " has value " << macroValue << "\n");
 
     int64_t macroIntValue;
-    auto failed = macroValue.empty() ? true : macroValue.getAsInteger(10, macroIntValue);
+    auto failed = macroValue.empty() || macroValue.getAsInteger(10, macroIntValue);
 
     if (failed) {
       macroRefOp.emitError("Macro " + macroName + " has a value [ " + macroValue.str() + " ] and cannot be converted to int");
