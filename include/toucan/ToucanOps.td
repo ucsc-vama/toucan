@@ -20,6 +20,8 @@ def PrintOp: ToucanOp<"print"> {
   let hasCanonicalizeMethod = 1;
 
   let arguments = (ins I1:$en, StrAttr:$msg);
+
+  let assemblyFormat = "$en $msg attr-dict";
 }
 
 def StopOp: ToucanOp<"stop"> {
@@ -28,6 +30,8 @@ def StopOp: ToucanOp<"stop"> {
   let hasCanonicalizeMethod = 1;
 
   let arguments = (ins I1:$en);
+
+  let assemblyFormat = "$en attr-dict";
 }
 
 
