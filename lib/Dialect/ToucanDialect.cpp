@@ -39,6 +39,7 @@ LogicalResult PrintOp::canonicalize(PrintOp op, PatternRewriter &rewriter) {
   if (auto constOp = dyn_cast<hw::ConstantOp>(enSignal.getDefiningOp())) {
     auto constVal = constOp.getValue();
     if (!constVal.getBoolValue()) {
+      // Erase current PrintOp if printOp.En == false (constant)
       rewriter.eraseOp(op);
       return success();
     }
@@ -51,6 +52,7 @@ LogicalResult StopOp::canonicalize(StopOp op, PatternRewriter &rewriter) {
   if (auto constOp = dyn_cast<hw::ConstantOp>(enSignal.getDefiningOp())) {
     auto constVal = constOp.getValue();
     if (!constVal.getBoolValue()) {
+      // Erase current StopOp of stopOp.En == false (constant)
       rewriter.eraseOp(op);
       return success();
     }
