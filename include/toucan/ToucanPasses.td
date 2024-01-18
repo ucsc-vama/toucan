@@ -16,4 +16,10 @@ def FactorSV: Pass<"toucan-factor-sv", "circt::ModuleOp"> {
   let constructor = "toucan::createFactorSVPass()";
 }
 
+def ExpandMemoryDelay: Pass<"expand-memory-delay", "circt::ModuleOp"> {
+    let summary = "Breaking firmem with read latency > 0 into combinational-read memories and pipeline registers";
+    let description = summary;
+    let constructor = "toucan::createExpandMemoryDelayPass()";
+}
+
 #endif

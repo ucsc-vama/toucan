@@ -95,7 +95,7 @@ def DefMemOp : ToucanOp<"def_mem", [Symbol]> {
 def DefRegOp : ToucanOp<"def_reg", [Symbol]> {
   let summary = "def register";
   let description = summary;
-  let arguments = (ins SymbolNameAttr:$sym_name, TypeAttrOf<RegType>:$type);
+  let arguments = (ins SymbolNameAttr:$sym_name, TypeAttrOf<RegType>:$type, HWIntegerType: $reset_value);
 }
 
 #endif

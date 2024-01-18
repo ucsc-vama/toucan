@@ -79,6 +79,9 @@ static LogicalResult compileAndEmit(
         pm.addPass(toucan::createFactorSVPass());
         // Remove unsupported Ops (other SV Ops, OM Ops)
         pm.addPass(toucan::createRemoveSVnOMPass());
+        // TODO: SplitRWPort
+        // Expand memory delays
+        pm.addPass(toucan::createExpandMemoryDelayPass());
 
         // After expanding SV macros, some signals may become constant
         pm.addPass(mlir::createCanonicalizerPass());
@@ -94,8 +97,10 @@ static LogicalResult compileAndEmit(
     }
 
 
-    if(failed(pm.run(mod.get())))
+    if(failed(pm.run(mod.get()))) {
+        llvm::outs() << "Passes failed!!!!\n";
         return failure();
+    }
 
     llvm::outs() << "Passes done\n";
 
