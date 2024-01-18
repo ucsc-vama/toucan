@@ -16,6 +16,12 @@ def FactorSV: Pass<"toucan-factor-sv", "circt::ModuleOp"> {
   let constructor = "toucan::createFactorSVPass()";
 }
 
+def SplitFirMemRWPorts: Pass<"split-firmem-rw-ports", "circt::ModuleOp"> {
+  let summary = "Split FirMem ReadWritePort into ReadPort and WritePort";
+  let description = summary;
+  let constructor = "toucan::createSplitFirMemRWPortsPass()";
+}
+
 def ExpandMemoryDelay: Pass<"expand-memory-delay", "circt::ModuleOp"> {
     let summary = "Breaking firmem with read latency > 0 into combinational-read memories and pipeline registers";
     let description = summary;

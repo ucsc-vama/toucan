@@ -13,6 +13,7 @@ namespace toucan {
 std::unique_ptr<mlir::Pass> createRemoveSVnOMPass();
 std::unique_ptr<mlir::Pass> createFactorSVPass();
 std::unique_ptr<mlir::Pass> createExpandMemoryDelayPass();
+std::unique_ptr<mlir::Pass> createSplitFirMemRWPortsPass();
 
 #define GEN_PASS_REGISTRATION
 #include "toucan/ToucanPasses.h.inc"

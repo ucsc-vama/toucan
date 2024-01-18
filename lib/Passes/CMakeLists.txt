@@ -4,6 +4,7 @@ add_circt_dialect_library(
 
   RemoveSVnOM.cpp
   ExpandSVMacro.cpp
+  SplitFirMemRWPorts.cpp
   ExpandMemoryDelay.cpp
 
   DEPENDS

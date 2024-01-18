@@ -80,11 +80,12 @@ static LogicalResult compileAndEmit(
         // Remove unsupported Ops (other SV Ops, OM Ops)
         pm.addPass(toucan::createRemoveSVnOMPass());
         // TODO: SplitRWPort
+        pm.addPass(toucan::createSplitFirMemRWPortsPass());
         // Expand memory delays
         pm.addPass(toucan::createExpandMemoryDelayPass());
 
         // After expanding SV macros, some signals may become constant
-        pm.addPass(mlir::createCanonicalizerPass());
+        // pm.addPass(mlir::createCanonicalizerPass());
         // pm.addPass(mlir::createSymbolDCEPass());
     }
 
