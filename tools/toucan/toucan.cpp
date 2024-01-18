@@ -83,6 +83,8 @@ static LogicalResult compileAndEmit(
         pm.addPass(toucan::createSplitFirMemRWPortsPass());
         // Expand memory delays
         pm.addPass(toucan::createExpandMemoryDelayPass());
+        // Replace async reset regs
+        pm.addPass(toucan::createReplaceAsyncResetRegsPass());
 
         // After expanding SV macros, some signals may become constant
         // pm.addPass(mlir::createCanonicalizerPass());

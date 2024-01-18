@@ -6,6 +6,7 @@ add_circt_dialect_library(
   ExpandSVMacro.cpp
   SplitFirMemRWPorts.cpp
   ExpandMemoryDelay.cpp
+  ReplaceAsyncResetRegs.cpp
 
   DEPENDS
   ToucanPassesIncGen

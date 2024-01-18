@@ -28,4 +28,10 @@ def ExpandMemoryDelay: Pass<"expand-memory-delay", "circt::ModuleOp"> {
     let constructor = "toucan::createExpandMemoryDelayPass()";
 }
 
+def ReplaceAsyncResetRegs: Pass<"replace-async-reset-regs", "circt::ModuleOp"> {
+  let summary = "Replace async reset registers with sync reset";
+  let description = summary;
+  let constructor = "toucan::createReplaceAsyncResetRegsPass()";
+}
+
 #endif
