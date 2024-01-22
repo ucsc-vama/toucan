@@ -34,4 +34,10 @@ def ReplaceAsyncResetRegs: Pass<"replace-async-reset-regs", "circt::ModuleOp"> {
   let constructor = "toucan::createReplaceAsyncResetRegsPass()";
 }
 
+def SplitRegisters: Pass<"split-registers", "circt::ModuleOp"> {
+  let summary = "Split register read and write";
+  let description = summary;
+  let constructor = "toucan::createSplitRegistersPass()";
+}
+
 #endif

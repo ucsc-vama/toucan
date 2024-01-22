@@ -7,6 +7,7 @@ add_circt_dialect_library(
   SplitFirMemRWPorts.cpp
   ExpandMemoryDelay.cpp
   ReplaceAsyncResetRegs.cpp
+  SplitRegisters.cpp
 
   DEPENDS
   ToucanPassesIncGen

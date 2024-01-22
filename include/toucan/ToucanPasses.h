@@ -15,6 +15,7 @@ std::unique_ptr<mlir::Pass> createFactorSVPass();
 std::unique_ptr<mlir::Pass> createExpandMemoryDelayPass();
 std::unique_ptr<mlir::Pass> createSplitFirMemRWPortsPass();
 std::unique_ptr<mlir::Pass> createReplaceAsyncResetRegsPass();
+std::unique_ptr<mlir::Pass> createSplitRegistersPass();
 
 #define GEN_PASS_REGISTRATION
 #include "toucan/ToucanPasses.h.inc"

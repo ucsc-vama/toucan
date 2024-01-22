@@ -10,7 +10,30 @@
 #include "toucan/ToucanDialect.h"
 
 
+#include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/MLIRContext.h"
+#include "mlir/IR/OpImplementation.h"
+#include "mlir/IR/Operation.h"
+#include "mlir/IR/Visitors.h"
+#include "mlir/IR/PatternMatch.h"
+#include "mlir/Support/LLVM.h"
+#include "mlir/IR/Threading.h"
+#include "mlir/Support/LogicalResult.h"
+
+#include "llvm/ADT/SmallPtrSet.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/STLFunctionalExtras.h"
+
+
 
 namespace toucan {
+  mlir::StringRef getSVNameHitRef();
 
+  std::optional<mlir::StringAttr> getSVNameHintAttr(mlir::Operation* op);
+
+  void setSVNameHintAttr(mlir::Operation *op, mlir::StringAttr &value);
+
+  const char* getRegNextSuffix();
 };

@@ -43,7 +43,14 @@ def RegReadOp: ToucanOp<"reg_read", [Pure]> {
     RegType: $reg 
   );
 
-  let results = (outs AnyType: $result);
+  let results = (outs AnySignlessInteger: $result);
+
+  let builders = [
+    OpBuilder<(ins "mlir::Value":$reg), [{
+      build($_builder, $_state, reg.getType().cast<RegType>().getElementType(), reg);
+    }]>
+  ];
+
 }
 
 def RegWriteOp: ToucanOp<"reg_write"> {
@@ -71,7 +78,7 @@ def MemReadOp: ToucanOp<"mem_read", [Pure]> {
     I1: $en
   );
 
-  let results = (outs AnyType: $result);
+  let results = (outs AnySignlessInteger: $result);
 }
 
 def MemWriteOp: ToucanOp<"mem_write"> {
@@ -90,12 +97,29 @@ def DefMemOp : ToucanOp<"def_mem", [Symbol]> {
   let summary = "def memory";
   let description = summary;
   let arguments = (ins SymbolNameAttr:$sym_name, TypeAttrOf<MemType>:$type);
+
+  let results = (outs MemType: $handle);
 }
 
 def DefRegOp : ToucanOp<"def_reg", [Symbol]> {
   let summary = "def register";
   let description = summary;
-  let arguments = (ins SymbolNameAttr:$sym_name, TypeAttrOf<RegType>:$type, HWIntegerType: $reset_value);
+  let arguments = (ins SymbolNameAttr:$sym_name);
+
+  let results = (outs RegType: $handle);
+
+  let builders = [
+    OpBuilder<(ins "mlir::StringRef":$sym_name, "mlir::IntegerType":$element_type), [{
+      build($_builder, $_state, $_builder.getType<RegType>(element_type), sym_name);
+    }]>
+  ];
+
+  let assemblyFormat = [{
+    $sym_name `,` attr-dict `:` type($handle)
+  }];
+  // let extraClassDeclaration = [{
+  //   RegType getRegType() {return getHandle().getType().cast<RegType>();}
+  // }];
 }
 
 #endif

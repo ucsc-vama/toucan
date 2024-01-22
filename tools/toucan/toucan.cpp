@@ -86,6 +86,8 @@ static LogicalResult compileAndEmit(
         // Replace async reset regs
         pm.addPass(toucan::createReplaceAsyncResetRegsPass());
 
+        pm.addPass(toucan::createSplitRegistersPass());
+
         // After expanding SV macros, some signals may become constant
         // pm.addPass(mlir::createCanonicalizerPass());
         // pm.addPass(mlir::createSymbolDCEPass());
@@ -102,7 +104,7 @@ static LogicalResult compileAndEmit(
 
     if(failed(pm.run(mod.get()))) {
         llvm::outs() << "Passes failed!!!!\n";
-        return failure();
+        // return failure();
     }
 
     llvm::outs() << "Passes done\n";
