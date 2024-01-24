@@ -8,6 +8,7 @@ add_circt_dialect_library(
   ExpandMemoryDelay.cpp
   ReplaceAsyncResetRegs.cpp
   SplitRegisters.cpp
+  LowerSeqTo4B.cpp
 
   DEPENDS
   ToucanPassesIncGen

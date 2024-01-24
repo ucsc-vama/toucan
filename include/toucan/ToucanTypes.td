@@ -16,7 +16,7 @@ def MemType: ToucanType<"Mem"> {
     "mlir::IntegerType": $element_type
   );
   let mnemonic = "mem";
-  let assemblyFormat = "$element_type `[` $depth `]`";
+  let assemblyFormat = "`mem` $element_type `[` $depth `]`";
   let extraClassDeclaration = [{
     uint64_t getAddrBits() {return llvm::Log2_64_Ceil(getDepth());}
     uint64_t getElementWidth() {return getElementType().getWidth();}
@@ -29,7 +29,7 @@ def RegType: ToucanType<"Reg"> {
         "mlir::IntegerType": $element_type
     );
     let mnemonic = "reg";
-    let assemblyFormat = "$element_type";
+    let assemblyFormat = "`reg` $element_type";
     let extraClassDeclaration = [{
         uint64_t getElementWidth() {return getElementType().getWidth();}
     }];

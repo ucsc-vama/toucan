@@ -36,8 +36,16 @@ def ReplaceAsyncResetRegs: Pass<"replace-async-reset-regs", "circt::ModuleOp"> {
 
 def SplitRegisters: Pass<"split-registers", "circt::ModuleOp"> {
   let summary = "Split register read and write";
-  let description = summary;
+  let description = "Replace a seq::FirRegOp with toucan::DefRegOp, toucan::RegReadOp, and toucan::RegWriteOp. Reset will be replaced by a Mux";
   let constructor = "toucan::createSplitRegistersPass()";
+}
+
+
+
+def LowerSeqTo4B: Pass<"lower-seq-to-4B", "circt::ModuleOp"> {
+  let summary = "Lower seq::FirMem and toucan::Reg to at most 4 bit width.";
+  let description = summary;
+  let constructor = "toucan::createLowerSeqTo4BPass()";
 }
 
 #endif

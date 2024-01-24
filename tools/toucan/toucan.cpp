@@ -79,7 +79,7 @@ static LogicalResult compileAndEmit(
         pm.addPass(toucan::createFactorSVPass());
         // Remove unsupported Ops (other SV Ops, OM Ops)
         pm.addPass(toucan::createRemoveSVnOMPass());
-        // TODO: SplitRWPort
+        // SplitRWPort
         pm.addPass(toucan::createSplitFirMemRWPortsPass());
         // Expand memory delays
         pm.addPass(toucan::createExpandMemoryDelayPass());
@@ -89,12 +89,29 @@ static LogicalResult compileAndEmit(
         pm.addPass(toucan::createSplitRegistersPass());
 
         // After expanding SV macros, some signals may become constant
-        // pm.addPass(mlir::createCanonicalizerPass());
+        pm.addPass(mlir::createCanonicalizerPass());
+
         // pm.addPass(mlir::createSymbolDCEPass());
     }
 
     if (inputLevel < Toucan4B) {
         // Lower to Toucan4B
+
+        // 1. LowerSeqTo4B
+
+        // Lower memory to 4b, remove all write masks. May need canonicalizer if mask is always 1
+        // Lower registers
+        pm.addPass(toucan::createLowerSeqTo4BPass());
+
+        // TODO: Remove clock and AsClock. 
+
+        // 2. Lower HW to 4B
+        // Handles IO
+
+        // 3. Lower Comb
+
+        // 4. Remove BitInterposer
+
     }
 
     if (inputLevel < ToucanFlattened) {

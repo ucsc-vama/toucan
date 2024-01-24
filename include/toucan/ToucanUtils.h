@@ -27,6 +27,8 @@
 #include "llvm/ADT/STLFunctionalExtras.h"
 
 
+#include <tuple>
+#include <iterator>
 
 namespace toucan {
   mlir::StringRef getSVNameHitRef();
@@ -36,4 +38,15 @@ namespace toucan {
   void setSVNameHintAttr(mlir::Operation *op, mlir::StringAttr &value);
 
   const char* getRegNextSuffix();
+
+  mlir::StringRef getSignalFragmentIDRef();
+
+  void setSignalFragmentIDAttr(mlir::Operation *op, mlir::IntegerAttr &id);
+
+  std::optional<mlir::IntegerAttr> getSignalFragmentIDAttr(mlir::Operation *op);
+
+
+
+
+  std::vector<std::tuple<int, int>> split_signal_4B(int bit_width);
 };
