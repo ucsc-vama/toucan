@@ -80,6 +80,7 @@ def RegWriteOp: ToucanOp<"reg_write"> {
 def MemReadOp: ToucanOp<"mem_read", [Pure]> {
   let summary = "memory read";
   let description = summary;
+  let hasCanonicalizeMethod = 1;
 
   let arguments = (ins
     MemType: $mem,
@@ -88,11 +89,22 @@ def MemReadOp: ToucanOp<"mem_read", [Pure]> {
   );
 
   let results = (outs AnySignlessInteger: $result);
+
+  let builders = [
+    OpBuilder<(ins "mlir::Value":$mem, "mlir::Value":$addr, "mlir::Value":$en), [{
+      auto dataType = mem.getType().cast<toucan::MemType>().getElementType();
+      build($_builder, $_state, dataType, mem, addr, en);
+    }]>
+  ];
+
+  let assemblyFormat = "$mem `[`  type($addr) $addr `]` `en` $en `,` attr-dict `:` type($mem) `->` type($result)";
+
 }
 
 def MemWriteOp: ToucanOp<"mem_write"> {
   let summary = "memory write";
   let description = summary;
+  let hasCanonicalizeMethod = 1;
 
   let arguments = (ins 
     MemType: $mem,
@@ -100,14 +112,26 @@ def MemWriteOp: ToucanOp<"mem_write"> {
     HWIntegerType: $data,
     I1: $en
   );
+
+  let assemblyFormat = "$mem `[` $addr `]` `=` $data `en` $en attr-dict `:` type($mem) `[` type($addr) `]` type($data) `en` type($en) `->` `(``)`";
 }
 
 def DefMemOp : ToucanOp<"def_mem", [Symbol]> {
   let summary = "def memory";
   let description = summary;
-  let arguments = (ins SymbolNameAttr:$sym_name, TypeAttrOf<MemType>:$type);
+  let arguments = (ins SymbolNameAttr:$sym_name);
 
   let results = (outs MemType: $handle);
+
+  let assemblyFormat = [{
+    $sym_name `,` attr-dict `:` type($handle)
+  }];
+  
+  // let builders = [
+  //   OpBuilder<(ins "mlir::StringRef":$sym_name, "mlir::TypeAttr":$type), [{
+  //     build($_builder, $_state, $_builder.getType<MemType>(type), sym_name);
+  //   }]>
+  // ];
 }
 
 def DefRegOp : ToucanOp<"def_reg", [Symbol]> {

@@ -135,7 +135,7 @@ struct FactorSV : toucan::impl::FactorSVBase<FactorSV> {
     auto macroValue = mc.macroTable.lookup(macroName);
 
     if (macroValue.empty()) {
-      macroRefOp->emitError("Here: Referenced macro doesn't exist " + macroName);
+      macroRefOp->emitError() << "Here: Referenced macro doesn't exist " << macroName;
       return failure();
     }
     LLVM_DEBUG(llvm::dbgs() << "Macro " << macroName << " has value " << macroValue << "\n");
@@ -144,7 +144,7 @@ struct FactorSV : toucan::impl::FactorSVBase<FactorSV> {
     auto failed = macroValue.empty() || macroValue.getAsInteger(10, macroIntValue);
 
     if (failed) {
-      macroRefOp.emitError("Macro " + macroName + " has a value [ " + macroValue.str() + " ] and cannot be converted to int");
+      macroRefOp.emitError() << "Macro " << macroName << " has a value [ " << macroValue.str() << " ] and cannot be converted to int";
       return failure();
     }
     
@@ -172,13 +172,13 @@ struct FactorSV : toucan::impl::FactorSVBase<FactorSV> {
     auto enSignal = ifOp.getCond();
 
     if (ifOp.hasElse()) {
-      ifOp->emitError("sv.if with else is not supported");
+      ifOp->emitError() << "sv.if with else is not supported";
       return failure();
     }
     
     auto thenBlock = ifOp.getThenBlock();
     if (thenBlock->getOperations().size() != 1) {
-      ifOp->emitError("sv.if is not fully supported");
+      ifOp->emitError() << "sv.if is not fully supported";
       return failure();
     }
 
@@ -189,7 +189,7 @@ struct FactorSV : toucan::impl::FactorSVBase<FactorSV> {
       auto fdOp = fwriteOp.getFd().getDefiningOp();
       auto fdConstOp = dyn_cast<hw::ConstantOp>(fdOp);
       if (fdConstOp == nullptr) {
-        fwriteOp->emitError("fd must be a constant");
+        fwriteOp->emitError() << "fd must be a constant";
         return failure();
       }
       // Here ignore fd values, simply create a printOp
@@ -197,7 +197,7 @@ struct FactorSV : toucan::impl::FactorSVBase<FactorSV> {
 
       auto substitutions = fwriteOp.getSubstitutions();
       if (substitutions.size() > 0) {
-        fwriteOp->emitWarning( "Substitutions are not supported. Will only print format string");
+        fwriteOp->emitWarning() << "Substitutions are not supported. Will only print format string";
       }
 
       auto printOpMsg = fwriteOp.getFormatString();
@@ -211,7 +211,7 @@ struct FactorSV : toucan::impl::FactorSVBase<FactorSV> {
       
       ifOp->replaceAllUsesWith(stopOp);
     } else {
-      stmt->emitError("Unsupported Op");
+      stmt->emitError() << "Unsupported Op";
       return failure();
     }
 
@@ -235,7 +235,7 @@ struct FactorSV : toucan::impl::FactorSVBase<FactorSV> {
     auto macroValue = defOp.getFormatString();
 
     if (macroValue.str().find('@') != std::string::npos) {
-      defOp->emitWarning("System Verilog macro formatting is not supported. This may lead to an error");
+      defOp->emitWarning() << "System Verilog macro formatting is not supported. This may lead to an error";
     }
     mc.macroTable.insert_or_assign(macroName, macroValue);
     markAsUnused(defOp);

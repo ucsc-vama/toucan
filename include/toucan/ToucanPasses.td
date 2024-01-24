@@ -40,6 +40,12 @@ def SplitRegisters: Pass<"split-registers", "circt::ModuleOp"> {
   let constructor = "toucan::createSplitRegistersPass()";
 }
 
+def RemoveMemMask: Pass<"remove-mem-mask", "circt::ModuleOp"> {
+  let summary = "Remove memory write mask signals";
+  let description = "Replace seq::FirMem with DefMem, MemWrite and MemRead. Remove write mask by splitting memories";
+  let constructor = "toucan::createRemoveMemMaskPass()";
+}
+
 
 
 def LowerSeqTo4B: Pass<"lower-seq-to-4B", "circt::ModuleOp"> {

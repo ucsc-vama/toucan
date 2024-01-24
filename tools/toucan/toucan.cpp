@@ -88,7 +88,8 @@ static LogicalResult compileAndEmit(
 
         pm.addPass(toucan::createSplitRegistersPass());
 
-        // After expanding SV macros, some signals may become constant
+        pm.addPass(toucan::createRemoveMemMaskPass());
+
         pm.addPass(mlir::createCanonicalizerPass());
 
         // pm.addPass(mlir::createSymbolDCEPass());
