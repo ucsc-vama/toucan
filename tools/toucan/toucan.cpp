@@ -90,7 +90,12 @@ static LogicalResult compileAndEmit(
         // Remove all mem write masks. Split memory if there is any mask
         pm.addPass(toucan::createRemoveMemMaskPass());
 
-        // pm.addPass(mlir::createSymbolDCEPass());
+        // TODO: Handle hw.aggregate_const, hw.array_get, hw.array_create
+        // Consider hw.aggregate_const -> memread
+        // Consider hw.array_create -> muxes
+        // Convert to memory with preload values
+
+        pm.addPass(mlir::createCanonicalizerPass());
     }
 
     if (inputLevel < Toucan4B) {
@@ -100,6 +105,7 @@ static LogicalResult compileAndEmit(
         pm.addPass(toucan::createLowerRegMemTo4BPass());
 
         // TODO: Remove clock and AsClock. 
+        pm.addPass(toucan::createEnsureNoClockOpPass());
 
         // 2. Lower HW to 4B
         // Handles IO

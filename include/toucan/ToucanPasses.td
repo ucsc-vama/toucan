@@ -54,4 +54,10 @@ def LowerRegMemTo4B: Pass<"lower-reg-mem-to-4B", "circt::ModuleOp"> {
   let constructor = "toucan::createLowerRegMemTo4BPass()";
 }
 
+def EnsureNoClockOp: Pass<"ensure-no-clock", "circt::ModuleOp"> {
+  let summary = "Emit error if the clock signal is being used";
+  let description = "Emit error if found any seq::clock_div, seq::clock_mux, seq::clock_gate, seq::from_clock, seq::to_clock, seq::const_clock.";
+  let constructor = "toucan::createEnsureNoClockOpPass()";
+}
+
 #endif

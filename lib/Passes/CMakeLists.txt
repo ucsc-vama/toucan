@@ -10,6 +10,7 @@ add_circt_dialect_library(
   SplitRegisters.cpp
   RemoveMemMask.cpp
   LowerRegMemTo4B.cpp
+  EnsureNoClockOp.cpp
 
   DEPENDS
   ToucanPassesIncGen
