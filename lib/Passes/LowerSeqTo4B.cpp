@@ -68,7 +68,7 @@ struct LowerSeqTo4BPass : toucan::impl::LowerSeqTo4BBase<LowerSeqTo4BPass> {
         rewriter.setInsertionPointAfter(regOp);
 
         if (regBitWidth > 4) {
-          SmallVector<std::tuple<IntegerAttr, mlir::Value, mlir::StringAttr>> newRegInfos;
+          SmallVector<std::tuple<IntegerAttr, int, mlir::Value, mlir::StringAttr>> newRegInfos;
 
           auto chunks = split_signal_4B(regBitWidth);
           for (auto &chunk: chunks) {
@@ -88,7 +88,7 @@ struct LowerSeqTo4BPass : toucan::impl::LowerSeqTo4BBase<LowerSeqTo4BPass> {
             auto fragmentId = rewriter.getIntegerAttr(rewriter.getIntegerType(32), regId);
             setSignalFragmentIDAttr(newRegOp_4B, fragmentId);
 
-            newRegInfos.push_back({fragmentId, newRegHandle, namehint});
+            newRegInfos.push_back({fragmentId, regWidth, newRegHandle, namehint});
           } 
           toRemove.push_back(regOp);
 
@@ -101,8 +101,9 @@ struct LowerSeqTo4BPass : toucan::impl::LowerSeqTo4BBase<LowerSeqTo4BPass> {
 
               for (auto &each4BReg: newRegInfos) {
                 auto regId_4b = std::get<0>(each4BReg);
-                auto regHandle_4b = std::get<1>(each4BReg);
-                auto regNameHint_4b = std::get<2>(each4BReg);
+                // auto regWidth_4b = std::get<1>(each4BReg);
+                auto regHandle_4b = std::get<2>(each4BReg);
+                auto regNameHint_4b = std::get<3>(each4BReg);
 
                 auto regReadOp_4b = rewriter.create<toucan::RegReadOp>(regReadOp->getLoc(), regHandle_4b);
 
@@ -112,24 +113,23 @@ struct LowerSeqTo4BPass : toucan::impl::LowerSeqTo4BBase<LowerSeqTo4BPass> {
                 regReadValues_4B.push_back(regReadOp_4b.getResult());
               }
 
-              auto bitAggregator = rewriter.create<toucan::BitAggregateOp>(regReadOp->getLoc(), regReadValues_4B);
-              rewriter.replaceAllUsesWith(regReadOp, bitAggregator);
+              // auto bitAggregator = rewriter.create<toucan::BitAggregateOp>(regReadOp->getLoc(), regReadValues_4B);
+              // rewriter.replaceAllUsesWith(regReadOp, bitAggregator);
+              auto bitConcatOp = rewriter.create<comb::ConcatOp>(regReadOp->getLoc(), regReadValues_4B);
+              rewriter.replaceAllUsesWith(regReadOp, bitConcatOp);
 
             } else if (auto regWriteOp = dyn_cast<toucan::RegWriteOp>(op)) {
               // writes to this register
               auto writeData = regWriteOp.getData();
-              auto bitScatter = rewriter.create<toucan::BitScatterOp>(regWriteOp->getLoc(), writeData);
-
-              auto signalsToWrite = bitScatter.getOutputs();
-
-              assert(newRegInfos.size() == signalsToWrite.size());
 
               for (auto &each4BReg: newRegInfos) {
                 auto regId_4b = std::get<0>(each4BReg);
-                auto regHandle_4b = std::get<1>(each4BReg);
-                // auto regNameHint_4b = std::get<2>(each4BReg);
+                auto regWidth_4b = std::get<1>(each4BReg);
+                auto regHandle_4b = std::get<2>(each4BReg);
+                // auto regNameHint_4b = std::get<3>(each4BReg);
 
-                auto writeData_4b = signalsToWrite[regId_4b.getInt()];
+                auto signalExtractOp = rewriter.create<comb::ExtractOp>(regWriteOp.getLoc(), writeData, regId_4b.getInt() * 4, regWidth_4b);
+                auto writeData_4b = signalExtractOp.getResult();
 
                 rewriter.create<toucan::RegWriteOp>(regWriteOp->getLoc(), writeData_4b, regHandle_4b);
 
@@ -153,43 +153,116 @@ struct LowerSeqTo4BPass : toucan::impl::LowerSeqTo4BBase<LowerSeqTo4BPass> {
           setSignalFragmentIDAttr(regOp, fragmentId);
 
         }
-      } else if (auto memOp = dyn_cast<seq::FirMemOp>(stmt)) {
+      } else if (auto memOp = dyn_cast<toucan::DefMemOp>(stmt)) {
         // Memory
-        auto memValue = memOp.getMemory();
-        auto memName = memOp.getName().value_or(StringRef(""));
-        auto firMemDataType = memValue.getType();
-        auto memDepth = firMemDataType.getDepth();
-        auto memWidth = firMemDataType.getWidth();
+        auto memValue = memOp.getHandle();
+        auto memName = memOp.getSymName();
+        auto memType = memValue.getType();
+        auto memDepth = memType.getDepth();
+        auto memWidth = memType.getElementWidth();
+
         auto maskLaneWidth = 0;
 
+        OpBuilder builder(memOp);
+        IRRewriter rewriter(builder);
 
-        if (auto maskWidth = firMemDataType.getMaskWidth()) {
-          maskLaneWidth = memWidth / (*maskWidth);
-          if (memWidth % (*maskWidth) != 0) {
-            return memOp.emitError() << "Incorrect mask width, got " << (*maskWidth) << " for a " << memWidth << " width memory";
+        auto namehint = rewriter.getStringAttr(memName);
+
+
+        if (memWidth > 4) {
+          SmallVector<std::tuple<IntegerAttr, int, mlir::Value, mlir::StringAttr>> newMemInfos;
+
+          auto chunks = split_signal_4B(memWidth);
+          for (auto &chunk: chunks) {
+            auto newMemId = std::get<0>(chunk);
+            auto newMemWidth = std::get<1>(chunk);
+
+            auto newMemName = rewriter.getStringAttr(memName + "_Fragment_" + std::to_string(newMemId));
+            auto newMemElemType = rewriter.getIntegerType(newMemWidth);
+            auto newMemDataType = rewriter.getType<toucan::MemType>(memDepth, newMemElemType);
+
+            auto newMemOp_4B = rewriter.create<toucan::DefMemOp>(memOp.getLoc(), newMemDataType, newMemName);
+
+            auto newMemHandle = newMemOp_4B.getHandle();
+
+            // set name hint
+            setSVNameHintAttr(newMemOp_4B, namehint);
+            // Set fragment Id
+            auto fragmentId = rewriter.getIntegerAttr(rewriter.getIntegerType(32), newMemId);
+            setSignalFragmentIDAttr(newMemOp_4B, fragmentId);
+
+            newMemInfos.push_back({fragmentId, newMemWidth, newMemHandle, namehint});
+          } 
+          toRemove.push_back(memOp);
+
+
+          for (auto op: memOp->getUsers()) {
+            rewriter.setInsertionPointAfter(op);
+
+            if (auto memReadOp = dyn_cast<toucan::MemReadOp>(op)) {
+              //
+              SmallVector<mlir::Value> memReadValues_4B;
+              auto memReadEn = memReadOp.getEn();
+              auto memReadAddr = memReadOp.getAddr();
+
+              for (auto &each4BMem: newMemInfos) {
+                auto memId_4b = std::get<0>(each4BMem);
+                auto memHandle_4b = std::get<2>(each4BMem);
+                auto memNameHint_4b = std::get<3>(each4BMem);
+
+                auto memReadOp_4b = rewriter.create<toucan::MemReadOp>(memReadOp->getLoc(), memHandle_4b, memReadAddr, memReadEn);
+
+                setSVNameHintAttr(memReadOp_4b, memNameHint_4b);
+                setSignalFragmentIDAttr(memReadOp_4b, memId_4b);
+
+                memReadValues_4B.push_back(memReadOp_4b.getResult());
+              }
+
+              // auto bitAggregator = rewriter.create<toucan::BitAggregateOp>(regReadOp->getLoc(), regReadValues_4B);
+              // rewriter.replaceAllUsesWith(regReadOp, bitAggregator);
+              auto bitConcatOp = rewriter.create<comb::ConcatOp>(memReadOp->getLoc(), memReadValues_4B);
+              rewriter.replaceAllUsesWith(memReadOp, bitConcatOp);
+
+            } else if (auto memWriteOp = dyn_cast<toucan::MemWriteOp>(op)) {
+              // todo
+              auto memWriteData = memWriteOp.getData();
+              auto memWriteAddr = memWriteOp.getAddr();
+              auto memWriteEn = memWriteOp.getEn();
+
+              for (auto &each4BMem: newMemInfos) {
+                auto memId_4b = std::get<0>(each4BMem);
+                auto memWidth_4b = std::get<1>(each4BMem);
+                auto memHandle_4b = std::get<2>(each4BMem);
+                // auto memNameHint_4b = std::get<3>(each4BMem);
+
+                auto signalExtractOp = rewriter.create<comb::ExtractOp>(memWriteOp.getLoc(), memWriteData, memId_4b.getInt() * 4, memWidth_4b);
+                auto writeData_4b = signalExtractOp.getResult();
+
+                rewriter.create<toucan::MemWriteOp>(memWriteOp->getLoc(), memHandle_4b, memWriteAddr, writeData_4b, memWriteEn);
+
+                // setSVNameHintAttr(regReadOp_4b, regNameHint_4b);
+                // setSignalFragmentIDAttr(regReadOp_4b, regId_4b);
+              }
+            } else {
+              op->emitError("The memory can only be accessed by either a MemReadOp or MemWriteOp");
+              return failure();
+            }
+            toRemove.push_back(op);
           }
+        } else {
+          // memory width less or equal than 4
+          // Don't need expand
+          // set name hint
+          setSVNameHintAttr(memOp, namehint);
+          // Set fragment Id
+          auto fragmentId = rewriter.getIntegerAttr(rewriter.getIntegerType(32), 0);
+          setSignalFragmentIDAttr(memOp, fragmentId);
         }
-
-        // TODO: 
-
-        // if (memWidth > 4) {
-        //   SmallVector<std::tuple<IntegerAttr, mlir::Value, mlir::StringAttr>> newMemInfos;
-
-        //   auto chunks = split_signal_4B(memWidth);
-        //   for (auto &chunk: chunks) {
-        //     // Split to 4-bit wide memory
-
-        //   }
-        // }
-
 
       }
     }
-  
 
-
-
-    // for (auto op: llvm::reverse(toRemove)) op->erase();
+    for (auto op: llvm::reverse(toRemove)) op->erase();
 
     return success();
   }
@@ -203,17 +276,17 @@ struct LowerSeqTo4BPass : toucan::impl::LowerSeqTo4BBase<LowerSeqTo4BPass> {
         modulesToProcess.push_back(mod);
       }
     }
-    // Sequential
-    for (auto mod: modulesToProcess) {
-      auto ret = runOnModule(mod);
-      if (failed(ret)) return signalPassFailure();
-    }
+    // // Sequential
+    // for (auto mod: modulesToProcess) {
+    //   auto ret = runOnModule(mod);
+    //   if (failed(ret)) return signalPassFailure();
+    // }
 
     // Parallel
-    // auto result = mlir::failableParallelForEach(&getContext(), modulesToProcess.begin(), modulesToProcess.end(), [&](auto mod) {
-    //   return runOnModule(mod);
-    // });
-    // if (failed(result)) return signalPassFailure();
+    auto result = mlir::failableParallelForEach(&getContext(), modulesToProcess.begin(), modulesToProcess.end(), [&](auto mod) {
+      return runOnModule(mod);
+    });
+    if (failed(result)) return signalPassFailure();
   }
 
 };

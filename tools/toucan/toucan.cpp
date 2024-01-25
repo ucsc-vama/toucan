@@ -90,7 +90,6 @@ static LogicalResult compileAndEmit(
 
         pm.addPass(toucan::createRemoveMemMaskPass());
 
-        pm.addPass(mlir::createCanonicalizerPass());
 
         // pm.addPass(mlir::createSymbolDCEPass());
     }
@@ -114,6 +113,7 @@ static LogicalResult compileAndEmit(
         // 4. Remove BitInterposer
 
     }
+    pm.addPass(mlir::createCanonicalizerPass());
 
     if (inputLevel < ToucanFlattened) {
         // Lower to flattened
