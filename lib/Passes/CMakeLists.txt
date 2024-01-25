@@ -9,7 +9,7 @@ add_circt_dialect_library(
   ReplaceAsyncResetRegs.cpp
   SplitRegisters.cpp
   RemoveMemMask.cpp
-  LowerSeqTo4B.cpp
+  LowerRegMemTo4B.cpp
 
   DEPENDS
   ToucanPassesIncGen

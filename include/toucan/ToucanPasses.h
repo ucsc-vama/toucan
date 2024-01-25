@@ -16,7 +16,7 @@ std::unique_ptr<mlir::Pass> createExpandMemoryDelayPass();
 std::unique_ptr<mlir::Pass> createSplitFirMemRWPortsPass();
 std::unique_ptr<mlir::Pass> createReplaceAsyncResetRegsPass();
 std::unique_ptr<mlir::Pass> createSplitRegistersPass();
-std::unique_ptr<mlir::Pass> createLowerSeqTo4BPass();
+std::unique_ptr<mlir::Pass> createLowerRegMemTo4BPass();
 std::unique_ptr<mlir::Pass> createRemoveMemMaskPass();
 
 #define GEN_PASS_REGISTRATION

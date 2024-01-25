@@ -85,11 +85,10 @@ static LogicalResult compileAndEmit(
         pm.addPass(toucan::createExpandMemoryDelayPass());
         // Replace async reset regs
         pm.addPass(toucan::createReplaceAsyncResetRegsPass());
-
+        // Split registers into def, read and write nodes
         pm.addPass(toucan::createSplitRegistersPass());
-
+        // Remove all mem write masks. Split memory if there is any mask
         pm.addPass(toucan::createRemoveMemMaskPass());
-
 
         // pm.addPass(mlir::createSymbolDCEPass());
     }
@@ -97,11 +96,8 @@ static LogicalResult compileAndEmit(
     if (inputLevel < Toucan4B) {
         // Lower to Toucan4B
 
-        // 1. LowerSeqTo4B
-
-        // Lower memory to 4b, remove all write masks. May need canonicalizer if mask is always 1
-        // Lower registers
-        pm.addPass(toucan::createLowerSeqTo4BPass());
+        // Lower registers and memory to 4b
+        pm.addPass(toucan::createLowerRegMemTo4BPass());
 
         // TODO: Remove clock and AsClock. 
 

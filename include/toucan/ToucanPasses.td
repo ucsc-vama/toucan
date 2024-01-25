@@ -48,10 +48,10 @@ def RemoveMemMask: Pass<"remove-mem-mask", "circt::ModuleOp"> {
 
 
 
-def LowerSeqTo4B: Pass<"lower-seq-to-4B", "circt::ModuleOp"> {
-  let summary = "Lower seq::FirMem and toucan::Reg to at most 4 bit width.";
+def LowerRegMemTo4B: Pass<"lower-reg-mem-to-4B", "circt::ModuleOp"> {
+  let summary = "Lower toucan::Mem and toucan::Reg to at most 4 bit width.";
   let description = summary;
-  let constructor = "toucan::createLowerSeqTo4BPass()";
+  let constructor = "toucan::createLowerRegMemTo4BPass()";
 }
 
 #endif

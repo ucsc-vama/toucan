@@ -29,7 +29,7 @@
 #include <string>
 
 
-#define GEN_PASS_DEF_LOWERSEQTO4B
+#define GEN_PASS_DEF_LOWERREGMEMTO4B
 #include "toucan/ToucanPassCommon.h"
 
 #include "toucan/ToucanOps.h"
@@ -40,10 +40,10 @@ using namespace circt;
 using namespace mlir;
 using namespace llvm;
 
-#define DEBUG_TYPE "LowerSeqTo4BPass"
+#define DEBUG_TYPE "LowerRegMemTo4BPass"
 
-struct LowerSeqTo4BPass : toucan::impl::LowerSeqTo4BBase<LowerSeqTo4BPass> {
-  using LowerSeqTo4BBase<LowerSeqTo4BPass>::LowerSeqTo4BBase;
+struct LowerRegMemTo4BPass : toucan::impl::LowerRegMemTo4BBase<LowerRegMemTo4BPass> {
+  using LowerRegMemTo4BBase<LowerRegMemTo4BPass>::LowerRegMemTo4BBase;
 
   
 
@@ -161,13 +161,10 @@ struct LowerSeqTo4BPass : toucan::impl::LowerSeqTo4BBase<LowerSeqTo4BPass> {
         auto memDepth = memType.getDepth();
         auto memWidth = memType.getElementWidth();
 
-        auto maskLaneWidth = 0;
-
         OpBuilder builder(memOp);
         IRRewriter rewriter(builder);
 
         auto namehint = rewriter.getStringAttr(memName);
-
 
         if (memWidth > 4) {
           SmallVector<std::tuple<IntegerAttr, int, mlir::Value, mlir::StringAttr>> newMemInfos;
@@ -291,6 +288,6 @@ struct LowerSeqTo4BPass : toucan::impl::LowerSeqTo4BBase<LowerSeqTo4BPass> {
 
 };
 
-std::unique_ptr<mlir::Pass> toucan::createLowerSeqTo4BPass() {
-  return std::make_unique<LowerSeqTo4BPass>();
+std::unique_ptr<mlir::Pass> toucan::createLowerRegMemTo4BPass() {
+  return std::make_unique<LowerRegMemTo4BPass>();
 }
