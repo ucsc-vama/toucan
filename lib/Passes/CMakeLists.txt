@@ -11,6 +11,7 @@ add_circt_dialect_library(
   RemoveMemMask.cpp
   LowerRegMemTo4B.cpp
   EnsureNoClockOp.cpp
+  ExpandHWArray.cpp
 
   DEPENDS
   ToucanPassesIncGen

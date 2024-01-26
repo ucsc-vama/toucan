@@ -20,6 +20,7 @@ std::unique_ptr<mlir::Pass> createRemoveMemMaskPass();
 
 std::unique_ptr<mlir::Pass> createLowerRegMemTo4BPass();
 std::unique_ptr<mlir::Pass> createEnsureNoClockOpPass();
+std::unique_ptr<mlir::Pass> createExpandHWArrayPass();
 
 #define GEN_PASS_REGISTRATION
 #include "toucan/ToucanPasses.h.inc"

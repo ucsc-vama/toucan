@@ -29,6 +29,8 @@
 #include "toucan/ToucanDialect.h"
 #include "toucan/ToucanPasses.h"
 
+#include <filesystem>
+
 using namespace llvm;
 using namespace mlir;
 using namespace circt;
@@ -55,14 +57,22 @@ const auto LevelClasses = cl::values(
 
 static cl::opt<Levels> inputLevel("inputLevel", cl::desc("Input file level"), LevelClasses, cl::init(CoreDialect), cl::cat(mainCategory));
 static cl::opt<std::string> inputFilename(cl::Positional, cl::desc("<input file>"), cl::init("-"), cl::cat(mainCategory));
-static cl::opt<std::string> outputFilename("o", cl::desc("Output file name"), cl::value_desc("filename"), cl::init("-"), cl::cat(mainCategory));
+static cl::opt<std::string> outputDirectory("o", cl::desc("Output directory"), cl::value_desc("directory"), cl::init("./"), cl::cat(mainCategory));
 static cl::opt<bool> verbose("v", cl::desc("verbose"), cl::init(false), cl::cat(mainCategory));
 
 
 
 static LogicalResult compileAndEmit(
-        MLIRContext &context, TimingScope &ts, llvm::SourceMgr &sourceMgr,
-        std::unique_ptr<llvm::ToolOutputFile> &output) {
+        MLIRContext &context, TimingScope &ts, llvm::SourceMgr &sourceMgr, std::filesystem::path &outputDir) {
+
+    std::string errorMsg;
+    auto outputFilename = outputDir / "output.mlir";
+    auto output = openOutputFile(outputFilename.string(), &errorMsg);
+    if (!output) {
+        llvm::errs() << errorMsg << "\n";
+        return failure();
+    }
+
     auto mod = parseSourceFile<ModuleOp>(sourceMgr, &context);
     if(!mod) return failure();
 
@@ -89,11 +99,8 @@ static LogicalResult compileAndEmit(
         pm.addPass(toucan::createSplitRegistersPass());
         // Remove all mem write masks. Split memory if there is any mask
         pm.addPass(toucan::createRemoveMemMaskPass());
-
-        // TODO: Handle hw.aggregate_const, hw.array_get, hw.array_create
-        // Consider hw.aggregate_const -> memread
-        // Consider hw.array_create -> muxes
-        // Convert to memory with preload values
+        // Convert hw.vector to value/const and muxes
+        pm.addPass(toucan::createExpandHWArrayPass());
 
         pm.addPass(mlir::createCanonicalizerPass());
     }
@@ -104,7 +111,7 @@ static LogicalResult compileAndEmit(
         // Lower registers and memory to 4b
         pm.addPass(toucan::createLowerRegMemTo4BPass());
 
-        // TODO: Remove clock and AsClock. 
+        // Remove clock and AsClock. 
         pm.addPass(toucan::createEnsureNoClockOpPass());
 
         // 2. Lower HW to 4B
@@ -113,9 +120,9 @@ static LogicalResult compileAndEmit(
         // 3. Lower Comb
 
         // 4. Remove BitInterposer
+        pm.addPass(mlir::createCanonicalizerPass());
 
     }
-    pm.addPass(mlir::createCanonicalizerPass());
 
     if (inputLevel < ToucanFlattened) {
         // Lower to flattened
@@ -158,11 +165,7 @@ static LogicalResult toucanMain(MLIRContext &context) {
         llvm::errs() << errorMsg << "\n";
         return failure();
     }
-     auto output = openOutputFile(outputFilename, &errorMsg);
-     if (!output) {
-       llvm::errs() << errorMsg << "\n";
-       return failure();
-     }
+    auto outputDir = std::filesystem::path(outputDirectory.getValue());
 
 
     context.loadDialect<
@@ -179,7 +182,7 @@ static LogicalResult toucanMain(MLIRContext &context) {
     SourceMgrDiagnosticHandler sourceMgrHandler(sourceMgr, &context);
     context.printOpOnDiagnostic(true);
 
-    auto result = compileAndEmit(context, ts, sourceMgr, output);
+    auto result = compileAndEmit(context, ts, sourceMgr, outputDir);
 
     return result;
 }
