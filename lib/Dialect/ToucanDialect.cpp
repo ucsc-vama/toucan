@@ -103,40 +103,40 @@ LogicalResult RegWriteOp::verify() {
   return success();
 }
 
-LogicalResult BitScatterOp::verify() {
-  int64_t expectedInputWidth = 0;
-  for (auto elem: getOutputs()) {
-    expectedInputWidth += hw::getBitWidth(elem.getType());
-  }
-  if (expectedInputWidth != hw::getBitWidth(getInput().getType())) {
-    return emitError() << "Input and output width not match!";
-  }
-  return success();
-}
+// LogicalResult BitScatterOp::verify() {
+//   int64_t expectedInputWidth = 0;
+//   for (auto elem: getOutputs()) {
+//     expectedInputWidth += hw::getBitWidth(elem.getType());
+//   }
+//   if (expectedInputWidth != hw::getBitWidth(getInput().getType())) {
+//     return emitError() << "Input and output width not match!";
+//   }
+//   return success();
+// }
 
-void BitScatterOp::build(OpBuilder &odsBuilder, OperationState &odsState, mlir::Value input) {
-  // build
-  auto inputBitWidth = hw::getBitWidth(input.getType());
-  std::vector<mlir::Type> outputTypes;
+// void BitScatterOp::build(OpBuilder &odsBuilder, OperationState &odsState, mlir::Value input) {
+//   // build
+//   auto inputBitWidth = hw::getBitWidth(input.getType());
+//   std::vector<mlir::Type> outputTypes;
 
-  auto chunks = split_signal_4B(inputBitWidth);
-  for (auto &chunk: llvm::reverse(chunks)) {
-    auto bitWidth = std::get<1>(chunk);
-    outputTypes.push_back(std::move(odsBuilder.getIntegerType(bitWidth)));
-  }
+//   auto chunks = split_signal_4B(inputBitWidth);
+//   for (auto &chunk: llvm::reverse(chunks)) {
+//     auto bitWidth = std::get<1>(chunk);
+//     outputTypes.push_back(std::move(odsBuilder.getIntegerType(bitWidth)));
+//   }
 
-  build(odsBuilder, odsState, mlir::ArrayRef<mlir::Type>(outputTypes), input);
-}
+//   build(odsBuilder, odsState, mlir::ArrayRef<mlir::Type>(outputTypes), input);
+// }
 
 
-LogicalResult BitAggregateOp::verify() {
-  int64_t expectedResultWidth = 0;
-  for (auto elem: getInputs()) {
-    expectedResultWidth += hw::getBitWidth(elem.getType());
-  }
-  if (expectedResultWidth != hw::getBitWidth(getOutput().getType())) {
-    return emitError() << "Input and output width not match!";
-  }
-  return success();
-}
+// LogicalResult BitAggregateOp::verify() {
+//   int64_t expectedResultWidth = 0;
+//   for (auto elem: getInputs()) {
+//     expectedResultWidth += hw::getBitWidth(elem.getType());
+//   }
+//   if (expectedResultWidth != hw::getBitWidth(getOutput().getType())) {
+//     return emitError() << "Input and output width not match!";
+//   }
+//   return success();
+// }
 
