@@ -115,11 +115,12 @@ static LogicalResult compileAndEmit(
         pm.addPass(toucan::createEnsureNoClockOpPass());
 
         // 2. Lower HW to 4B
-        // Handles IO
+        // 2.1 lowers most ops
+        pm.addPass(toucan::createLowerCombTo4B_1Pass());
+        // 2.2 remove unnecessary concat/extracts (a simple, quick canonicalizer), since the canonicalizer is single-threaded.
+        pm.addPass(toucan::createLowerCombTo4B_2Pass());
 
-        // 3. Lower Comb
 
-        // 4. Remove BitInterposer
         pm.addPass(mlir::createCanonicalizerPass());
 
     }
@@ -131,7 +132,7 @@ static LogicalResult compileAndEmit(
 
     if(failed(pm.run(mod.get()))) {
         llvm::outs() << "Passes failed!!!!\n";
-        // return failure();
+        return failure();
     }
 
     llvm::outs() << "Passes done\n";

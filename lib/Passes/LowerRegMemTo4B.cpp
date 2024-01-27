@@ -71,10 +71,7 @@ struct LowerRegMemTo4BPass : toucan::impl::LowerRegMemTo4BBase<LowerRegMemTo4BPa
           SmallVector<std::tuple<IntegerAttr, int, mlir::Value, mlir::StringAttr>> newRegInfos;
 
           auto chunks = split_signal_4B(regBitWidth);
-          for (auto &chunk: chunks) {
-            auto regId = std::get<0>(chunk);
-            auto regWidth = std::get<1>(chunk);
-
+          for (auto [regId, regWidth]: chunks) {
             auto newRegName = rewriter.getStringAttr(regName + "_Fragment_" + std::to_string(regId));
             auto regDataType = rewriter.getIntegerType(regWidth);
 
@@ -99,11 +96,7 @@ struct LowerRegMemTo4BPass : toucan::impl::LowerRegMemTo4BBase<LowerRegMemTo4BPa
               // reads this register
               SmallVector<mlir::Value> regReadValues_4B;
 
-              for (auto &each4BReg: newRegInfos) {
-                auto regId_4b = std::get<0>(each4BReg);
-                // auto regWidth_4b = std::get<1>(each4BReg);
-                auto regHandle_4b = std::get<2>(each4BReg);
-                auto regNameHint_4b = std::get<3>(each4BReg);
+              for (auto [regId_4b, regWidth_4b, regHandle_4b, regNameHint_4b]: newRegInfos) {
 
                 auto regReadOp_4b = rewriter.create<toucan::RegReadOp>(regReadOp->getLoc(), regHandle_4b);
 
@@ -122,11 +115,7 @@ struct LowerRegMemTo4BPass : toucan::impl::LowerRegMemTo4BBase<LowerRegMemTo4BPa
               // writes to this register
               auto writeData = regWriteOp.getData();
 
-              for (auto &each4BReg: newRegInfos) {
-                auto regId_4b = std::get<0>(each4BReg);
-                auto regWidth_4b = std::get<1>(each4BReg);
-                auto regHandle_4b = std::get<2>(each4BReg);
-                // auto regNameHint_4b = std::get<3>(each4BReg);
+              for (auto [regId_4b, regWidth_4b, regHandle_4b, regNameHint_4b]: newRegInfos) {
 
                 auto signalExtractOp = rewriter.create<comb::ExtractOp>(regWriteOp.getLoc(), writeData, regId_4b.getInt() * 4, regWidth_4b);
                 auto writeData_4b = signalExtractOp.getResult();
@@ -170,9 +159,7 @@ struct LowerRegMemTo4BPass : toucan::impl::LowerRegMemTo4BBase<LowerRegMemTo4BPa
           SmallVector<std::tuple<IntegerAttr, int, mlir::Value, mlir::StringAttr>> newMemInfos;
 
           auto chunks = split_signal_4B(memWidth);
-          for (auto &chunk: chunks) {
-            auto newMemId = std::get<0>(chunk);
-            auto newMemWidth = std::get<1>(chunk);
+          for (auto [newMemId, newMemWidth]: chunks) {
 
             auto newMemName = rewriter.getStringAttr(memName + "_Fragment_" + std::to_string(newMemId));
             auto newMemElemType = rewriter.getIntegerType(newMemWidth);
@@ -202,10 +189,7 @@ struct LowerRegMemTo4BPass : toucan::impl::LowerRegMemTo4BBase<LowerRegMemTo4BPa
               auto memReadEn = memReadOp.getEn();
               auto memReadAddr = memReadOp.getAddr();
 
-              for (auto &each4BMem: newMemInfos) {
-                auto memId_4b = std::get<0>(each4BMem);
-                auto memHandle_4b = std::get<2>(each4BMem);
-                auto memNameHint_4b = std::get<3>(each4BMem);
+              for (auto [memId_4b, memWidth_4b, memHandle_4b, memNameHint_4b]: newMemInfos) {
 
                 auto memReadOp_4b = rewriter.create<toucan::MemReadOp>(memReadOp->getLoc(), memHandle_4b, memReadAddr, memReadEn);
 
@@ -226,11 +210,7 @@ struct LowerRegMemTo4BPass : toucan::impl::LowerRegMemTo4BBase<LowerRegMemTo4BPa
               auto memWriteAddr = memWriteOp.getAddr();
               auto memWriteEn = memWriteOp.getEn();
 
-              for (auto &each4BMem: newMemInfos) {
-                auto memId_4b = std::get<0>(each4BMem);
-                auto memWidth_4b = std::get<1>(each4BMem);
-                auto memHandle_4b = std::get<2>(each4BMem);
-                // auto memNameHint_4b = std::get<3>(each4BMem);
+              for (auto [memId_4b, memWidth_4b, memHandle_4b, memNameHint_4b]: newMemInfos) {
 
                 auto signalExtractOp = rewriter.create<comb::ExtractOp>(memWriteOp.getLoc(), memWriteData, memId_4b.getInt() * 4, memWidth_4b);
                 auto writeData_4b = signalExtractOp.getResult();

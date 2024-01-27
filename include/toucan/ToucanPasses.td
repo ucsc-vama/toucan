@@ -66,4 +66,16 @@ def ExpandHWArray: Pass<"expand-hw-array", "circt::ModuleOp"> {
   let constructor = "toucan::createExpandHWArrayPass()";
 }
 
+def LowerCombTo4B_1: Pass<"lower-comb-to-4b-1", "circt::ModuleOp"> {
+  let summary = "Lower comb to 4 bits, stage 1";
+  let description = summary;
+  let constructor = "toucan::createLowerCombTo4B_1Pass()";
+}
+
+def LowerCombTo4B_2: Pass<"lower-comb-to-4b-2", "circt::ModuleOp"> {
+  let summary = "Lower comb to 4 bits, stage 2";
+  let description = summary;
+  let constructor = "toucan::createLowerCombTo4B_2Pass()";
+}
+
 #endif

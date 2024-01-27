@@ -14,6 +14,7 @@
 #include "llvm/Support/MathExtras.h"
 
 #include "toucan/ToucanTypes.h"
+#include "toucan/ToucanAttributes.h"
 
 // #include "toucan/ToucanOps.h.inc"
 

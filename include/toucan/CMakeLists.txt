@@ -3,7 +3,14 @@ add_circt_dialect(Toucan toucan)
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 
+set(LLVM_TARGET_DEFINITIONS Toucan.td)
+mlir_tablegen(ToucanEnums.h.inc -gen-enum-decls)
+mlir_tablegen(ToucanEnums.cpp.inc -gen-enum-defs)
+add_public_tablegen_target(ToucanEnumsIncGen)
+add_dependencies(circt-headers ToucanEnumsIncGen)
 
 set(LLVM_TARGET_DEFINITIONS ToucanPasses.td)
 mlir_tablegen(ToucanPasses.h.inc -gen-pass-decls)
 add_public_tablegen_target(ToucanPassesIncGen)
+
+add_dependencies(ToucanPassesIncGen ToucanEnumsIncGen)

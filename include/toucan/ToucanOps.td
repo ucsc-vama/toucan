@@ -3,6 +3,7 @@
 
 include "toucan/ToucanDialect.td"
 include "toucan/ToucanTypes.td"
+include "toucan/ToucanAttributes.td"
 include "mlir/IR/OpBase.td"
 
 include "mlir/IR/RegionKindInterface.td"
@@ -150,6 +151,34 @@ def DefRegOp : ToucanOp<"def_reg", [Symbol]> {
   let assemblyFormat = [{
     $sym_name `,` attr-dict `:` type($handle)
   }];
+
+}
+
+def LUTOp : ToucanOp<"lut", [Pure]> {
+  let summary = "Toucan LUT operation";
+  let description = summary;
+
+  // A new argument indicating op type
+  let arguments = (ins
+    LUTOpNameAttr: $op_name,
+    Variadic<HWIntegerType>: $inputs
+    );
+
+  let results = (outs HWIntegerType: $result);
+  let hasVerifier = 1;
+
+  let assemblyFormat = "$op_name $inputs `,` attr-dict `:` `(` type($inputs) `)` `->` type($result)";
+
+  let builders = [
+    OpBuilder<(ins "toucan::LUTOpName":$op_enum, "mlir::Value":$lhs, "mlir::Value":$rhs), [{
+      auto resultType = lhs.getType();
+      build($_builder, $_state, resultType, op_enum, mlir::ValueRange({lhs, rhs}));
+    }]>,
+    OpBuilder<(ins "toucan::LUTOpName":$op_enum, "mlir::Value":$op1, "mlir::Value":$op2, "mlir::Value":$op3), [{
+      auto resultType = op3.getType();
+      build($_builder, $_state, resultType, op_enum, mlir::ValueRange({op1, op2, op3}));
+    }]>
+  ];
 
 }
 

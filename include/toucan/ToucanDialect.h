@@ -13,6 +13,7 @@
 #include <optional>
 
 
+#include "toucan/ToucanAttributes.h"
 #include "toucan/ToucanDialect.h.inc"
 
 

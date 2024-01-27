@@ -26,6 +26,11 @@ using namespace mlir;
 using namespace llvm;
 using namespace toucan;
 
+#include "toucan/ToucanEnums.cpp.inc"
+
+// #define GET_ATTRDEF_CLASSES
+// #include "toucan/ToucanAttributes.cpp.inc"
+
 void ToucanDialect::initialize() {
   registerTypes();
   addOperations<
@@ -99,6 +104,14 @@ LogicalResult RegWriteOp::verify() {
 
   if (regWidth != static_cast<uint64_t>(dataWidth)) {
     return emitError() <<"Data width doesn't match register width! " << "Register width is " << regWidth << ", while data width is " << dataWidth;
+  }
+  return success();
+}
+
+LogicalResult LUTOp::verify() {
+  // TODO: verify base on op name
+  if (getInputs().size() > 3) {
+    return emitError() << "Too many oprands (max 3)";
   }
   return success();
 }

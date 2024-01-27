@@ -4,8 +4,8 @@ add_circt_dialect_library(
   ToucanDialect.cpp
   ToucanTypes.cpp
 
-#   DEPENDS
-#   MLIRToucanIncGen
+  DEPENDS
+  ToucanPassesIncGen
 
   LINK_LIBS PUBLIC
   CIRCTSupport
