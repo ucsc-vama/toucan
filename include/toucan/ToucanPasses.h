@@ -21,6 +21,7 @@ std::unique_ptr<mlir::Pass> createRemoveMemMaskPass();
 std::unique_ptr<mlir::Pass> createLowerRegMemTo4BPass();
 std::unique_ptr<mlir::Pass> createEnsureNoClockOpPass();
 std::unique_ptr<mlir::Pass> createExpandHWArrayPass();
+std::unique_ptr<mlir::Pass> createLowerToBinaryOpPass();
 std::unique_ptr<mlir::Pass> createLowerCombTo4B_1Pass();
 std::unique_ptr<mlir::Pass> createLowerCombTo4B_2Pass();
 

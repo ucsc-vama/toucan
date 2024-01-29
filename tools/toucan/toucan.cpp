@@ -113,15 +113,17 @@ static LogicalResult compileAndEmit(
 
         // Remove clock and AsClock. 
         pm.addPass(toucan::createEnsureNoClockOpPass());
+        // Fold binary ops with more than 2 operands
+        pm.addPass(toucan::createLowerToBinaryOpPass());
 
         // 2. Lower HW to 4B
         // 2.1 lowers most ops
         pm.addPass(toucan::createLowerCombTo4B_1Pass());
         // 2.2 remove unnecessary concat/extracts (a simple, quick canonicalizer), since the canonicalizer is single-threaded.
-        pm.addPass(toucan::createLowerCombTo4B_2Pass());
+        // pm.addPass(toucan::createLowerCombTo4B_2Pass());
 
 
-        pm.addPass(mlir::createCanonicalizerPass());
+        // pm.addPass(mlir::createCanonicalizerPass());
 
     }
 

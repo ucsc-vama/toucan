@@ -12,6 +12,7 @@ add_circt_dialect_library(
   LowerRegMemTo4B.cpp
   EnsureNoClockOp.cpp
   ExpandHWArray.cpp
+  LowerToBinaryOp.cpp
   LowerCombTo4B_1.cpp
   LowerCombTo4B_2.cpp
 

@@ -26,6 +26,7 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/Format.h"
 
 #include <memory>
 
@@ -71,16 +72,21 @@ struct LowerCombTo4B_1Pass : toucan::impl::LowerCombTo4B_1Base<LowerCombTo4B_1Pa
   }
 
   LogicalResult splitCombAndOp(comb::AndOp &op) {
+    if (op.getInputs().size() != 2) {
+      op.emitError("Supports only 2 operands!");
+    }
+
     auto resultValue = op.getResult();
     auto resultValueWidth = hw::getBitWidth(resultValue.getType());
 
+    OpBuilder builder(op);
+    IRRewriter rewriter(builder);
+
+    auto lhs = op.getInputs()[0];
+    auto rhs = op.getInputs()[1];
+    assert(hw::getBitWidth(lhs.getType()) == hw::getBitWidth(rhs.getType()));
+
     if (resultValueWidth > 4) {
-      OpBuilder builder(op);
-      IRRewriter rewriter(builder);
-      
-      auto lhs = op.getInputs()[0];
-      auto rhs = op.getInputs()[1];
-      assert(hw::getBitWidth(lhs.getType()) == hw::getBitWidth(rhs.getType()));
       auto lhsValues = split_value_4B(op.getOperation(), lhs, rewriter);
       auto rhsValues = split_value_4B(op.getOperation(), rhs, rewriter);
 
@@ -91,22 +97,33 @@ struct LowerCombTo4B_1Pass : toucan::impl::LowerCombTo4B_1Base<LowerCombTo4B_1Pa
       }
 
       concat_4b_and_replace(op.getOperation(), op.getResult(), intermediateResults, rewriter);
+    } else {
+      auto andOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_And, lhs, rhs);
+      rewriter.replaceAllUsesWith(op, andOp);
     }
     
     return success();
   }
 
-    LogicalResult splitCombOrOp(comb::OrOp &op) {
+
+  
+
+  LogicalResult splitCombOrOp(comb::OrOp &op) {
+    if (op.getInputs().size() != 2) {
+      op.emitError("Supports only 2 operands!");
+    }
+
     auto resultValue = op.getResult();
     auto resultValueWidth = hw::getBitWidth(resultValue.getType());
+        
+    OpBuilder builder(op);
+    IRRewriter rewriter(builder);
+    
+    auto lhs = op.getInputs()[0];
+    auto rhs = op.getInputs()[1];
+    assert(hw::getBitWidth(lhs.getType()) == hw::getBitWidth(rhs.getType()));
 
     if (resultValueWidth > 4) {
-      OpBuilder builder(op);
-      IRRewriter rewriter(builder);
-      
-      auto lhs = op.getInputs()[0];
-      auto rhs = op.getInputs()[1];
-      assert(hw::getBitWidth(lhs.getType()) == hw::getBitWidth(rhs.getType()));
       auto lhsValues = split_value_4B(op.getOperation(), lhs, rewriter);
       auto rhsValues = split_value_4B(op.getOperation(), rhs, rewriter);
 
@@ -117,22 +134,30 @@ struct LowerCombTo4B_1Pass : toucan::impl::LowerCombTo4B_1Base<LowerCombTo4B_1Pa
       }
 
       concat_4b_and_replace(op.getOperation(), op.getResult(), intermediateResults, rewriter);
+    } else {
+      auto andOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Or, lhs, rhs);
+      rewriter.replaceAllUsesWith(op, andOp);
     }
     
     return success();
   }
 
-    LogicalResult splitCombXorOp(comb::XorOp &op) {
+  LogicalResult splitCombXorOp(comb::XorOp &op) {
+    if (op.getInputs().size() != 2) {
+      op.emitError("Supports only 2 operands!");
+    }
+
     auto resultValue = op.getResult();
     auto resultValueWidth = hw::getBitWidth(resultValue.getType());
 
+    OpBuilder builder(op);
+    IRRewriter rewriter(builder);
+    
+    auto lhs = op.getInputs()[0];
+    auto rhs = op.getInputs()[1];
+    assert(hw::getBitWidth(lhs.getType()) == hw::getBitWidth(rhs.getType()));
+
     if (resultValueWidth > 4) {
-      OpBuilder builder(op);
-      IRRewriter rewriter(builder);
-      
-      auto lhs = op.getInputs()[0];
-      auto rhs = op.getInputs()[1];
-      assert(hw::getBitWidth(lhs.getType()) == hw::getBitWidth(rhs.getType()));
       auto lhsValues = split_value_4B(op.getOperation(), lhs, rewriter);
       auto rhsValues = split_value_4B(op.getOperation(), rhs, rewriter);
 
@@ -143,6 +168,9 @@ struct LowerCombTo4B_1Pass : toucan::impl::LowerCombTo4B_1Base<LowerCombTo4B_1Pa
       }
 
       concat_4b_and_replace(op.getOperation(), op.getResult(), intermediateResults, rewriter);
+    } else {
+      auto andOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Xor, lhs, rhs);
+      rewriter.replaceAllUsesWith(op, andOp);
     }
     
     return success();
@@ -159,19 +187,29 @@ struct LowerCombTo4B_1Pass : toucan::impl::LowerCombTo4B_1Base<LowerCombTo4B_1Pa
       } else if (auto andOp = dyn_cast<comb::AndOp>(stmt)) {
         // Lower comb.and
         if (failed(splitCombAndOp(andOp))) return failure();
+        toRemove.push_back(andOp);
       } else if (auto orOp = dyn_cast<comb::OrOp>(stmt)) {
         // Lower comb.or
         if (failed(splitCombOrOp(orOp))) return failure();
+        toRemove.push_back(orOp);
       } else if (auto xorOp = dyn_cast<comb::XorOp>(stmt)) {
         // Lower comb.xor
         if (failed(splitCombXorOp(xorOp))) return failure();
+        toRemove.push_back(xorOp);
       }
 
-      // Lower comb.and, or, xor
+      // Lower multiplication before add
 
     }
 
-    for (auto op: toRemove) op->erase();
+    if (!toRemove.empty()) {
+      LLVM_DEBUG(
+        char buffer[128];
+        format("Removing %d Ops\n", toRemove.size()).snprint(buffer, 128);
+        llvm::dbgs() << buffer
+        );
+      for (auto op: toRemove) op->erase();
+    }
 
     return success();
   }

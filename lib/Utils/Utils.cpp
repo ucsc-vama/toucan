@@ -100,7 +100,7 @@ namespace toucan {
 
     void concat_4b_and_replace(mlir::Operation *op, mlir::Value opResult, llvm::SmallVector<mlir::Value> &values, mlir::IRRewriter &rewriter) {
         auto bitConcatOp = rewriter.create<comb::ConcatOp>(op->getLoc(), values);
-        rewriter.replaceAllUsesWith(opResult, bitConcatOp);
+        rewriter.replaceAllUsesWith(opResult, bitConcatOp.getResult());
     }
 
     // mlir::Value generate_reduce_tree(mlir::IRRewriter rewritter, llvm::SmallVector<mlir::Value> inputs, mlir::Value fillingVal, std::function<mlir::Value(mlir::IRRewriter&, mlir::Value, mlir::Value)> cb) {
