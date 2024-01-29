@@ -67,7 +67,7 @@ def ExpandHWArray: Pass<"expand-hw-array", "circt::ModuleOp"> {
 }
 
 def LowerToBinaryOp: Pass<"lower-to-binary-op", "circt::ModuleOp"> {
-  let summary = "Lower comb,and, comb.add, comb.xor, comb.xor to binary op (it may contains more than 2 operands)";
+  let summary = "Lower comb,and, comb.add, comb.xor, comb.xor to binary op (it may contains more than 2 operands). Warning: This pass may be reverted by canonicalizer pass!";
   let description = summary;
   let constructor = "toucan::createLowerToBinaryOpPass()";
 }
