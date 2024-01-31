@@ -114,7 +114,7 @@ static LogicalResult compileAndEmit(
         // Remove clock and AsClock. 
         pm.addPass(toucan::createEnsureNoClockOpPass());
         // Fold binary ops with more than 2 operands
-        pm.addPass(toucan::createLowerToBinaryOpPass());
+        pm.addPass(toucan::createLowerCombPreProcessPass());
 
         // 2. Lower HW to 4B
         // 2.1 lowers most ops

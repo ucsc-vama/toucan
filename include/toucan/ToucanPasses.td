@@ -66,10 +66,10 @@ def ExpandHWArray: Pass<"expand-hw-array", "circt::ModuleOp"> {
   let constructor = "toucan::createExpandHWArrayPass()";
 }
 
-def LowerToBinaryOp: Pass<"lower-to-binary-op", "circt::ModuleOp"> {
-  let summary = "Lower comb,and, comb.add, comb.xor, comb.xor to binary op (it may contains more than 2 operands). Warning: This pass may be reverted by canonicalizer pass!";
+def LowerCombPreProcess: Pass<"lower-comb-pre-process", "circt::ModuleOp"> {
+  let summary = "Lower comb,and, comb.add, comb.xor, comb.xor to binary op (it may contains more than 2 operands). Handle replicateOp when input width greater than 1. Warning: This pass may be reverted by canonicalizer pass!";
   let description = summary;
-  let constructor = "toucan::createLowerToBinaryOpPass()";
+  let constructor = "toucan::createLowerCombPreProcessPass()";
 }
 
 def LowerCombTo4B_1: Pass<"lower-comb-to-4b-1", "circt::ModuleOp"> {

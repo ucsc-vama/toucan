@@ -56,7 +56,7 @@ struct ExpandHWArrayPass : toucan::impl::ExpandHWArrayBase<ExpandHWArrayPass> {
         auto arrayValue = arrayGetOp.getInput();
         auto arrayType = arrayValue.getType().cast<hw::ArrayType>();
         auto arrayNumElem = arrayType.getNumElements();
-        auto arrayElemType = arrayType.getElementType();
+        // auto arrayElemType = arrayType.getElementType();
         auto arrayIndex = arrayGetOp.getIndex();
         auto arrayIndexBits = hw::getBitWidth(arrayIndex.getType());
 
@@ -97,50 +97,17 @@ struct ExpandHWArrayPass : toucan::impl::ExpandHWArrayBase<ExpandHWArrayPass> {
           return failure();
         }
 
-        // Now we have values
-        SmallVector<mlir::Value> current_level_inputs;
-        SmallVector<mlir::Value> current_level_outputs;
-        current_level_inputs.append(values.begin(), values.end());
-
-        // Use 0 as default value
-        auto defaultValueAttr = rewriter.getIntegerAttr(arrayElemType, 0);
-        auto defaultValueOp = rewriter.create<hw::ConstantOp>(arrayGetOp->getLoc(), defaultValueAttr);
-        auto defaultValue = defaultValueOp.getResult();
-
         rewriter.setInsertionPointAfterValue(arrayGetOp);
 
-        for (int64_t level = 0; level < arrayIndexBits; level++) {
-          assert(current_level_inputs.size() > 1);
-          current_level_outputs.clear();
+        auto resultValue = generate_mux_chain(arrayGetOp.getOperation(), rewriter, values, arrayIndex);
 
-          // auto addrPos = arrayIndexBits - level;
-          // Extract En signal for all muxes at this level
-          auto addrFragmentOp = rewriter.create<comb::ExtractOp>(arrayGetOp.getLoc(), arrayIndex, level, 1);
-          auto addrFragment = addrFragmentOp.getResult();
-
-          for (size_t mux_id = 0; mux_id < ((current_level_inputs.size() + 1) >> 1); mux_id++) {
-            // fval: low addr, tval: high addr
-            size_t val_id = mux_id << 1;
-            auto fVal = (val_id <= current_level_inputs.size()) ? current_level_inputs[val_id] : defaultValue;
-            val_id++;
-            auto tVal = (val_id <= current_level_inputs.size()) ? current_level_inputs[val_id] : defaultValue;
-
-            auto muxOp = rewriter.create<comb::MuxOp>(arrayGetOp->getLoc(), addrFragment, tVal, fVal);
-
-            current_level_outputs.push_back(muxOp.getResult());
-          }
-
-          std::swap(current_level_inputs, current_level_outputs);
-        }
-        assert(current_level_inputs.size() == 1);
-
-        auto resultValue = current_level_inputs.front();
         auto resultDefiningOp = resultValue.getDefiningOp();
 
-        auto namehint = getSVNameHintAttr(arrayGetOp);
-        if (namehint) {
-          setSVNameHintAttr(resultDefiningOp, namehint.value());
-        }
+        // auto namehint = getSVNameHintAttr(arrayGetOp);
+        // if (namehint) {
+        //   setSVNameHintAttr(resultDefiningOp, namehint.value());
+        // }
+        tryCopySVNameHint(arrayGetOp.getOperation(), resultDefiningOp);
 
         rewriter.replaceAllUsesWith(arrayGetOp, resultValue);
 

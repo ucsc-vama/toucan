@@ -45,6 +45,13 @@ namespace toucan {
     op->setAttr(getSVNameHitRef(), value);
   }
 
+  void tryCopySVNameHint(mlir::Operation *from, mlir::Operation *to) {
+    auto namehint = getSVNameHintAttr(from);
+    if (namehint) {
+      setSVNameHintAttr(to, namehint.value());
+    }
+  }
+
   const char* getRegNextSuffix() {
     return "$next";
   }
@@ -80,28 +87,86 @@ namespace toucan {
     return chunks;
   }
 
-    llvm::SmallVector<mlir::Value> split_value_4B(mlir::Operation *op, mlir::Value &value, mlir::IRRewriter &rewriter) {
-        llvm::SmallVector<mlir::Value> ret;
+  llvm::SmallVector<mlir::Value> split_value_4B(mlir::Operation *op, mlir::Value &value, mlir::IRRewriter &rewriter) {
+      llvm::SmallVector<mlir::Value> ret;
 
-        auto inputBitWidth = hw::getBitWidth(value.getType());
+      auto inputBitWidth = hw::getBitWidth(value.getType());
 
-        if (inputBitWidth > 4) {
-            auto chunks = split_signal_4B(inputBitWidth);
-            for (auto [chunkId, chunkWidth]: chunks) {
+      if (inputBitWidth > 4) {
+          auto chunks = split_signal_4B(inputBitWidth);
+          for (auto [chunkId, chunkWidth]: chunks) {
 
-                auto extractOp = rewriter.create<comb::ExtractOp>(op->getLoc(), value, chunkId * 4, chunkWidth);
-                auto newValue_4b = extractOp.getResult();
+              auto extractOp = rewriter.create<comb::ExtractOp>(op->getLoc(), value, chunkId * 4, chunkWidth);
+              auto newValue_4b = extractOp.getResult();
 
-                ret.push_back(newValue_4b);
-            }
-        }
-        return ret;
+              ret.push_back(newValue_4b);
+          }
+      } else {
+        ret.push_back(value);
+      }
+      return ret;
+  }
+
+  void concat_4b_and_replace(mlir::Operation *op, mlir::Value opResult, llvm::SmallVector<mlir::Value> &values, mlir::IRRewriter &rewriter) {
+      auto bitConcatOp = rewriter.create<comb::ConcatOp>(op->getLoc(), values);
+      tryCopySVNameHint(op, bitConcatOp.getOperation());
+      rewriter.replaceAllUsesWith(opResult, bitConcatOp.getResult());
+  }
+
+  mlir::Value generate_mux_chain(mlir::Operation *op, mlir::IRRewriter &rewriter, llvm::SmallVector<mlir::Value> values, mlir::Value index) {
+    SmallVector<mlir::Value> outputs, inputs;
+    inputs.append(values.begin(), values.end());
+    auto elemType = values[0].getType();
+
+    // Use 0 as default value
+    auto defaultValueAttr = rewriter.getIntegerAttr(elemType, 0);
+    auto defaultValueOp = rewriter.create<hw::ConstantOp>(op->getLoc(), defaultValueAttr);
+    auto defaultValue = defaultValueOp.getResult();
+
+    auto indexBits = hw::getBitWidth(index.getType());
+
+    assert(indexBits < 20);
+    assert((1L << indexBits) >= values.size());
+
+
+    for (int64_t level = 0; level < indexBits; level++) {
+      assert(inputs.size() > 1);
+      outputs.clear();
+
+      // Extract En signal for all muxes at this level
+      auto addrFragmentOp = rewriter.create<comb::ExtractOp>(op->getLoc(), index, level, 1);
+      auto addrFragment = addrFragmentOp.getResult();
+
+      for (size_t mux_id = 0; mux_id < ((inputs.size() + 1) >> 1); mux_id++) {
+        // fval: low addr, tval: high addr
+        size_t val_id = mux_id << 1;
+        auto fVal = (val_id <= inputs.size()) ? inputs[val_id] : defaultValue;
+        val_id++;
+        auto tVal = (val_id <= inputs.size()) ? inputs[val_id] : defaultValue;
+
+        auto muxOp = rewriter.create<comb::MuxOp>(op->getLoc(), addrFragment, tVal, fVal);
+
+        outputs.push_back(muxOp.getResult());
+      }
+
+      std::swap(inputs, outputs);
     }
+    assert(inputs.size() == 1);
 
-    void concat_4b_and_replace(mlir::Operation *op, mlir::Value opResult, llvm::SmallVector<mlir::Value> &values, mlir::IRRewriter &rewriter) {
-        auto bitConcatOp = rewriter.create<comb::ConcatOp>(op->getLoc(), values);
-        rewriter.replaceAllUsesWith(opResult, bitConcatOp.getResult());
+    auto resultValue = inputs.front();
+
+    return resultValue;
+  }
+
+
+  bool value_is_const_zero(mlir::Value &inputVal) {
+    if (auto constOp = inputVal.getDefiningOp<hw::ConstantOp>()) {
+      if (constOp.getValue().isZero()) {
+        return true;
+      }
     }
+    return false;
+  }
 
     // mlir::Value generate_reduce_tree(mlir::IRRewriter rewritter, llvm::SmallVector<mlir::Value> inputs, mlir::Value fillingVal, std::function<mlir::Value(mlir::IRRewriter&, mlir::Value, mlir::Value)> cb) {
     //     llvm::SmallVector<mlir::Value> outputs;

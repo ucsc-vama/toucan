@@ -47,6 +47,11 @@ struct LowerCombTo4B_2Pass : toucan::impl::LowerCombTo4B_2Base<LowerCombTo4B_2Pa
   LogicalResult runOnModule(hw::HWModuleOp mod) {
     SmallVector<Operation*> toRemove;
 
+    // TODO: Lower add
+    // TODO: lower mux
+    // TODO: lower sub
+    // TODO: 
+
     // for (auto &stmt: mod.getOps()) {
 
     // }

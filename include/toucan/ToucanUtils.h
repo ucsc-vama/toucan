@@ -33,11 +33,16 @@
 #include <functional>
 
 namespace toucan {
+
+  bool value_is_const_zero(mlir::Value &inputVal);
+  
   mlir::StringRef getSVNameHitRef();
 
   std::optional<mlir::StringAttr> getSVNameHintAttr(mlir::Operation* op);
 
   void setSVNameHintAttr(mlir::Operation *op, mlir::StringAttr &value);
+
+  void tryCopySVNameHint(mlir::Operation *from, mlir::Operation *to);
 
   const char* getRegNextSuffix();
 
@@ -55,6 +60,8 @@ namespace toucan {
   llvm::SmallVector<mlir::Value> split_value_4B(mlir::Operation *op, mlir::Value &value, mlir::IRRewriter &rewriter);
 
   void concat_4b_and_replace(mlir::Operation *op, mlir::Value opResult, llvm::SmallVector<mlir::Value> &values, mlir::IRRewriter &rewriter);
+
+  mlir::Value generate_mux_chain(mlir::Operation *op, mlir::IRRewriter &rewriter, llvm::SmallVector<mlir::Value> values, mlir::Value index);
 
   // // template<class OpTy>
   // mlir::Value generate_reduce_tree(mlir::IRRewriter rewritter, llvm::SmallVector<mlir::Value> inputs, mlir::Value fillingVal, std::function<mlir::Value(mlir::IRRewriter&, mlir::Value, mlir::Value)> cb);

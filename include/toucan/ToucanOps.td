@@ -175,7 +175,7 @@ def LUTOp : ToucanOp<"lut", [Pure]> {
       build($_builder, $_state, resultType, op_enum, mlir::ValueRange({lhs, rhs}));
     }]>,
     OpBuilder<(ins "toucan::LUTOpName":$op_enum, "mlir::Value":$op1, "mlir::Value":$op2, "mlir::Value":$op3), [{
-      auto resultType = op3.getType();
+      auto resultType = op2.getType();
       build($_builder, $_state, resultType, op_enum, mlir::ValueRange({op1, op2, op3}));
     }]>
   ];

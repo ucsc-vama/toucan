@@ -29,7 +29,7 @@
 #include <memory>
 
 
-#define GEN_PASS_DEF_LOWERTOBINARYOP
+#define GEN_PASS_DEF_LOWERCOMBPREPROCESS
 #include "toucan/ToucanPassCommon.h"
 
 #include "toucan/ToucanOps.h"
@@ -40,10 +40,10 @@ using namespace circt;
 using namespace mlir;
 using namespace llvm;
 
-#define DEBUG_TYPE "LowerToBinaryOpPass"
+#define DEBUG_TYPE "LowerCombPreProcessPass"
 
-struct LowerToBinaryOpPass : toucan::impl::LowerToBinaryOpBase<LowerToBinaryOpPass> {
-  using LowerToBinaryOpBase<LowerToBinaryOpPass>::LowerToBinaryOpBase;
+struct LowerCombPreProcessPass : toucan::impl::LowerCombPreProcessBase<LowerCombPreProcessPass> {
+  using LowerCombPreProcessBase<LowerCombPreProcessPass>::LowerCombPreProcessBase;
 
   template<class OpTy>
   LogicalResult lowerOp(OpTy &op) {
@@ -66,6 +66,38 @@ struct LowerToBinaryOpPass : toucan::impl::LowerToBinaryOpBase<LowerToBinaryOpPa
     return failure();
   }
 
+  LogicalResult lowerReplicateOp(comb::ReplicateOp &op) {
+    // Handles repop with input width > 1
+    auto inputValue = op.getInput();
+    auto inputValueWidth = hw::getBitWidth(inputValue.getType());
+    if (inputValueWidth == 1) {
+      // Do nothing if width is 1
+      return failure();
+    }
+    
+    OpBuilder builder(op);
+    IRRewriter rewriter(builder);
+
+    auto resultValue = op.getResult();
+    auto resultValueWidth = hw::getBitWidth(resultValue.getType());
+
+    assert(resultValueWidth % inputValueWidth == 0);
+    assert(resultValueWidth > inputValueWidth);
+
+    auto numOf4B = static_cast<size_t>(resultValueWidth / inputValueWidth);
+
+
+    SmallVector<Value> values;
+    for (size_t i = 0; i < numOf4B; i++) {
+      values.push_back(inputValue);
+    }
+
+    auto newOp = rewriter.create<comb::ConcatOp>(op.getLoc(), values);
+    rewriter.replaceAllUsesWith(op, newOp);
+
+    return success();
+  }
+
   LogicalResult runOnModule(hw::HWModuleOp mod) {
     SmallVector<Operation*> toRemove;
 
@@ -79,6 +111,8 @@ struct LowerToBinaryOpPass : toucan::impl::LowerToBinaryOpBase<LowerToBinaryOpPa
         if (succeeded(lowerOp<comb::OrOp>(orOp))) toRemove.push_back(orOp);
       } else if (auto xorOp = dyn_cast<comb::XorOp>(stmt)) {
         if (succeeded(lowerOp<comb::XorOp>(xorOp))) toRemove.push_back(xorOp);
+      } else if (auto repOp = dyn_cast<comb::ReplicateOp>(stmt)) {
+        if (succeeded(lowerReplicateOp(repOp))) toRemove.push_back(repOp);
       }
 
     }
@@ -119,6 +153,6 @@ struct LowerToBinaryOpPass : toucan::impl::LowerToBinaryOpBase<LowerToBinaryOpPa
 
 };
 
-std::unique_ptr<mlir::Pass> toucan::createLowerToBinaryOpPass() {
-  return std::make_unique<LowerToBinaryOpPass>();
+std::unique_ptr<mlir::Pass> toucan::createLowerCombPreProcessPass() {
+  return std::make_unique<LowerCombPreProcessPass>();
 }
