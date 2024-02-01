@@ -123,7 +123,7 @@ static LogicalResult compileAndEmit(
         // pm.addPass(toucan::createLowerCombTo4B_2Pass());
 
 
-        // pm.addPass(mlir::createCanonicalizerPass());
+        pm.addPass(mlir::createCanonicalizerPass());
 
     }
 

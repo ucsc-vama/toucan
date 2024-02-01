@@ -1,5 +1,6 @@
 
 #include "circt/Dialect/Comb/CombOps.h"
+#include "circt/Dialect/HW/HWOps.h"
 #include "circt/Dialect/HW/HWTypes.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Value.h"
@@ -104,13 +105,19 @@ namespace toucan {
       } else {
         ret.push_back(value);
       }
+      // std::reverse(ret.begin(), ret.end());
       return ret;
   }
 
   void concat_4b_and_replace(mlir::Operation *op, mlir::Value opResult, llvm::SmallVector<mlir::Value> &values, mlir::IRRewriter &rewriter) {
+    if (values.size() > 1) {
       auto bitConcatOp = rewriter.create<comb::ConcatOp>(op->getLoc(), values);
       tryCopySVNameHint(op, bitConcatOp.getOperation());
       rewriter.replaceAllUsesWith(opResult, bitConcatOp.getResult());
+    } else {
+       rewriter.replaceAllUsesWith(opResult, values[0]);
+    }
+      
   }
 
   mlir::Value generate_mux_chain(mlir::Operation *op, mlir::IRRewriter &rewriter, llvm::SmallVector<mlir::Value> values, mlir::Value index) {
@@ -147,6 +154,7 @@ namespace toucan {
         auto muxOp = rewriter.create<comb::MuxOp>(op->getLoc(), addrFragment, tVal, fVal);
 
         outputs.push_back(muxOp.getResult());
+        assert(outputs.size() < 10000);
       }
 
       std::swap(inputs, outputs);
@@ -167,6 +175,56 @@ namespace toucan {
     }
     return false;
   }
+
+  mlir::Value extractMinimumWidth(mlir::Value val, mlir::IRRewriter &rewriter, mlir::Operation* op) {
+  if (auto concatOp = val.getDefiningOp<comb::ConcatOp>()) {
+    auto inputs = concatOp.getInputs();
+    llvm::SmallVector<mlir::Value> minInputs;
+    if (inputs.size() > 0) {
+      bool doneMerging = false;
+      for (size_t i = 0; i < inputs.size(); i++) {
+        auto inputVal = inputs[i];
+
+        if (!doneMerging) {
+          if (auto constOp = inputVal.getDefiningOp<hw::ConstantOp>()) {
+            auto constVal = constOp.getValue();
+            auto leadingZeros = constVal.countLeadingZeros();
+            auto constValWidth = constVal.getBitWidth();
+
+            if (leadingZeros != constValWidth) {
+              auto usefulBits = constValWidth - leadingZeros;
+              auto truncatedVal = constVal.extractBits(usefulBits, 0);
+              assert(constVal == truncatedVal.zext(constValWidth));
+              
+              auto newConstOp = rewriter.create<hw::ConstantOp>(op->getLoc(), truncatedVal);
+              minInputs.push_back(newConstOp.getResult());
+            }
+          } else {
+            if (i == 0) {
+              // Cannot merge the first element. simply return
+              return val;
+            }
+            doneMerging = true;
+            minInputs.push_back(inputVal);
+          }
+        } else {
+          minInputs.push_back(inputVal);
+        }
+        
+      }
+
+      // special case
+      if (minInputs.size() == 1) {
+        return minInputs[0];
+      }
+
+      auto newConcatOp = rewriter.create<comb::ConcatOp>(op->getLoc(), minInputs);
+      return newConcatOp.getResult();
+      
+    }
+  }
+  return val;
+}
 
     // mlir::Value generate_reduce_tree(mlir::IRRewriter rewritter, llvm::SmallVector<mlir::Value> inputs, mlir::Value fillingVal, std::function<mlir::Value(mlir::IRRewriter&, mlir::Value, mlir::Value)> cb) {
     //     llvm::SmallVector<mlir::Value> outputs;

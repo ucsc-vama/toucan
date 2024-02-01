@@ -1,4 +1,5 @@
 
+#include "circt/Dialect/HW/HWOps.h"
 #include "circt/Dialect/HW/HWTypes.h"
 #include "circt/Support/LLVM.h"
 #include "circt/Dialect/Comb/CombDialect.h"
@@ -98,6 +99,32 @@ struct LowerCombPreProcessPass : toucan::impl::LowerCombPreProcessBase<LowerComb
     return success();
   }
 
+  LogicalResult lowerShru_1b(comb::ShrUOp &op) {
+    // Remove some 1 bit shru
+    auto resultValue = op.getResult();
+    auto resultWidth = hw::getBitWidth(resultValue.getType());
+
+    if (resultWidth == 1) {
+      OpBuilder builder(op);
+      IRRewriter rewriter(builder);
+
+      auto en = op.getRhs();
+      auto data = op.getLhs();
+      assert(hw::getBitWidth(en.getType()) == 1);
+      assert(hw::getBitWidth(data.getType()) == 1);
+
+      auto constZeroOp = rewriter.create<hw::ConstantOp>(op.getLoc(), rewriter.getI1Type(), 0);
+      auto constZeroValue = constZeroOp.getResult();
+
+      auto muxOp = rewriter.create<comb::MuxOp>(op.getLoc(), en, constZeroValue, data);
+
+      rewriter.replaceAllUsesWith(op, muxOp);
+
+      return success();
+    }
+    return failure();
+  }
+
   LogicalResult runOnModule(hw::HWModuleOp mod) {
     SmallVector<Operation*> toRemove;
 
@@ -113,6 +140,8 @@ struct LowerCombPreProcessPass : toucan::impl::LowerCombPreProcessBase<LowerComb
         if (succeeded(lowerOp<comb::XorOp>(xorOp))) toRemove.push_back(xorOp);
       } else if (auto repOp = dyn_cast<comb::ReplicateOp>(stmt)) {
         if (succeeded(lowerReplicateOp(repOp))) toRemove.push_back(repOp);
+      } else if (auto shruOp = dyn_cast<comb::ShrUOp>(stmt)) {
+        if (succeeded(lowerShru_1b(shruOp))) toRemove.push_back(shruOp);
       }
 
     }
