@@ -9,6 +9,7 @@ add_circt_dialect_library(
   ReplaceAsyncResetRegs.cpp
   SplitRegisters.cpp
   RemoveMemMask.cpp
+  ParallelCanonicalizer.cpp
   LowerRegMemTo4B.cpp
   EnsureNoClockOp.cpp
   ExpandHWArray.cpp

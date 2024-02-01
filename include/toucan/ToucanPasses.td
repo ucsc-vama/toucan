@@ -47,6 +47,13 @@ def RemoveMemMask: Pass<"remove-mem-mask", "circt::ModuleOp"> {
 }
 
 
+def ParallelCanonicalizer: Pass<"parallel-canonicalizer", "circt::ModuleOp"> {
+  let summary = "Canonicalizer pass, parallel execution module by module";
+  let description = summary;
+  let constructor = "toucan::createParallelCanonicalizerPass()";
+}
+
+
 
 def LowerRegMemTo4B: Pass<"lower-reg-mem-to-4B", "circt::ModuleOp"> {
   let summary = "Lower toucan::Mem and toucan::Reg to at most 4 bit width.";

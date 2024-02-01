@@ -16,6 +16,7 @@
 #include "mlir/Support/FileUtilities.h"
 #include "mlir/Support/ToolUtilities.h"
 #include "mlir/Transforms/Passes.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/FileSystem.h"
@@ -122,8 +123,15 @@ static LogicalResult compileAndEmit(
         // 2.2 remove unnecessary concat/extracts (a simple, quick canonicalizer), since the canonicalizer is single-threaded.
         // pm.addPass(toucan::createLowerCombTo4B_2Pass());
 
+        mlir::GreedyRewriteConfig canonicalizerConfig;
+        canonicalizerConfig.maxIterations = 2;
+        // canonicalizerConfig.useTopDownTraversal = true;
+        canonicalizerConfig.enableRegionSimplification = false;
 
-        pm.addPass(mlir::createCanonicalizerPass());
+        pm.addPass(toucan::createParallelCanonicalizerPass(canonicalizerConfig));
+
+
+        // pm.addPass(mlir::createCanonicalizerPass());
 
     }
 

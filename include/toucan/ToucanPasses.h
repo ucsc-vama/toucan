@@ -5,6 +5,8 @@
 #include <memory>
 #include <optional>
 
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+
 namespace toucan {
 
 #define GEN_PASS_DECL
@@ -17,6 +19,9 @@ std::unique_ptr<mlir::Pass> createSplitFirMemRWPortsPass();
 std::unique_ptr<mlir::Pass> createReplaceAsyncResetRegsPass();
 std::unique_ptr<mlir::Pass> createSplitRegistersPass();
 std::unique_ptr<mlir::Pass> createRemoveMemMaskPass();
+
+std::unique_ptr<mlir::Pass> createParallelCanonicalizerPass();
+std::unique_ptr<mlir::Pass> createParallelCanonicalizerPass(const mlir::GreedyRewriteConfig &config);
 
 std::unique_ptr<mlir::Pass> createLowerRegMemTo4BPass();
 std::unique_ptr<mlir::Pass> createEnsureNoClockOpPass();
