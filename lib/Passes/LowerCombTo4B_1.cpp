@@ -534,6 +534,24 @@ struct LowerCombShrSOp: OpRewritePattern<comb::ShrSOp>, DynamicShiftOperations {
 };
 
 
+struct LowerCombICmpOp: OpRewritePattern<comb::ICmpOp> {
+  using OpRewritePattern<comb::ICmpOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(comb::ICmpOp op, PatternRewriter &rewriter) const final {
+
+    return success();
+  }
+};
+
+struct LowerCombMulOp: OpRewritePattern<comb::MulOp> {
+  using OpRewritePattern<comb::MulOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(comb::MulOp op, PatternRewriter &rewriter) const final {
+
+    return success();
+  }
+};
+
 
 struct LowerHWConstantOp: OpRewritePattern<hw::ConstantOp> {
   using OpRewritePattern<hw::ConstantOp>::OpRewritePattern;
