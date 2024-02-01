@@ -1,4 +1,5 @@
 
+#include "circt/Dialect/HW/HWDialect.h"
 #include "circt/Dialect/HW/HWOps.h"
 #include "circt/Dialect/HW/HWTypes.h"
 #include "circt/Support/LLVM.h"
@@ -14,10 +15,15 @@
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/ValueRange.h"
 #include "mlir/IR/Visitors.h"
+#include "mlir/Rewrite/FrozenRewritePatternSet.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/IR/Threading.h"
 #include "mlir/Support/LogicalResult.h"
+#include "mlir/Transforms/DialectConversion.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+
 #include "toucan/ToucanAttributes.h"
+#include "toucan/ToucanDialect.h"
 #include "toucan/ToucanTypes.h"
 
 #include "llvm/ADT/SmallPtrSet.h"
@@ -47,34 +53,11 @@ using namespace llvm;
 
 #define DEBUG_TYPE "LowerCombTo4B_1Pass"
 
-struct LowerCombTo4B_1Pass : toucan::impl::LowerCombTo4B_1Base<LowerCombTo4B_1Pass> {
-  using LowerCombTo4B_1Base<LowerCombTo4B_1Pass>::LowerCombTo4B_1Base;
 
-  LogicalResult splitHWConstOp(hw::ConstantOp &op) {
-    SmallVector<Value> results;
+struct LowerCombAndOp: OpRewritePattern<comb::AndOp> {
+  using OpRewritePattern<comb::AndOp>::OpRewritePattern;
 
-    auto constValueWidth = op.getValue().getBitWidth();
-    // auto constValueRaw = op.getValue().extractBits(0, 2);
-
-    if (constValueWidth > 4) {
-      OpBuilder builder(op);
-      IRRewriter rewriter(builder);
-      
-      auto chunks = split_signal_4B(constValueWidth);
-      for (auto [chunkId, chunkWidth]: chunks) {
-        auto newValue = op.getValue().extractBits(chunkWidth, chunkId * 4);
-        auto newConstOp = rewriter.create<hw::ConstantOp>(op->getLoc(), newValue);
-        results.push_back(newConstOp.getResult());
-      }
-
-      auto bitConcatOp = rewriter.create<comb::ConcatOp>(op.getLoc(), results);
-      rewriter.replaceAllUsesWith(op, bitConcatOp);
-      // consider remove op
-    }
-    return success();
-  }
-
-  LogicalResult splitCombAndOp(comb::AndOp &op) {
+  LogicalResult matchAndRewrite(comb::AndOp op, PatternRewriter &rewriter) const final {
     if (op.getInputs().size() != 2) {
       op.emitError("Supports only 2 operands!");
       return failure();
@@ -82,9 +65,6 @@ struct LowerCombTo4B_1Pass : toucan::impl::LowerCombTo4B_1Base<LowerCombTo4B_1Pa
 
     auto resultValue = op.getResult();
     auto resultValueWidth = hw::getBitWidth(resultValue.getType());
-
-    OpBuilder builder(op);
-    IRRewriter rewriter(builder);
 
     auto lhs = op.getInputs()[0];
     auto rhs = op.getInputs()[1];
@@ -104,16 +84,18 @@ struct LowerCombTo4B_1Pass : toucan::impl::LowerCombTo4B_1Base<LowerCombTo4B_1Pa
     } else {
       auto andOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_And, lhs, rhs);
       tryCopySVNameHint(op.getOperation(), andOp.getOperation());
-      rewriter.replaceAllUsesWith(op, andOp);
+      rewriter.replaceOp(op, andOp);
     }
     
     return success();
   }
+};
 
 
-  
+struct LowerCombOrOp: OpRewritePattern<comb::OrOp> {
+  using OpRewritePattern<comb::OrOp>::OpRewritePattern;
 
-  LogicalResult splitCombOrOp(comb::OrOp &op) {
+  LogicalResult matchAndRewrite(comb::OrOp op, PatternRewriter &rewriter) const final {
     if (op.getInputs().size() != 2) {
       op.emitError("Supports only 2 operands!");
       return failure();
@@ -121,9 +103,6 @@ struct LowerCombTo4B_1Pass : toucan::impl::LowerCombTo4B_1Base<LowerCombTo4B_1Pa
 
     auto resultValue = op.getResult();
     auto resultValueWidth = hw::getBitWidth(resultValue.getType());
-        
-    OpBuilder builder(op);
-    IRRewriter rewriter(builder);
     
     auto lhs = op.getInputs()[0];
     auto rhs = op.getInputs()[1];
@@ -143,13 +122,18 @@ struct LowerCombTo4B_1Pass : toucan::impl::LowerCombTo4B_1Base<LowerCombTo4B_1Pa
     } else {
       auto orOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Or, lhs, rhs);
       tryCopySVNameHint(op.getOperation(), orOp.getOperation());
-      rewriter.replaceAllUsesWith(op, orOp);
+      rewriter.replaceOp(op, orOp);
     }
     
     return success();
   }
+};
 
-  LogicalResult splitCombXorOp(comb::XorOp &op) {
+
+struct LowerCombXorOp: OpRewritePattern<comb::XorOp> {
+  using OpRewritePattern<comb::XorOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(comb::XorOp op, PatternRewriter &rewriter) const final {
     if (op.getInputs().size() != 2) {
       op.emitError("Supports only 2 operands!");
       return failure();
@@ -157,9 +141,6 @@ struct LowerCombTo4B_1Pass : toucan::impl::LowerCombTo4B_1Base<LowerCombTo4B_1Pa
 
     auto resultValue = op.getResult();
     auto resultValueWidth = hw::getBitWidth(resultValue.getType());
-
-    OpBuilder builder(op);
-    IRRewriter rewriter(builder);
     
     auto lhs = op.getInputs()[0];
     auto rhs = op.getInputs()[1];
@@ -179,26 +160,27 @@ struct LowerCombTo4B_1Pass : toucan::impl::LowerCombTo4B_1Base<LowerCombTo4B_1Pa
     } else {
       auto xorOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Xor, lhs, rhs);
       tryCopySVNameHint(op.getOperation(), xorOp.getOperation());
-      rewriter.replaceAllUsesWith(op, xorOp);
+      rewriter.replaceOp(op, xorOp);
     }
     
     return success();
   }
+};
 
-  LogicalResult splitCombReplicate(comb::ReplicateOp &repOp) {
+
+struct LowerCombReplicateOp: OpRewritePattern<comb::ReplicateOp> {
+  using OpRewritePattern<comb::ReplicateOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(comb::ReplicateOp repOp, PatternRewriter &rewriter) const final {
     auto inputValue = repOp.getInput();
     if (hw::getBitWidth(inputValue.getType()) != 1) {
       repOp.emitError("ReplicateOp with input width != 1 is not supported");
       return failure();
     }
 
-    OpBuilder builder(repOp);
-    IRRewriter rewriter(builder);
-
     auto resultValue = repOp.getResult();
     auto resultValueWidth = hw::getBitWidth(resultValue.getType());
     
-
     if (resultValueWidth > 4) {
       SmallVector<Value> intermediateResults;
       for (auto&& [sigId, sigWidth]: split_signal_4B(resultValueWidth)) {
@@ -211,19 +193,18 @@ struct LowerCombTo4B_1Pass : toucan::impl::LowerCombTo4B_1Base<LowerCombTo4B_1Pa
       auto resultType = rewriter.getIntegerType(resultValueWidth);
       auto newOp = rewriter.create<toucan::LUTOp>(repOp.getLoc(), resultType, toucan::LUTOpName::LUT_Rep1b, ValueRange({inputValue}));
       tryCopySVNameHint(repOp.getOperation(), newOp.getOperation());
-      rewriter.replaceAllUsesWith(repOp, newOp);
+      rewriter.replaceOp(repOp, newOp);
     }
 
     return success();
   }
+};
 
 
+class DynamicShiftOperations {
+  public:
   // shift left, inputs are 4b values from msb to lsb
-  Value dshlCore(SmallVector<Value> &inputs, Value shamt, IRRewriter &rewriter, Operation* op) {
-//    if (inputs.size() > 1) {
-//      auto lastValue = *inputs.end();
-//      assert(hw::getBitWidth(lastValue.getType()) == 4);
-//    }
+  Value dshlCore(SmallVector<Value> &inputs, Value shamt, RewriterBase &rewriter, Operation* op) const {
 
     auto shamtWidth = hw::getBitWidth(shamt.getType());
     uint64_t possibleShifts = 1L << shamtWidth;
@@ -297,15 +278,13 @@ struct LowerCombTo4B_1Pass : toucan::impl::LowerCombTo4B_1Base<LowerCombTo4B_1Pa
 
     // Finally, select result using muxes
     auto result = generate_mux_chain(op, rewriter, shiftResult, shamt);
-
     assert(static_cast<uint64_t>(hw::getBitWidth(result.getType())) == resultWidth);
-    
     return result;
-
   }
 
+
   // shift right, inputs need to be extended!!!, inputs are 4b values from msb to lsb
-  Value dshrCore(IRRewriter &rewriter, Operation* op, SmallVector<Value> &inputs, uint64_t resultWidth, Value shamt, Value fillingValue) {
+  Value dshrCore(RewriterBase &rewriter, Operation* op, SmallVector<Value> &inputs, uint64_t resultWidth, Value shamt, Value fillingValue) const {
 
     auto shamtWidth = hw::getBitWidth(shamt.getType());
     uint64_t possibleShifts = 1L << shamtWidth;
@@ -390,7 +369,7 @@ struct LowerCombTo4B_1Pass : toucan::impl::LowerCombTo4B_1Base<LowerCombTo4B_1Pa
 
   // This function may modify shamtValue!
   // For now, don't check if shamt has extra bits. leave it to canonicalizer.
-  size_t limitShamtWidth(Value &inputValue, Value &shamtValue, IRRewriter &rewriter, Operation *op) {
+  size_t limitShamtWidth(Value &inputValue, Value &shamtValue, RewriterBase &rewriter, Operation *op) const {
     auto inputValueWidth = hw::getBitWidth(inputValue.getType());
     auto necessaryShamtBits = llvm::Log2_64_Ceil(inputValueWidth);
     auto shamtWidth = hw::getBitWidth(shamtValue.getType());
@@ -403,12 +382,13 @@ struct LowerCombTo4B_1Pass : toucan::impl::LowerCombTo4B_1Base<LowerCombTo4B_1Pa
     }
     return shamtWidth;
   }
+};
 
-  LogicalResult splitCombShl(comb::ShlOp &shlOp) {
 
-    OpBuilder builder(shlOp);
-    IRRewriter rewriter(builder);
+struct LowerCombShlOp: OpRewritePattern<comb::ShlOp>, DynamicShiftOperations {
+  using OpRewritePattern<comb::ShlOp>::OpRewritePattern;
 
+  LogicalResult matchAndRewrite(comb::ShlOp shlOp, PatternRewriter &rewriter) const final {
     auto inputValue = shlOp.getLhs();
     auto shamtValue = extractMinimumWidth(shlOp.getRhs(), rewriter, shlOp.getOperation());
     auto shamtWidth = hw::getBitWidth(shamtValue.getType());
@@ -431,16 +411,16 @@ struct LowerCombTo4B_1Pass : toucan::impl::LowerCombTo4B_1Base<LowerCombTo4B_1Pa
     auto newResultWidth = hw::getBitWidth(result.getType());
     assert(oldResultWidth == newResultWidth);
 
-    rewriter.replaceAllUsesWith(oldResult, result);
+    rewriter.replaceOp(shlOp, result);
 
     return success();
   }
+};
 
-  LogicalResult splitCombShrU(comb::ShrUOp &shruOp) {
+struct LowerCombShrUOp: OpRewritePattern<comb::ShrUOp>, DynamicShiftOperations {
+  using OpRewritePattern<comb::ShrUOp>::OpRewritePattern;
 
-    OpBuilder builder(shruOp);
-    IRRewriter rewriter(builder);
-
+  LogicalResult matchAndRewrite(comb::ShrUOp shruOp, PatternRewriter &rewriter) const final {
     auto inputValue = shruOp.getLhs();
     auto shamtValue = extractMinimumWidth(shruOp.getRhs(), rewriter, shruOp.getOperation());
     auto shamtWidth = hw::getBitWidth(shamtValue.getType());
@@ -486,16 +466,17 @@ struct LowerCombTo4B_1Pass : toucan::impl::LowerCombTo4B_1Base<LowerCombTo4B_1Pa
     auto newResultWidth = hw::getBitWidth(result.getType());
     assert(oldResultWidth == newResultWidth);
 
-    rewriter.replaceAllUsesWith(oldResult, result);
+    rewriter.replaceOp(shruOp, result);
 
     return success();
   }
+};
 
-  LogicalResult splitCombShrS(comb::ShrSOp &shrsOp) {
 
-    OpBuilder builder(shrsOp);
-    IRRewriter rewriter(builder);
+struct LowerCombShrSOp: OpRewritePattern<comb::ShrSOp>, DynamicShiftOperations {
+  using OpRewritePattern<comb::ShrSOp>::OpRewritePattern;
 
+  LogicalResult matchAndRewrite(comb::ShrSOp shrsOp, PatternRewriter &rewriter) const final {
     auto inputValue = shrsOp.getLhs();
     auto shamtValue = extractMinimumWidth(shrsOp.getRhs(), rewriter, shrsOp.getOperation());
     auto shamtWidth = hw::getBitWidth(shamtValue.getType());
@@ -546,80 +527,135 @@ struct LowerCombTo4B_1Pass : toucan::impl::LowerCombTo4B_1Base<LowerCombTo4B_1Pa
     auto newResultWidth = hw::getBitWidth(result.getType());
     assert(oldResultWidth == newResultWidth);
 
-    rewriter.replaceAllUsesWith(oldResult, result);
+    rewriter.replaceOp(shrsOp, result);
+
+    return success();
+  }
+};
+
+
+
+struct LowerHWConstantOp: OpRewritePattern<hw::ConstantOp> {
+  using OpRewritePattern<hw::ConstantOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(hw::ConstantOp op, PatternRewriter &rewriter) const final {
+    SmallVector<Value> results;
+
+    auto constValueWidth = op.getValue().getBitWidth();
+    // auto constValueRaw = op.getValue().extractBits(0, 2);
+
+    if (constValueWidth > 4) {
+      auto chunks = split_signal_4B(constValueWidth);
+      for (auto [chunkId, chunkWidth]: chunks) {
+        auto newValue = op.getValue().extractBits(chunkWidth, chunkId * 4);
+        auto newConstOp = rewriter.create<hw::ConstantOp>(op->getLoc(), newValue);
+        results.push_back(newConstOp.getResult());
+      }
+
+      auto bitConcatOp = rewriter.create<comb::ConcatOp>(op.getLoc(), results);
+      rewriter.replaceOp(op, bitConcatOp);
+      // consider remove op
+    }
+    return success();
+  }
+};
+
+
+struct LowerCombDivSOp: OpRewritePattern<comb::DivSOp> {
+  using OpRewritePattern<comb::DivSOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(comb::DivSOp op, PatternRewriter &rewriter) const final {
+    op->emitError("Operation not supported");
+    return failure();
+  }
+};
+
+struct LowerCombDivUOp: OpRewritePattern<comb::DivUOp> {
+  using OpRewritePattern<comb::DivUOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(comb::DivUOp op, PatternRewriter &rewriter) const final {
+    op->emitError("Operation not supported");
+    return failure();
+  }
+};
+
+struct LowerCombModSOp: OpRewritePattern<comb::ModSOp> {
+  using OpRewritePattern<comb::ModSOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(comb::ModSOp op, PatternRewriter &rewriter) const final {
+    op->emitError("Operation not supported");
+    return failure();
+  }
+};
+
+struct LowerCombModUOp: OpRewritePattern<comb::ModUOp> {
+  using OpRewritePattern<comb::ModUOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(comb::ModUOp op, PatternRewriter &rewriter) const final {
+    op->emitError("Operation not supported");
+    return failure();
+  }
+};
+
+
+
+
+struct LowerCombTo4B_1Pass : toucan::impl::LowerCombTo4B_1Base<LowerCombTo4B_1Pass> {
+  using LowerCombTo4B_1Base<LowerCombTo4B_1Pass>::LowerCombTo4B_1Base;
+
+  std::shared_ptr<FrozenRewritePatternSet> patterns;
+  std::shared_ptr<ConversionTarget> target;
+
+  LogicalResult initialize(MLIRContext *context) override {
+
+    RewritePatternSet owningPatterns(context);
+    ConversionTarget conversionTarget(*context);
+    
+    owningPatterns.add<LowerHWConstantOp>(context);
+    owningPatterns.add<LowerCombAndOp>(context);
+    owningPatterns.add<LowerCombOrOp>(context);
+    owningPatterns.add<LowerCombXorOp>(context);
+    owningPatterns.add<LowerCombReplicateOp>(context);
+    owningPatterns.add<LowerCombShlOp>(context);
+    owningPatterns.add<LowerCombShrUOp>(context);
+    owningPatterns.add<LowerCombShrSOp>(context);
+
+    // Those operations are not supported yet
+    owningPatterns.add<LowerCombDivUOp>(context);
+    owningPatterns.add<LowerCombDivSOp>(context);
+    owningPatterns.add<LowerCombModUOp>(context);
+    owningPatterns.add<LowerCombModSOp>(context);
+
+    conversionTarget.addLegalDialect<toucan::ToucanDialect>();
+    conversionTarget.addLegalDialect<hw::HWDialect>();
+    conversionTarget.addLegalDialect<comb::CombDialect>();
+
+    // After lowering, following ops should no longer appear
+    conversionTarget.addIllegalOp<comb::AndOp>();
+    conversionTarget.addIllegalOp<comb::OrOp>();
+    conversionTarget.addIllegalOp<comb::XorOp>();
+    conversionTarget.addIllegalOp<comb::ReplicateOp>();
+    conversionTarget.addIllegalOp<comb::ShlOp>();
+    conversionTarget.addIllegalOp<comb::ShrUOp>();
+    conversionTarget.addIllegalOp<comb::ShrSOp>();
+    conversionTarget.addIllegalOp<comb::DivUOp>();
+    conversionTarget.addIllegalOp<comb::DivSOp>();
+    conversionTarget.addIllegalOp<comb::ModUOp>();
+    conversionTarget.addIllegalOp<comb::ModSOp>();
+
+    patterns = std::make_shared<FrozenRewritePatternSet>(std::move(owningPatterns));
+    target = std::make_shared<ConversionTarget>(std::move(
+    conversionTarget));
 
     return success();
   }
 
-  void emitUnsupportOpError(Operation *op) {
-    op->emitError("Operation not supported");
-  }
 
   LogicalResult runOnModule(hw::HWModuleOp mod) {
     SmallVector<Operation*> toRemove;
 
-    for (auto &stmt: mod.getOps()) {
-      // Lower hw.constant
-      if (auto constOp = dyn_cast<hw::ConstantOp>(stmt)) {
-        // dont do anything with const. It may be folded
-        // if (failed(splitHWConstOp(constOp))) return failure();
-      } else if (auto andOp = dyn_cast<comb::AndOp>(stmt)) {
-        // Lower comb.and
-        if (failed(splitCombAndOp(andOp))) return failure();
-        toRemove.push_back(andOp);
-      } else if (auto orOp = dyn_cast<comb::OrOp>(stmt)) {
-        // Lower comb.or
-        if (failed(splitCombOrOp(orOp))) return failure();
-        toRemove.push_back(orOp);
-      } else if (auto xorOp = dyn_cast<comb::XorOp>(stmt)) {
-        // Lower comb.xor
-        if (failed(splitCombXorOp(xorOp))) return failure();
-        toRemove.push_back(xorOp);
-      } else if (auto repOp = dyn_cast<comb::ReplicateOp>(stmt)) {
-        // lower replicate
-        if (failed(splitCombReplicate(repOp))) return failure();
-        toRemove.push_back(repOp);
-      } else if (auto shlOp = dyn_cast<comb::ShlOp>(stmt)) {
-        if (failed(splitCombShl(shlOp))) return failure();
-        toRemove.push_back(shlOp);
-      } else if (auto shruOp = dyn_cast<comb::ShrUOp>(stmt)) {
-        if (failed(splitCombShrU(shruOp))) return failure();
-        toRemove.push_back(shruOp);
-      } else if (auto shrsOp = dyn_cast<comb::ShrSOp>(stmt)) {
-        if (failed(splitCombShrS(shrsOp))) return failure();
-        toRemove.push_back(shrsOp);
-      } else if (auto icmpOp = dyn_cast<comb::ICmpOp>(stmt)) {
-        // TODO: lower icmp
-      } else if (auto mulOp = dyn_cast<comb::MulOp>(stmt)) {
-        // TODO: lower mul
-      } else if (
-        isa<comb::MuxOp>(stmt) ||
-        isa<comb::AddOp>(stmt) ||
-        isa<comb::SubOp>(stmt)
-      ) {
-        // Will be handled by next pass
-        // do nothing
-      } else if (
-        isa<comb::DivSOp>(stmt) ||
-        isa<comb::DivUOp>(stmt) ||
-        isa<comb::ModSOp>(stmt) ||
-        isa<comb::ModUOp>(stmt)
-      ) {
-        emitUnsupportOpError(&stmt);
-      }
+    return applyFullConversion(mod, *target, *patterns);
 
-    }
-
-    if (!toRemove.empty()) {
-      LLVM_DEBUG(
-        char buffer[128];
-        format("Removing %d Ops\n", toRemove.size()).snprint(buffer, 128);
-        llvm::dbgs() << buffer
-        );
-      for (auto op: toRemove) op->erase();
-    }
-
-    return success();
   }
 
   void runOnOperation() final {

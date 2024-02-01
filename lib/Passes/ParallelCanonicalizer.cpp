@@ -89,7 +89,6 @@ struct ParallelCanonicalizerPass : toucan::impl::ParallelCanonicalizerBase<Paral
 
 
   LogicalResult initialize(MLIRContext *context) override {
-    llvm::DenseSet<std::string> enabledOps({"toucan.lut"});
 
     RewritePatternSet owningPatterns(context);
     for (auto *dialect : context->getLoadedDialects()) {

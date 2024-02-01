@@ -88,7 +88,7 @@ namespace toucan {
     return chunks;
   }
 
-  llvm::SmallVector<mlir::Value> split_value_4B(mlir::Operation *op, mlir::Value &value, mlir::IRRewriter &rewriter) {
+  llvm::SmallVector<mlir::Value> split_value_4B(mlir::Operation *op, mlir::Value &value, mlir::RewriterBase &rewriter) {
       llvm::SmallVector<mlir::Value> ret;
 
       auto inputBitWidth = hw::getBitWidth(value.getType());
@@ -109,18 +109,18 @@ namespace toucan {
       return ret;
   }
 
-  void concat_4b_and_replace(mlir::Operation *op, mlir::Value opResult, llvm::SmallVector<mlir::Value> &values, mlir::IRRewriter &rewriter) {
+  void concat_4b_and_replace(mlir::Operation *op, mlir::Value opResult, llvm::SmallVector<mlir::Value> &values, mlir::RewriterBase &rewriter) {
     if (values.size() > 1) {
       auto bitConcatOp = rewriter.create<comb::ConcatOp>(op->getLoc(), values);
       tryCopySVNameHint(op, bitConcatOp.getOperation());
-      rewriter.replaceAllUsesWith(opResult, bitConcatOp.getResult());
+      rewriter.replaceOp(opResult.getDefiningOp(), bitConcatOp);
     } else {
-       rewriter.replaceAllUsesWith(opResult, values[0]);
+       rewriter.replaceOp(opResult.getDefiningOp(), values[0]);
     }
       
   }
 
-  mlir::Value generate_mux_chain(mlir::Operation *op, mlir::IRRewriter &rewriter, llvm::SmallVector<mlir::Value> values, mlir::Value index) {
+  mlir::Value generate_mux_chain(mlir::Operation *op, mlir::RewriterBase &rewriter, llvm::SmallVector<mlir::Value> values, mlir::Value index) {
     SmallVector<mlir::Value> outputs, inputs;
     inputs.append(values.begin(), values.end());
     auto elemType = values[0].getType();
@@ -176,7 +176,7 @@ namespace toucan {
     return false;
   }
 
-  mlir::Value extractMinimumWidth(mlir::Value val, mlir::IRRewriter &rewriter, mlir::Operation* op) {
+  mlir::Value extractMinimumWidth(mlir::Value val, mlir::RewriterBase &rewriter, mlir::Operation* op) {
   if (auto concatOp = val.getDefiningOp<comb::ConcatOp>()) {
     auto inputs = concatOp.getInputs();
     llvm::SmallVector<mlir::Value> minInputs;
@@ -226,7 +226,7 @@ namespace toucan {
   return val;
 }
 
-    // mlir::Value generate_reduce_tree(mlir::IRRewriter rewritter, llvm::SmallVector<mlir::Value> inputs, mlir::Value fillingVal, std::function<mlir::Value(mlir::IRRewriter&, mlir::Value, mlir::Value)> cb) {
+    // mlir::Value generate_reduce_tree(mlir::RewriterBase rewritter, llvm::SmallVector<mlir::Value> inputs, mlir::Value fillingVal, std::function<mlir::Value(mlir::RewriterBase&, mlir::Value, mlir::Value)> cb) {
     //     llvm::SmallVector<mlir::Value> outputs;
     //     auto levels = llvm::Log2_64_Ceil(inputs.size());
     //     for (size_t level = 0; level < levels; level++) {

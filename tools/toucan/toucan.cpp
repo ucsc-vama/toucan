@@ -123,12 +123,12 @@ static LogicalResult compileAndEmit(
         // 2.2 remove unnecessary concat/extracts (a simple, quick canonicalizer), since the canonicalizer is single-threaded.
         // pm.addPass(toucan::createLowerCombTo4B_2Pass());
 
-        mlir::GreedyRewriteConfig canonicalizerConfig;
-        canonicalizerConfig.maxIterations = 2;
-        // canonicalizerConfig.useTopDownTraversal = true;
-        canonicalizerConfig.enableRegionSimplification = false;
+        // mlir::GreedyRewriteConfig canonicalizerConfig;
+        // canonicalizerConfig.maxIterations = 2;
+        // // canonicalizerConfig.useTopDownTraversal = true;
+        // canonicalizerConfig.enableRegionSimplification = false;
 
-        pm.addPass(toucan::createParallelCanonicalizerPass(canonicalizerConfig));
+        // pm.addPass(toucan::createParallelCanonicalizerPass(canonicalizerConfig));
 
 
         // pm.addPass(mlir::createCanonicalizerPass());
