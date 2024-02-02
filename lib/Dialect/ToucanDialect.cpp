@@ -1,6 +1,8 @@
 #include "toucan/ToucanDialect.h"
 #include "circt/Dialect/HW/HWTypes.h"
+#include "mlir/IR/Builders.h"
 #include "mlir/IR/ValueRange.h"
+#include "toucan/ToucanAttributes.h"
 #include "toucan/ToucanOps.h"
 #include "toucan/ToucanTypes.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -17,6 +19,7 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Casting.h"
+#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/MathExtras.h"
 #include <numeric>
 #include "circt/Dialect/HW/HWOps.h"
@@ -108,12 +111,68 @@ LogicalResult RegWriteOp::verify() {
   return success();
 }
 
+size_t LUTOp::getLegalOperandCount(toucan::LUTOpName opName) {
+  switch (opName) {
+    case LUTOpName::LUT_Nop:
+      return 0;
+    case LUTOpName::LUT_Rep1b:
+      return 1;
+    case LUTOpName::LUT_And:
+    case LUTOpName::LUT_Or:
+    case LUTOpName::LUT_Xor:
+    case LUTOpName::LUT_Shl1:
+    case LUTOpName::LUT_Shl2:
+    case LUTOpName::LUT_Shl3:
+    case LUTOpName::LUT_Shr1:
+    case LUTOpName::LUT_Shr2:
+    case LUTOpName::LUT_Shr3:
+    case LUTOpName::LUT_Cmp_Eq:
+      return 2;
+  }
+  llvm_unreachable("Unknow op name");
+}
+
 LogicalResult LUTOp::verify() {
-  // TODO: verify base on op name
-  if (getInputs().size() > 3) {
-    return emitError() << "Too many oprands (max 3)";
+  size_t legalOperandCount = getLegalOperandCount(getOpName()); 
+  if (getInputs().size() != legalOperandCount) {
+    return emitError() << "Unmatched oprand count for op " << stringifyLUTOpName(getOpName()) << ": expect " << legalOperandCount << ", got " << getInputs().size();
   }
   return success();
+}
+
+size_t LUTOp::getResultWidth1(toucan::LUTOpName opName, ValueRange inputs) {
+  assert(opName != toucan::LUTOpName::LUT_Rep1b && "LUT_Rep1b's output size should be given, instead of inffered");
+  return hw::getBitWidth(inputs[0].getType());
+}
+
+size_t LUTOp::getResultWidth2(toucan::LUTOpName opName, ValueRange inputs) {
+  switch (opName) {
+    case LUTOpName::LUT_And:
+    case LUTOpName::LUT_Or:
+    case LUTOpName::LUT_Xor: 
+    case LUTOpName::LUT_Shl1:
+    case LUTOpName::LUT_Shl2:
+    case LUTOpName::LUT_Shl3:
+    case LUTOpName::LUT_Shr1:
+    case LUTOpName::LUT_Shr2:
+    case LUTOpName::LUT_Shr3: {
+      assert(inputs.size() == 2);
+      auto lhsSize = hw::getBitWidth(inputs[0].getType());
+      auto rhsSize = hw::getBitWidth(inputs[1].getType());
+      return std::max(lhsSize, rhsSize);
+    }
+    
+    case LUTOpName::LUT_Cmp_Eq: {
+      return 1;
+    }
+
+    default: ;
+  }
+  llvm_unreachable("Unknown operation, or operation doesn't have 2 operands");
+}
+
+size_t LUTOp::getResultWidth3(toucan::LUTOpName opName, ValueRange inputs) {
+  return hw::getBitWidth(inputs[0].getType());
 }
 
 // LogicalResult BitScatterOp::verify() {
@@ -152,4 +211,5 @@ LogicalResult LUTOp::verify() {
 //   }
 //   return success();
 // }
+
 

@@ -32,6 +32,7 @@
 
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/Format.h"
@@ -537,7 +538,215 @@ struct LowerCombShrSOp: OpRewritePattern<comb::ShrSOp>, DynamicShiftOperations {
 struct LowerCombICmpOp: OpRewritePattern<comb::ICmpOp> {
   using OpRewritePattern<comb::ICmpOp>::OpRewritePattern;
 
+  comb::ICmpPredicate getImplementablePredicate(comb::ICmpPredicate predicate) const {
+    switch (predicate) {
+      case comb::ICmpPredicate::eq:
+      case comb::ICmpPredicate::ne:
+        return comb::ICmpPredicate::eq;
+      case comb::ICmpPredicate::slt:
+      case comb::ICmpPredicate::sge:
+        return comb::ICmpPredicate::slt;
+      case comb::ICmpPredicate::sle:
+      case comb::ICmpPredicate::sgt:
+        return comb::ICmpPredicate::sle;
+      case comb::ICmpPredicate::ult:
+      case comb::ICmpPredicate::uge:
+        return comb::ICmpPredicate::ult;
+      case comb::ICmpPredicate::ule:
+      case comb::ICmpPredicate::ugt:
+        return comb::ICmpPredicate::ule;
+      case comb::ICmpPredicate::ceq:
+      case comb::ICmpPredicate::cne:
+      case comb::ICmpPredicate::weq:
+      case comb::ICmpPredicate::wne:
+        return comb::ICmpPredicate::ceq;
+    }
+    llvm_unreachable("Unknow icmp predicate!");
+  }
+
+  Value addNot(comb::ICmpOp &op, PatternRewriter &rewriter, Value &value) const {
+    auto constOp = rewriter.create<hw::ConstantOp>(op.getLoc(), rewriter.getI1Type(), 1);
+    auto constVal = constOp.getResult();
+    auto notOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Xor, value, constVal);
+    return notOp.getResult();
+  }
+
+
+  Value paddingValueWithZeroForIcmp(comb::ICmpOp &op, PatternRewriter &rewriter, Value val) const {
+    auto inputValueWidth = hw::getBitWidth(val.getType());
+
+    auto paddingTargetWidth = ((inputValueWidth & 0x3) == 0) ? inputValueWidth + 4 : ((inputValueWidth + 3) & (~0x3));
+
+    auto constOp = rewriter.create<hw::ConstantOp>(op.getLoc(), rewriter.getIntegerType(paddingTargetWidth - inputValueWidth), 0);
+    auto constVal = constOp.getResult();
+
+    auto paddingOp = rewriter.create<comb::ConcatOp>(op.getLoc(), ValueRange({constVal, val}));
+    auto paddingValue = paddingOp.getResult();
+
+    return paddingValue;
+  }
+
+  Value icmpEqCore(comb::ICmpOp &op, PatternRewriter &rewriter, Value lhsValue, Value rhsValue) const {
+
+    auto lhsValues = split_value_4B(op.getOperation(), lhsValue, rewriter);
+    auto rhsValues = split_value_4B(op.getOperation(), rhsValue, rewriter);
+
+    SmallVector<Value> eqOutputs;
+    for (auto &&[lhs, rhs]: zip(lhsValues, rhsValues)) {
+      auto eqOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Cmp_Eq, lhs, rhs);
+      eqOutputs.push_back(eqOp.getResult());
+    }
+    // create reduce tree of And
+
+    auto constOp = rewriter.create<hw::ConstantOp>(op.getLoc(), rewriter.getI1Type(), 1);
+    auto constVal = constOp.getResult();
+
+    SmallVector<Value> level_outputs;
+
+    while (eqOutputs.size() > 1) {
+      for (size_t i = 0; i < (eqOutputs.size() + 1) / 2; i++) {
+        auto pos = i * 2;
+        auto andLhs = eqOutputs[pos];
+        pos += 1;
+        auto andRhs = (eqOutputs.size() > pos) ? eqOutputs[pos] : constVal;
+
+        auto andOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_And, andLhs, andRhs);
+        level_outputs.push_back(andOp.getResult());
+      }
+      std::swap(eqOutputs, level_outputs);
+    }
+    assert(eqOutputs.size() == 1);
+
+    return eqOutputs[0];
+  }
+
+  Value icmpLTCore(comb::ICmpOp &op, PatternRewriter &rewriter, Value lhs, Value rhs) const {
+    // This is actually a SLT impl
+    auto subOp = rewriter.create<comb::SubOp>(op.getLoc(), lhs, rhs);
+    auto subValue = subOp.getResult();
+    auto subValueWidth = hw::getBitWidth(subValue.getType());
+    assert(subValueWidth > 0);
+
+    auto extractMSBOp = rewriter.create<comb::ExtractOp>(op.getLoc(), subValue, subValueWidth - 1, 1);
+    auto msbValue = extractMSBOp.getResult();
+
+    return msbValue;
+  }
+
+  Value LowerCombICmpEQ(comb::ICmpOp &op, PatternRewriter &rewriter) const {
+    auto lhsValue = op.getLhs();
+    auto rhsValue = op.getRhs();
+
+    auto inputValueWidth = hw::getBitWidth(lhsValue.getType());
+    assert(inputValueWidth == hw::getBitWidth(rhsValue.getType()));
+
+    auto result = icmpEqCore(op, rewriter, lhsValue, rhsValue);
+    return result;
+  }
+
+
+  Value LowerCombICmpULT(comb::ICmpOp &op, PatternRewriter &rewriter) const {
+    auto lhsValue = op.getLhs();
+    auto rhsValue = op.getRhs();
+
+    auto inputValueWidth = hw::getBitWidth(lhsValue.getType());
+    assert(inputValueWidth == hw::getBitWidth(rhsValue.getType()));
+
+    auto paddingLhsValue = paddingValueWithZeroForIcmp(op, rewriter, lhsValue);
+    auto paddingRhsValue = paddingValueWithZeroForIcmp(op, rewriter, rhsValue);
+
+    return icmpLTCore(op, rewriter, paddingLhsValue, paddingRhsValue);
+  }
+
+  Value LowerCombICmpULE(comb::ICmpOp &op, PatternRewriter &rewriter) const {
+    auto lhsValue = op.getLhs();
+    auto rhsValue = op.getRhs();
+
+    auto inputValueWidth = hw::getBitWidth(lhsValue.getType());
+    assert(inputValueWidth == hw::getBitWidth(rhsValue.getType()));
+
+    auto paddingLhsValue = paddingValueWithZeroForIcmp(op, rewriter, lhsValue);
+    auto paddingRhsValue = paddingValueWithZeroForIcmp(op, rewriter, rhsValue);
+
+    auto ultValue = icmpLTCore(op, rewriter, paddingLhsValue, paddingRhsValue);
+    auto eqValue = icmpEqCore(op, rewriter, paddingLhsValue, paddingRhsValue);
+
+    auto orOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Or, ultValue, eqValue);
+
+    return orOp.getResult();
+  }
+
+  Value LowerCombICmpSLT(comb::ICmpOp &op, PatternRewriter &rewriter) const {
+    auto lhsValue = op.getLhs();
+    auto rhsValue = op.getRhs();
+
+    auto inputValueWidth = hw::getBitWidth(lhsValue.getType());
+    assert(inputValueWidth == hw::getBitWidth(rhsValue.getType()));
+
+    return icmpLTCore(op, rewriter, lhsValue, rhsValue);
+  }
+
+  Value LowerCombICmpSLE(comb::ICmpOp &op, PatternRewriter &rewriter) const {
+    auto lhsValue = op.getLhs();
+    auto rhsValue = op.getRhs();
+
+    auto inputValueWidth = hw::getBitWidth(lhsValue.getType());
+    assert(inputValueWidth == hw::getBitWidth(rhsValue.getType()));
+
+    auto ultValue = icmpLTCore(op, rewriter, lhsValue, rhsValue);
+    auto eqValue = icmpEqCore(op, rewriter, lhsValue, rhsValue);
+
+    auto orOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Or, ultValue, eqValue);
+
+    return orOp.getResult();
+  }
+
   LogicalResult matchAndRewrite(comb::ICmpOp op, PatternRewriter &rewriter) const final {
+
+    auto predicate = op.getPredicate();
+
+    auto implPredicate = getImplementablePredicate(predicate);
+
+    Value result;
+
+    switch (implPredicate) {
+      case circt::comb::ICmpPredicate::eq : {
+        result = LowerCombICmpEQ(op, rewriter);
+        break;
+      }
+      case circt::comb::ICmpPredicate::slt: {
+        result = LowerCombICmpSLT(op, rewriter);
+        break;
+      }
+      case circt::comb::ICmpPredicate::sle: {
+        result = LowerCombICmpSLE(op, rewriter);
+        break;
+      }
+      case circt::comb::ICmpPredicate::ult: {
+        result = LowerCombICmpULT(op, rewriter);
+        break;
+      }
+      case circt::comb::ICmpPredicate::ule: {
+        result = LowerCombICmpULE(op, rewriter);
+        break;
+      }
+      case circt::comb::ICmpPredicate::ceq: {
+        // not supported
+        op.emitError() << "ceq, cne, weq, wne are not supported";
+        return failure();
+      }
+      default: {
+        llvm_unreachable("Should not reach here");
+        return failure();
+      }
+    }
+
+    if (predicate != implPredicate) {
+      // Add a not gate
+      result = addNot(op, rewriter, result);
+    }
+
+    rewriter.replaceOp(op, result);
 
     return success();
   }
@@ -637,6 +846,7 @@ struct LowerCombTo4B_1Pass : toucan::impl::LowerCombTo4B_1Base<LowerCombTo4B_1Pa
     owningPatterns.add<LowerCombShlOp>(context);
     owningPatterns.add<LowerCombShrUOp>(context);
     owningPatterns.add<LowerCombShrSOp>(context);
+    owningPatterns.add<LowerCombICmpOp>(context);
 
     // Those operations are not supported yet
     owningPatterns.add<LowerCombDivUOp>(context);
@@ -656,6 +866,8 @@ struct LowerCombTo4B_1Pass : toucan::impl::LowerCombTo4B_1Base<LowerCombTo4B_1Pa
     conversionTarget.addIllegalOp<comb::ShlOp>();
     conversionTarget.addIllegalOp<comb::ShrUOp>();
     conversionTarget.addIllegalOp<comb::ShrSOp>();
+    conversionTarget.addIllegalOp<comb::ICmpOp>();
+
     conversionTarget.addIllegalOp<comb::DivUOp>();
     conversionTarget.addIllegalOp<comb::DivSOp>();
     conversionTarget.addIllegalOp<comb::ModUOp>();

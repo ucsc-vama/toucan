@@ -169,14 +169,25 @@ def LUTOp : ToucanOp<"lut", [Pure]> {
 
   let assemblyFormat = "$op_name $inputs `,` attr-dict `:` `(` type($inputs) `)` `->` type($result)";
 
+  let extraClassDeclaration = [{
+    static size_t getResultWidth1(toucan::LUTOpName opName, mlir::ValueRange inputs);
+    static size_t getResultWidth2(toucan::LUTOpName opName, mlir::ValueRange inputs);
+    static size_t getResultWidth3(toucan::LUTOpName opName, mlir::ValueRange inputs);
+    static size_t getLegalOperandCount(toucan::LUTOpName opName);
+  }];
+
   let builders = [
     OpBuilder<(ins "toucan::LUTOpName":$op_enum, "mlir::Value":$lhs, "mlir::Value":$rhs), [{
-      auto resultType = lhs.getType();
-      build($_builder, $_state, resultType, op_enum, mlir::ValueRange({lhs, rhs}));
+      auto inputs = ValueRange({lhs, rhs});
+      auto resultWidth = getResultWidth2(op_enum, inputs);
+      auto resultType = $_builder.getIntegerType(resultWidth);
+      build($_builder, $_state, resultType, op_enum, inputs);
     }]>,
     OpBuilder<(ins "toucan::LUTOpName":$op_enum, "mlir::Value":$op1, "mlir::Value":$op2, "mlir::Value":$op3), [{
-      auto resultType = op2.getType();
-      build($_builder, $_state, resultType, op_enum, mlir::ValueRange({op1, op2, op3}));
+      auto inputs = ValueRange({op1, op2, op3});
+      auto resultWidth = getResultWidth2(op_enum, inputs);
+      auto resultType = $_builder.getIntegerType(resultWidth);
+      build($_builder, $_state, resultType, op_enum, inputs);
     }]>
   ];
 
