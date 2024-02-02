@@ -613,6 +613,7 @@ struct LowerCombICmpOp: OpRewritePattern<comb::ICmpOp> {
         auto andOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_And, andLhs, andRhs);
         level_outputs.push_back(andOp.getResult());
       }
+      eqOutputs.clear();
       std::swap(eqOutputs, level_outputs);
     }
     assert(eqOutputs.size() == 1);
