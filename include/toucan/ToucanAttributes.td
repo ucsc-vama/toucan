@@ -18,7 +18,9 @@ let cppNamespace = "toucan" in {
         I32EnumAttrCase<"LUT_Shr1", 8, "shr1">,
         I32EnumAttrCase<"LUT_Shr2", 9, "shr2">,
         I32EnumAttrCase<"LUT_Shr3", 10, "shr3">,
-        I32EnumAttrCase<"LUT_Cmp_Eq", 11, "cmp_eq">
+        I32EnumAttrCase<"LUT_Cmp_Eq", 11, "cmp_eq">,
+        I32EnumAttrCase<"LUT_Mul_Hi", 12, "mul_hi">,
+        I32EnumAttrCase<"LUT_Mul_Lo", 13, "mul_lo">
     ]> ;
 
 }

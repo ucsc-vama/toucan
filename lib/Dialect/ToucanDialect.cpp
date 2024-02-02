@@ -127,6 +127,8 @@ size_t LUTOp::getLegalOperandCount(toucan::LUTOpName opName) {
     case LUTOpName::LUT_Shr2:
     case LUTOpName::LUT_Shr3:
     case LUTOpName::LUT_Cmp_Eq:
+    case LUTOpName::LUT_Mul_Hi:
+    case LUTOpName::LUT_Mul_Lo:
       return 2;
   }
   llvm_unreachable("Unknow op name");
@@ -161,6 +163,11 @@ size_t LUTOp::getResultWidth2(toucan::LUTOpName opName, ValueRange inputs) {
       auto rhsSize = hw::getBitWidth(inputs[1].getType());
       return std::max(lhsSize, rhsSize);
     }
+    
+    case LUTOpName::LUT_Mul_Hi:
+    case LUTOpName::LUT_Mul_Lo: {
+      return 4;
+    } 
     
     case LUTOpName::LUT_Cmp_Eq: {
       return 1;
