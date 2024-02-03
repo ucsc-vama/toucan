@@ -243,15 +243,21 @@ namespace toucan {
 
     auto paddingTargetWidth = ((inputValueWidth + 3) & (~0x3));
 
-    auto constOp = rewriter.create<hw::ConstantOp>(op->getLoc(), rewriter.getIntegerType(paddingTargetWidth - inputValueWidth), 0);
-    auto constVal = constOp.getResult();
+    if (paddingTargetWidth != inputValueWidth) {
+      auto constOp = rewriter.create<hw::ConstantOp>(op->getLoc(), rewriter.getIntegerType(paddingTargetWidth - inputValueWidth), 0);
+      auto constVal = constOp.getResult();
 
-    auto paddingOp = rewriter.create<comb::ConcatOp>(op->getLoc(), ValueRange({constVal, val}));
-    auto paddingValue = paddingOp.getResult();
+      auto paddingOp = rewriter.create<comb::ConcatOp>(op->getLoc(), ValueRange({constVal, val}));
+      auto paddingValue = paddingOp.getResult();
 
-    assert(hw::getBitWidth(paddingValue.getType()) % 4 == 0);
+      assert(hw::getBitWidth(paddingValue.getType()) % 4 == 0);
 
-    return paddingValue;
+      return paddingValue;
+    } else {
+      return val;
+    }
+
+    
   }
 
     // mlir::Value generate_reduce_tree(mlir::RewriterBase rewritter, llvm::SmallVector<mlir::Value> inputs, mlir::Value fillingVal, std::function<mlir::Value(mlir::RewriterBase&, mlir::Value, mlir::Value)> cb) {

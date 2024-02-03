@@ -760,6 +760,8 @@ struct LowerCombICmpOp: OpRewritePattern<comb::ICmpOp> {
 struct LowerCombMulOp: OpRewritePattern<comb::MulOp> {
   using OpRewritePattern<comb::MulOp>::OpRewritePattern;
 
+  const static size_t maxMulWidth = 256;
+
   LogicalResult matchAndRewrite(comb::MulOp op, PatternRewriter &rewriter) const final {
     auto inputs = op.getInputs();
     assert(inputs.size() == 2);
@@ -768,9 +770,9 @@ struct LowerCombMulOp: OpRewritePattern<comb::MulOp> {
     
     assert(hw::getBitWidth(lhsValue.getType()) == hw::getBitWidth(rhsValue.getType()));
     auto inputBitWidth = hw::getBitWidth(lhsValue.getType());
-    if (inputBitWidth > 1024) {
+    if (static_cast<size_t>(inputBitWidth) > maxMulWidth) {
       // Mul wider than this value may be too costly. 
-      op->emitError("Multiplication too wide");
+      op->emitError() << "Multiplication too wide (max limit is " << maxMulWidth << ", got " << inputBitWidth << ")";
       return failure();
     }
 
