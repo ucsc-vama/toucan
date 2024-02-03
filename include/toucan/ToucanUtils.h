@@ -52,6 +52,8 @@ namespace toucan {
 
   std::optional<mlir::IntegerAttr> getSignalFragmentIDAttr(mlir::Operation *op);
 
+  void copyCustomizedAttrs(mlir::Operation *from, mlir::Operation *to);
+
 
 
 
@@ -64,6 +66,8 @@ namespace toucan {
   mlir::Value generate_mux_chain(mlir::Operation *op, mlir::RewriterBase &rewriter, llvm::SmallVector<mlir::Value> values, mlir::Value index);
 
   mlir::Value extractMinimumWidth(mlir::Value val, mlir::RewriterBase &rewriter, mlir::Operation* op);
+
+  mlir::Value padding_with_0_and_align_4b(mlir::Operation *op, mlir::RewriterBase &rewriter, mlir::Value val);
 
   // // template<class OpTy>
   // mlir::Value generate_reduce_tree(mlir::RewriterBase rewritter, llvm::SmallVector<mlir::Value> inputs, mlir::Value fillingVal, std::function<mlir::Value(mlir::RewriterBase&, mlir::Value, mlir::Value)> cb);

@@ -84,7 +84,7 @@ struct LowerCombAndOp: OpRewritePattern<comb::AndOp> {
       concat_4b_and_replace(op.getOperation(), op.getResult(), intermediateResults, rewriter);
     } else {
       auto andOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_And, lhs, rhs);
-      tryCopySVNameHint(op.getOperation(), andOp.getOperation());
+      copyCustomizedAttrs(op, andOp);
       rewriter.replaceOp(op, andOp);
     }
     
@@ -122,7 +122,7 @@ struct LowerCombOrOp: OpRewritePattern<comb::OrOp> {
       concat_4b_and_replace(op.getOperation(), op.getResult(), intermediateResults, rewriter);
     } else {
       auto orOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Or, lhs, rhs);
-      tryCopySVNameHint(op.getOperation(), orOp.getOperation());
+      copyCustomizedAttrs(op.getOperation(), orOp.getOperation());
       rewriter.replaceOp(op, orOp);
     }
     
@@ -160,7 +160,7 @@ struct LowerCombXorOp: OpRewritePattern<comb::XorOp> {
       concat_4b_and_replace(op.getOperation(), op.getResult(), intermediateResults, rewriter);
     } else {
       auto xorOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Xor, lhs, rhs);
-      tryCopySVNameHint(op.getOperation(), xorOp.getOperation());
+      copyCustomizedAttrs(op.getOperation(), xorOp.getOperation());
       rewriter.replaceOp(op, xorOp);
     }
     
@@ -193,7 +193,7 @@ struct LowerCombReplicateOp: OpRewritePattern<comb::ReplicateOp> {
     } else {
       auto resultType = rewriter.getIntegerType(resultValueWidth);
       auto newOp = rewriter.create<toucan::LUTOp>(repOp.getLoc(), resultType, toucan::LUTOpName::LUT_Rep1b, ValueRange({inputValue}));
-      tryCopySVNameHint(repOp.getOperation(), newOp.getOperation());
+      copyCustomizedAttrs(repOp.getOperation(), newOp.getOperation());
       rewriter.replaceOp(repOp, newOp);
     }
 
@@ -412,6 +412,7 @@ struct LowerCombShlOp: OpRewritePattern<comb::ShlOp>, DynamicShiftOperations {
     auto newResultWidth = hw::getBitWidth(result.getType());
     assert(oldResultWidth == newResultWidth);
 
+    copyCustomizedAttrs(shlOp, result.getDefiningOp());
     rewriter.replaceOp(shlOp, result);
 
     return success();
@@ -467,6 +468,7 @@ struct LowerCombShrUOp: OpRewritePattern<comb::ShrUOp>, DynamicShiftOperations {
     auto newResultWidth = hw::getBitWidth(result.getType());
     assert(oldResultWidth == newResultWidth);
 
+    copyCustomizedAttrs(shruOp, result.getDefiningOp());
     rewriter.replaceOp(shruOp, result);
 
     return success();
@@ -528,6 +530,7 @@ struct LowerCombShrSOp: OpRewritePattern<comb::ShrSOp>, DynamicShiftOperations {
     auto newResultWidth = hw::getBitWidth(result.getType());
     assert(oldResultWidth == newResultWidth);
 
+    copyCustomizedAttrs(shrsOp, result.getDefiningOp());
     rewriter.replaceOp(shrsOp, result);
 
     return success();
@@ -747,6 +750,7 @@ struct LowerCombICmpOp: OpRewritePattern<comb::ICmpOp> {
       result = addNot(op, rewriter, result);
     }
 
+    copyCustomizedAttrs(op, result.getDefiningOp());
     rewriter.replaceOp(op, result);
 
     return success();
@@ -757,6 +761,101 @@ struct LowerCombMulOp: OpRewritePattern<comb::MulOp> {
   using OpRewritePattern<comb::MulOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(comb::MulOp op, PatternRewriter &rewriter) const final {
+    auto inputs = op.getInputs();
+    assert(inputs.size() == 2);
+    auto lhsValue = inputs[0];
+    auto rhsValue = inputs[1];
+    
+    assert(hw::getBitWidth(lhsValue.getType()) == hw::getBitWidth(rhsValue.getType()));
+    auto inputBitWidth = hw::getBitWidth(lhsValue.getType());
+    if (inputBitWidth > 1024) {
+      // Mul wider than this value may be too costly. 
+      op->emitError("Multiplication too wide");
+      return failure();
+    }
+
+    auto lhsPadding = padding_with_0_and_align_4b(op.getOperation(), rewriter, lhsValue);
+    auto rhsPadding = padding_with_0_and_align_4b(op.getOperation(), rewriter, rhsValue);
+
+    auto lhsValues = split_value_4B(op.getOperation(), lhsPadding, rewriter);
+    auto rhsValues = split_value_4B(op.getOperation(), rhsPadding, rewriter);
+
+    auto int4BType = rewriter.getI4Type();
+    auto zeroConst = rewriter.create<hw::ConstantOp>(op->getLoc(), int4BType, 0);
+    auto zeroConstValue = zeroConst.getResult();
+
+    assert(lhsValues.size() == rhsValues.size());
+    auto inputSections = lhsValues.size();
+
+    auto outputSections = inputSections * 2;
+    auto outputIntegers = inputSections * inputSections;
+
+
+    SmallVector<SmallVector<Value>> tempValues;
+    for (size_t i = 0; i < outputIntegers; i++) {
+      tempValues.push_back({});
+      for (size_t j = 0; j < outputSections; j++) {
+        tempValues[i].push_back(zeroConstValue);
+      }
+    }
+
+    for (size_t i = 0; i < inputSections; i++) {
+      for (size_t j = 0; j < inputSections; j++) {
+        auto current_int_level = i * inputSections + j;
+
+        auto pos_lo = i + j;
+        auto pos_hi = pos_lo + 1;
+
+        auto lhs = lhsValues[i];
+        auto rhs = rhsValues[j];
+
+        auto mulLoOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Mul_Lo, lhs, rhs);
+        auto mulHiOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Mul_Hi, lhs, rhs);
+
+        auto loVal = mulLoOp.getResult();
+        auto hiVal = mulHiOp.getResult();
+
+        tempValues[current_int_level][pos_lo] = loVal;
+        tempValues[current_int_level][pos_hi] = hiVal;
+      }
+    }
+
+    // Merge 4b fragments
+    SmallVector<Value> addition_inputs;
+    for (auto valFragments: tempValues) {
+      auto concatOp = rewriter.create<comb::ConcatOp>(op.getLoc(), valFragments);
+      addition_inputs.push_back(concatOp.getResult());
+    }
+
+    // generate addition tree
+
+    auto addZeroType = rewriter.getIntegerType(outputSections * 4);
+    auto addZeroOp = rewriter.create<hw::ConstantOp>(op->getLoc(), addZeroType, 0);
+    auto addZeroConstValue = addZeroOp.getResult();
+
+    assert(!addition_inputs.empty());
+    SmallVector<Value> outputs;
+    while (addition_inputs.size() != 1) {
+      for (size_t i = 0; i < addition_inputs.size(); i += 2) {
+        auto lhs = addition_inputs[i];
+        auto rhs = (i+1 < addition_inputs.size()) ? addition_inputs[i+1] : addZeroConstValue;
+
+        auto addOp = rewriter.create<comb::AddOp>(op.getLoc(), ValueRange({lhs, rhs}), false);
+        auto addValue = addOp.getResult();
+        outputs.push_back(addValue);
+      }
+      addition_inputs.clear();
+      std::swap(addition_inputs, outputs);
+    }
+    assert(addition_inputs.size() == 1);
+    auto rawResult = addition_inputs[0];
+
+    // Shrink to desired width
+    auto shrinkOp = rewriter.create<comb::ExtractOp>(op.getLoc(), rawResult, 0, inputBitWidth);
+    auto result = shrinkOp.getResult();
+
+    copyCustomizedAttrs(op, result.getDefiningOp());
+    rewriter.replaceOp(op, result);
 
     return success();
   }
@@ -781,6 +880,7 @@ struct LowerHWConstantOp: OpRewritePattern<hw::ConstantOp> {
       }
 
       auto bitConcatOp = rewriter.create<comb::ConcatOp>(op.getLoc(), results);
+      copyCustomizedAttrs(op, bitConcatOp);
       rewriter.replaceOp(op, bitConcatOp);
       // consider remove op
     }

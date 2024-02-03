@@ -53,6 +53,17 @@ namespace toucan {
     }
   }
 
+  void copyCustomizedAttrs(mlir::Operation *from, mlir::Operation *to) {
+    auto namehint = getSVNameHintAttr(from);
+    if (namehint) {
+      setSVNameHintAttr(to, namehint.value());
+    }
+    auto fragmentId = getSignalFragmentIDAttr(from);
+    if (fragmentId) {
+      setSignalFragmentIDAttr(to, fragmentId.value());
+    }
+  }
+
   const char* getRegNextSuffix() {
     return "$next";
   }
@@ -177,54 +188,71 @@ namespace toucan {
   }
 
   mlir::Value extractMinimumWidth(mlir::Value val, mlir::RewriterBase &rewriter, mlir::Operation* op) {
-  if (auto concatOp = val.getDefiningOp<comb::ConcatOp>()) {
-    auto inputs = concatOp.getInputs();
-    llvm::SmallVector<mlir::Value> minInputs;
-    if (inputs.size() > 0) {
-      bool doneMerging = false;
-      for (size_t i = 0; i < inputs.size(); i++) {
-        auto inputVal = inputs[i];
+    if (auto concatOp = val.getDefiningOp<comb::ConcatOp>()) {
+      auto inputs = concatOp.getInputs();
+      llvm::SmallVector<mlir::Value> minInputs;
+      if (inputs.size() > 0) {
+        bool doneMerging = false;
+        for (size_t i = 0; i < inputs.size(); i++) {
+          auto inputVal = inputs[i];
 
-        if (!doneMerging) {
-          if (auto constOp = inputVal.getDefiningOp<hw::ConstantOp>()) {
-            auto constVal = constOp.getValue();
-            auto leadingZeros = constVal.countLeadingZeros();
-            auto constValWidth = constVal.getBitWidth();
+          if (!doneMerging) {
+            if (auto constOp = inputVal.getDefiningOp<hw::ConstantOp>()) {
+              auto constVal = constOp.getValue();
+              auto leadingZeros = constVal.countLeadingZeros();
+              auto constValWidth = constVal.getBitWidth();
 
-            if (leadingZeros != constValWidth) {
-              auto usefulBits = constValWidth - leadingZeros;
-              auto truncatedVal = constVal.extractBits(usefulBits, 0);
-              assert(constVal == truncatedVal.zext(constValWidth));
-              
-              auto newConstOp = rewriter.create<hw::ConstantOp>(op->getLoc(), truncatedVal);
-              minInputs.push_back(newConstOp.getResult());
+              if (leadingZeros != constValWidth) {
+                auto usefulBits = constValWidth - leadingZeros;
+                auto truncatedVal = constVal.extractBits(usefulBits, 0);
+                assert(constVal == truncatedVal.zext(constValWidth));
+                
+                auto newConstOp = rewriter.create<hw::ConstantOp>(op->getLoc(), truncatedVal);
+                minInputs.push_back(newConstOp.getResult());
+              }
+            } else {
+              if (i == 0) {
+                // Cannot merge the first element. simply return
+                return val;
+              }
+              doneMerging = true;
+              minInputs.push_back(inputVal);
             }
           } else {
-            if (i == 0) {
-              // Cannot merge the first element. simply return
-              return val;
-            }
-            doneMerging = true;
             minInputs.push_back(inputVal);
           }
-        } else {
-          minInputs.push_back(inputVal);
+          
         }
+
+        // special case
+        if (minInputs.size() == 1) {
+          return minInputs[0];
+        }
+
+        auto newConcatOp = rewriter.create<comb::ConcatOp>(op->getLoc(), minInputs);
+        return newConcatOp.getResult();
         
       }
-
-      // special case
-      if (minInputs.size() == 1) {
-        return minInputs[0];
-      }
-
-      auto newConcatOp = rewriter.create<comb::ConcatOp>(op->getLoc(), minInputs);
-      return newConcatOp.getResult();
-      
     }
+    return val;
   }
-  return val;
-}
+
+
+  mlir::Value padding_with_0_and_align_4b(mlir::Operation *op, mlir::RewriterBase &rewriter, mlir::Value val) {
+    auto inputValueWidth = hw::getBitWidth(val.getType());
+
+    auto paddingTargetWidth = ((inputValueWidth + 3) & (~0x3));
+
+    auto constOp = rewriter.create<hw::ConstantOp>(op->getLoc(), rewriter.getIntegerType(paddingTargetWidth - inputValueWidth), 0);
+    auto constVal = constOp.getResult();
+
+    auto paddingOp = rewriter.create<comb::ConcatOp>(op->getLoc(), ValueRange({constVal, val}));
+    auto paddingValue = paddingOp.getResult();
+
+    assert(hw::getBitWidth(paddingValue.getType()) % 4 == 0);
+
+    return paddingValue;
+  }
 
     // mlir::Value generate_reduce_tree(mlir::RewriterBase rewritter, llvm::SmallVector<mlir::Value> inputs, mlir::Value fillingVal, std::function<mlir::Value(mlir::RewriterBase&, mlir::Value, mlir::Value)> cb) {
     //     llvm::SmallVector<mlir::Value> outputs;

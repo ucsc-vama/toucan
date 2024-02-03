@@ -138,6 +138,8 @@ struct LowerCombPreProcessPass : toucan::impl::LowerCombPreProcessBase<LowerComb
         if (succeeded(lowerOp<comb::OrOp>(orOp))) toRemove.push_back(orOp);
       } else if (auto xorOp = dyn_cast<comb::XorOp>(stmt)) {
         if (succeeded(lowerOp<comb::XorOp>(xorOp))) toRemove.push_back(xorOp);
+      } else if (auto addOp = dyn_cast<comb::AddOp>(stmt)) {
+        if (succeeded(lowerOp<comb::AddOp>(addOp))) toRemove.push_back(xorOp);
       } else if (auto repOp = dyn_cast<comb::ReplicateOp>(stmt)) {
         if (succeeded(lowerReplicateOp(repOp))) toRemove.push_back(repOp);
       } else if (auto shruOp = dyn_cast<comb::ShrUOp>(stmt)) {
