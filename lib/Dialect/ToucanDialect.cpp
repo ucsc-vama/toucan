@@ -129,7 +129,10 @@ size_t LUTOp::getLegalOperandCount(toucan::LUTOpName opName) {
     case LUTOpName::LUT_Cmp_Eq:
     case LUTOpName::LUT_Mul_Hi:
     case LUTOpName::LUT_Mul_Lo:
+    case LUTOpName::LUT_Carry:
       return 2;
+    case LUTOpName::LUT_Add:
+      return 3;
   }
   llvm_unreachable("Unknow op name");
 }
@@ -169,7 +172,8 @@ size_t LUTOp::getResultWidth2(toucan::LUTOpName opName, ValueRange inputs) {
       return 4;
     } 
     
-    case LUTOpName::LUT_Cmp_Eq: {
+    case LUTOpName::LUT_Cmp_Eq:
+    case LUTOpName::LUT_Carry: {
       return 1;
     }
 
@@ -179,7 +183,12 @@ size_t LUTOp::getResultWidth2(toucan::LUTOpName opName, ValueRange inputs) {
 }
 
 size_t LUTOp::getResultWidth3(toucan::LUTOpName opName, ValueRange inputs) {
-  return hw::getBitWidth(inputs[0].getType());
+  assert(hw::getBitWidth(inputs[0].getType()) == 1);
+
+  auto lhsWidth = hw::getBitWidth(inputs[1].getType());
+  auto rhsWidth = hw::getBitWidth(inputs[2].getType());
+
+  return std::max(lhsWidth, rhsWidth);
 }
 
 // LogicalResult BitScatterOp::verify() {
