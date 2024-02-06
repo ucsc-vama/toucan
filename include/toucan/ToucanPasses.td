@@ -91,4 +91,10 @@ def LowerCombTo4B_2: Pass<"lower-comb-to-4b-2", "circt::ModuleOp"> {
   let constructor = "toucan::createLowerCombTo4B_2Pass()";
 }
 
+def LowerCombTo4B_3: Pass<"lower-comb-to-4b-3", "circt::ModuleOp"> {
+  let summary = "Lower comb to 4 bits, stage 3";
+  let description = summary;
+  let constructor = "toucan::createLowerCombTo4B_3Pass()";
+}
+
 #endif

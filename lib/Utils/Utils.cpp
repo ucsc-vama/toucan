@@ -6,6 +6,8 @@
 #include "mlir/IR/Value.h"
 #include "toucan/ToucanUtils.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/Support/Casting.h"
+#include "llvm/Support/Debug.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -100,24 +102,41 @@ namespace toucan {
   }
 
   llvm::SmallVector<mlir::Value> split_value_4B(mlir::Operation *op, mlir::Value &value, mlir::RewriterBase &rewriter) {
-      llvm::SmallVector<mlir::Value> ret;
+    llvm::SmallVector<mlir::Value> ret;
 
-      auto inputBitWidth = hw::getBitWidth(value.getType());
-
-      if (inputBitWidth > 4) {
-          auto chunks = split_signal_4B(inputBitWidth);
-          for (auto [chunkId, chunkWidth]: chunks) {
-
-              auto extractOp = rewriter.create<comb::ExtractOp>(op->getLoc(), value, chunkId * 4, chunkWidth);
-              auto newValue_4b = extractOp.getResult();
-
-              ret.push_back(newValue_4b);
+    // TODO: this need improvement. Need consider sv namehint and rename this method
+    auto valDefiningOp = value.getDefiningOp();
+    if (valDefiningOp) {
+      if (auto concatOp = llvm::dyn_cast<comb::ConcatOp>(valDefiningOp)) {
+        auto inputs = concatOp.getInputs();
+        assert(inputs.size() >= 2);
+        if (hw::getBitWidth(inputs[0].getType()) <= 4) {
+          for (size_t i = 1; i < inputs.size(); i++) ret.push_back(inputs[i]);
+          if (llvm::all_of(ret, [&](Value &v){return hw::getBitWidth(v.getType()) == 4;})) {
+            ret.insert(ret.begin(), inputs[0]);
+            return ret;
           }
-      } else {
-        ret.push_back(value);
+        }
       }
-      // std::reverse(ret.begin(), ret.end());
-      return ret;
+    }
+    ret.clear();
+
+    auto inputBitWidth = hw::getBitWidth(value.getType());
+
+    if (inputBitWidth > 4) {
+        auto chunks = split_signal_4B(inputBitWidth);
+        for (auto [chunkId, chunkWidth]: chunks) {
+
+            auto extractOp = rewriter.create<comb::ExtractOp>(op->getLoc(), value, chunkId * 4, chunkWidth);
+            auto newValue_4b = extractOp.getResult();
+
+            ret.push_back(newValue_4b);
+        }
+    } else {
+      ret.push_back(value);
+    }
+    // std::reverse(ret.begin(), ret.end());
+    return ret;
   }
 
   void concat_4b_and_replace(mlir::Operation *op, mlir::Value opResult, llvm::SmallVector<mlir::Value> &values, mlir::RewriterBase &rewriter) {

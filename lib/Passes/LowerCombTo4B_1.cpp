@@ -55,120 +55,6 @@ using namespace llvm;
 #define DEBUG_TYPE "LowerCombTo4B_1Pass"
 
 
-struct LowerCombAndOp: OpRewritePattern<comb::AndOp> {
-  using OpRewritePattern<comb::AndOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(comb::AndOp op, PatternRewriter &rewriter) const final {
-    if (op.getInputs().size() != 2) {
-      op.emitError("Supports only 2 operands!");
-      return failure();
-    }
-
-    auto resultValue = op.getResult();
-    auto resultValueWidth = hw::getBitWidth(resultValue.getType());
-
-    auto lhs = op.getInputs()[0];
-    auto rhs = op.getInputs()[1];
-    assert(hw::getBitWidth(lhs.getType()) == hw::getBitWidth(rhs.getType()));
-
-    if (resultValueWidth > 4) {
-      auto lhsValues = split_value_4B(op.getOperation(), lhs, rewriter);
-      auto rhsValues = split_value_4B(op.getOperation(), rhs, rewriter);
-
-      SmallVector<Value> intermediateResults;
-      for (auto&& [lhs, rhs]: zip(lhsValues, rhsValues)) {
-        auto andOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_And, lhs, rhs);
-        intermediateResults.push_back(andOp.getResult());
-      }
-
-      concat_4b_and_replace(op.getOperation(), op.getResult(), intermediateResults, rewriter);
-    } else {
-      auto andOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_And, lhs, rhs);
-      copyCustomizedAttrs(op, andOp);
-      rewriter.replaceOp(op, andOp);
-    }
-    
-    return success();
-  }
-};
-
-
-struct LowerCombOrOp: OpRewritePattern<comb::OrOp> {
-  using OpRewritePattern<comb::OrOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(comb::OrOp op, PatternRewriter &rewriter) const final {
-    if (op.getInputs().size() != 2) {
-      op.emitError("Supports only 2 operands!");
-      return failure();
-    }
-
-    auto resultValue = op.getResult();
-    auto resultValueWidth = hw::getBitWidth(resultValue.getType());
-    
-    auto lhs = op.getInputs()[0];
-    auto rhs = op.getInputs()[1];
-    assert(hw::getBitWidth(lhs.getType()) == hw::getBitWidth(rhs.getType()));
-
-    if (resultValueWidth > 4) {
-      auto lhsValues = split_value_4B(op.getOperation(), lhs, rewriter);
-      auto rhsValues = split_value_4B(op.getOperation(), rhs, rewriter);
-
-      SmallVector<Value> intermediateResults;
-      for (auto&& [lhs, rhs]: zip(lhsValues, rhsValues)) {
-        auto orOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Or, lhs, rhs);
-        intermediateResults.push_back(orOp.getResult());
-      }
-
-      concat_4b_and_replace(op.getOperation(), op.getResult(), intermediateResults, rewriter);
-    } else {
-      auto orOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Or, lhs, rhs);
-      copyCustomizedAttrs(op.getOperation(), orOp.getOperation());
-      rewriter.replaceOp(op, orOp);
-    }
-    
-    return success();
-  }
-};
-
-
-struct LowerCombXorOp: OpRewritePattern<comb::XorOp> {
-  using OpRewritePattern<comb::XorOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(comb::XorOp op, PatternRewriter &rewriter) const final {
-    if (op.getInputs().size() != 2) {
-      op.emitError("Supports only 2 operands!");
-      return failure();
-    }
-
-    auto resultValue = op.getResult();
-    auto resultValueWidth = hw::getBitWidth(resultValue.getType());
-    
-    auto lhs = op.getInputs()[0];
-    auto rhs = op.getInputs()[1];
-    assert(hw::getBitWidth(lhs.getType()) == hw::getBitWidth(rhs.getType()));
-
-    if (resultValueWidth > 4) {
-      auto lhsValues = split_value_4B(op.getOperation(), lhs, rewriter);
-      auto rhsValues = split_value_4B(op.getOperation(), rhs, rewriter);
-
-      SmallVector<Value> intermediateResults;
-      for (auto&& [lhs, rhs]: zip(lhsValues, rhsValues)) {
-        auto xorOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Xor, lhs, rhs);
-        intermediateResults.push_back(xorOp.getResult());
-      }
-
-      concat_4b_and_replace(op.getOperation(), op.getResult(), intermediateResults, rewriter);
-    } else {
-      auto xorOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Xor, lhs, rhs);
-      copyCustomizedAttrs(op.getOperation(), xorOp.getOperation());
-      rewriter.replaceOp(op, xorOp);
-    }
-    
-    return success();
-  }
-};
-
-
 struct LowerCombReplicateOp: OpRewritePattern<comb::ReplicateOp> {
   using OpRewritePattern<comb::ReplicateOp>::OpRewritePattern;
 
@@ -864,33 +750,6 @@ struct LowerCombMulOp: OpRewritePattern<comb::MulOp> {
 };
 
 
-struct LowerHWConstantOp: OpRewritePattern<hw::ConstantOp> {
-  using OpRewritePattern<hw::ConstantOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(hw::ConstantOp op, PatternRewriter &rewriter) const final {
-    SmallVector<Value> results;
-
-    auto constValueWidth = op.getValue().getBitWidth();
-    // auto constValueRaw = op.getValue().extractBits(0, 2);
-
-    if (constValueWidth > 4) {
-      auto chunks = split_signal_4B(constValueWidth);
-      for (auto [chunkId, chunkWidth]: chunks) {
-        auto newValue = op.getValue().extractBits(chunkWidth, chunkId * 4);
-        auto newConstOp = rewriter.create<hw::ConstantOp>(op->getLoc(), newValue);
-        results.push_back(newConstOp.getResult());
-      }
-
-      auto bitConcatOp = rewriter.create<comb::ConcatOp>(op.getLoc(), results);
-      copyCustomizedAttrs(op, bitConcatOp);
-      rewriter.replaceOp(op, bitConcatOp);
-      // consider remove op
-    }
-    return success();
-  }
-};
-
-
 struct LowerCombDivSOp: OpRewritePattern<comb::DivSOp> {
   using OpRewritePattern<comb::DivSOp>::OpRewritePattern;
 
@@ -941,10 +800,6 @@ struct LowerCombTo4B_1Pass : toucan::impl::LowerCombTo4B_1Base<LowerCombTo4B_1Pa
     RewritePatternSet owningPatterns(context);
     ConversionTarget conversionTarget(*context);
     
-    owningPatterns.add<LowerHWConstantOp>(context);
-    owningPatterns.add<LowerCombAndOp>(context);
-    owningPatterns.add<LowerCombOrOp>(context);
-    owningPatterns.add<LowerCombXorOp>(context);
     owningPatterns.add<LowerCombReplicateOp>(context);
     owningPatterns.add<LowerCombShlOp>(context);
     owningPatterns.add<LowerCombShrUOp>(context);
@@ -963,9 +818,6 @@ struct LowerCombTo4B_1Pass : toucan::impl::LowerCombTo4B_1Base<LowerCombTo4B_1Pa
     conversionTarget.addLegalDialect<comb::CombDialect>();
 
     // After lowering, following ops should no longer appear
-    conversionTarget.addIllegalOp<comb::AndOp>();
-    conversionTarget.addIllegalOp<comb::OrOp>();
-    conversionTarget.addIllegalOp<comb::XorOp>();
     conversionTarget.addIllegalOp<comb::ReplicateOp>();
     conversionTarget.addIllegalOp<comb::ShlOp>();
     conversionTarget.addIllegalOp<comb::ShrUOp>();

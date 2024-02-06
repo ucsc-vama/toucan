@@ -132,6 +132,7 @@ size_t LUTOp::getLegalOperandCount(toucan::LUTOpName opName) {
     case LUTOpName::LUT_Carry:
       return 2;
     case LUTOpName::LUT_Add:
+    case LUTOpName::LUT_Mux:
       return 3;
   }
   llvm_unreachable("Unknow op name");
@@ -141,6 +142,11 @@ LogicalResult LUTOp::verify() {
   size_t legalOperandCount = getLegalOperandCount(getOpName()); 
   if (getInputs().size() != legalOperandCount) {
     return emitError() << "Unmatched oprand count for op " << stringifyLUTOpName(getOpName()) << ": expect " << legalOperandCount << ", got " << getInputs().size();
+  }
+  for (auto input: getInputs()) {
+    if (hw::getBitWidth(input.getType()) > 4) {
+      return emitError() << "Operand has a max width of 4";
+    }
   }
   return success();
 }
@@ -179,7 +185,7 @@ size_t LUTOp::getResultWidth2(toucan::LUTOpName opName, ValueRange inputs) {
 
     default: ;
   }
-  llvm_unreachable("Unknown operation, or operation doesn't have 2 operands");
+  llvm_unreachable(toucan::stringifyLUTOpName(opName).str().c_str());
 }
 
 size_t LUTOp::getResultWidth3(toucan::LUTOpName opName, ValueRange inputs) {

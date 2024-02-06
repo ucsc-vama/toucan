@@ -29,6 +29,7 @@ std::unique_ptr<mlir::Pass> createExpandHWArrayPass();
 std::unique_ptr<mlir::Pass> createLowerCombPreProcessPass();
 std::unique_ptr<mlir::Pass> createLowerCombTo4B_1Pass();
 std::unique_ptr<mlir::Pass> createLowerCombTo4B_2Pass();
+std::unique_ptr<mlir::Pass> createLowerCombTo4B_3Pass();
 
 #define GEN_PASS_REGISTRATION
 #include "toucan/ToucanPasses.h.inc"

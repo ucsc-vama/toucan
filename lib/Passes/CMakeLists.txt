@@ -16,6 +16,7 @@ add_circt_dialect_library(
   LowerCombPreProcess.cpp
   LowerCombTo4B_1.cpp
   LowerCombTo4B_2.cpp
+  LowerCombTo4B_3.cpp
 
   DEPENDS
   ToucanPassesIncGen
