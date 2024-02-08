@@ -43,7 +43,7 @@ def VecType: ToucanType<"Vec"> {
     "mlir::IntegerType": $element_type
   );
   let mnemonic = "vec";
-  let assemblyFormat = " `vec` $element_type `[` $length `]` $is_constant";
+  let assemblyFormat = "`vec` $element_type `[` $length `]` $is_constant";
   let extraClassDeclaration = [{
     uint64_t getElementWidth() {return getElementType().getWidth();}
     uint64_t getTotalWidth() {return getLength() * getElementWidth();}

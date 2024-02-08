@@ -133,6 +133,8 @@ size_t LUTOp::getLegalOperandCount(toucan::LUTOpName opName) {
       return 2;
     case LUTOpName::LUT_Add:
     case LUTOpName::LUT_Mux:
+    case LUTOpName::LUT_DShl:
+    case LUTOpName::LUT_DShr:
       return 3;
   }
   llvm_unreachable("Unknow op name");
@@ -153,7 +155,10 @@ LogicalResult LUTOp::verify() {
 
 LogicalResult DefVectorOp::verify() {
   auto inputs = getInputs();
-  assert(!inputs.empty());
+
+  if (inputs.empty()) {
+    return emitError("Input vector is empty");
+  }
 
   auto expectedElemWidth = hw::getBitWidth(inputs[0].getType());
   for (auto elem: inputs) {
@@ -204,7 +209,11 @@ size_t LUTOp::getResultWidth2(toucan::LUTOpName opName, ValueRange inputs) {
 }
 
 size_t LUTOp::getResultWidth3(toucan::LUTOpName opName, ValueRange inputs) {
-  assert(hw::getBitWidth(inputs[0].getType()) == 1);
+  if ((opName != toucan::LUTOpName::LUT_DShl) && (opName != toucan::LUTOpName::LUT_DShr)) {
+    assert(hw::getBitWidth(inputs[0].getType()) == 1);
+  } else {
+    assert(hw::getBitWidth(inputs[0].getType()) <= 2);
+  }
 
   auto lhsWidth = hw::getBitWidth(inputs[1].getType());
   auto rhsWidth = hw::getBitWidth(inputs[2].getType());

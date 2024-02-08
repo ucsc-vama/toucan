@@ -275,8 +275,6 @@ namespace toucan {
     } else {
       return val;
     }
-
-    
   }
 
     // mlir::Value generate_reduce_tree(mlir::RewriterBase rewritter, llvm::SmallVector<mlir::Value> inputs, mlir::Value fillingVal, std::function<mlir::Value(mlir::RewriterBase&, mlir::Value, mlir::Value)> cb) {

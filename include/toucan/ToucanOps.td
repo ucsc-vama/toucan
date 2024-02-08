@@ -199,6 +199,9 @@ def DefConstVectorOp : ToucanOp<"const_vector", [Pure]> {
 
   let arguments = (ins ArrayAttr: $values);
   let results = (outs VecType: $handle);
+  let assemblyFormat = [{
+    $values `,` attr-dict `:` type($handle)
+  }];
   // let hasVerifier = 1;
   let builders = [
     OpBuilder<(ins "mlir::ArrayAttr":$values), [{
@@ -216,6 +219,9 @@ def DefVectorOp : ToucanOp<"vector", [Pure]> {
   let arguments = (ins Variadic<HWIntegerType>: $inputs);
   let results = (outs VecType: $handle);
   let hasVerifier = 1;
+  let assemblyFormat = [{
+    $inputs `,` attr-dict `:` type($inputs) `->` type($handle)
+  }];
   let builders = [
     OpBuilder<(ins CArg<"mlir::ArrayRef<mlir::Value>","{}">:$inputs), [{
       auto vecType = $_builder.getAttr<toucan::VecType>(false, inputs.size(), inputs[0].getType().cast<mlir::IntegerType>());
@@ -230,15 +236,25 @@ def VectorReadOp : ToucanOp<"vec_read", [Pure]> {
 
   let arguments = (ins
     VecType: $handle,
+    APIntAttr: $offset,
+    HWIntegerType: $out_range_value,
     Variadic<HWIntegerType>: $indicies
   );
   let results = (outs HWIntegerType: $result);
   let builders = [
-    OpBuilder<(ins "mlir::Value": $vec, CArg<"mlir::ArrayRef<mlir::Value>","{}">:$indicies), [{
+    OpBuilder<(ins "mlir::Value": $vec, "mlir::Value":$out_range_value, CArg<"mlir::ArrayRef<mlir::Value>","{}">:$indicies), [{
       auto resultType = vec.getType().cast<VecType>().getElementType();
-      return build($_builder, $_state, resultType, vec, indicies);
+      auto offsetAttr = $_builder.getI16IntegerAttr(0);
+      return build($_builder, $_state, resultType, vec, offsetAttr, out_range_value, indicies);
+    }]>,
+    OpBuilder<(ins "mlir::Value": $vec, "int16_t": $offset, "mlir::Value": $out_range_value, CArg<"mlir::ArrayRef<mlir::Value>","{}">:$indicies), [{
+      auto resultType = vec.getType().cast<VecType>().getElementType();
+      auto offsetAttr = $_builder.getI16IntegerAttr(offset);
+      return build($_builder, $_state, resultType, vec, offsetAttr, out_range_value, indicies);
     }]>
   ];
+
+  let assemblyFormat = "$handle `[` type($indicies) $indicies `+` $offset `]` `out_range` type($out_range_value) $out_range_value attr-dict `:` type($handle) `->` type($result)";
 }
 
 

@@ -118,9 +118,9 @@ static LogicalResult compileAndEmit(
 
         // 2. Lower HW to 4B
         // 2.1 lowers most ops
-        // pm.addPass(toucan::createLowerCombTo4B_1Pass());
-        // pm.addPass(toucan::createLowerCombTo4B_2Pass());
-        // pm.addPass(toucan::createLowerCombTo4B_3Pass());
+        pm.addPass(toucan::createLowerCombTo4B_1Pass());
+        pm.addPass(toucan::createLowerCombTo4B_2Pass());
+        pm.addPass(toucan::createLowerCombTo4B_3Pass());
         // 2.2 remove unnecessary concat/extracts (a simple, quick canonicalizer), since the canonicalizer is single-threaded.
         // pm.addPass(toucan::createLowerCombTo4B_2Pass());
 

@@ -134,6 +134,9 @@ struct LowerCombPreProcessPass : toucan::impl::LowerCombPreProcessBase<LowerComb
     OpBuilder builder(constArrayOp);
     IRRewriter rewriter(builder);
 
+    auto zeroConstOp = rewriter.create<hw::ConstantOp>(constArrayOp.getLoc(), rewriter.getI4Type(), 0);
+    auto zeroConstValue = zeroConstOp.getResult();
+
     SmallVector<SmallVector<Attribute>> array_values;
 
     auto constArrayValues = constArrayOp.getFields().getValue();
@@ -155,7 +158,7 @@ struct LowerCombPreProcessPass : toucan::impl::LowerCombPreProcessBase<LowerComb
 
       int startPos = (numChunks-1) * 4;
       for (auto [chunkId, chunkWidth]: (split_signal_4B(constArrayElemValWidth))) {
-        if (startPos + chunkWidth > constArrayElemValWidth) {
+        if (startPos + chunkWidth > static_cast<int>(constArrayElemValWidth)) {
           llvm::dbgs() << "Hit\n";
         }
         auto val = constArrayElemVal.extractBits(chunkWidth, startPos);
@@ -188,14 +191,21 @@ struct LowerCombPreProcessPass : toucan::impl::LowerCombPreProcessBase<LowerComb
 
         SmallVector<Value> arrayGetResults;
         for (auto vecHandle: defVecHandles) {
-          auto readOp = rewriter.create<toucan::VectorReadOp>(arrayGetOp.getLoc(), vecHandle, indicies_4b);
+          auto readOp = rewriter.create<toucan::VectorReadOp>(arrayGetOp.getLoc(), vecHandle, zeroConstValue, indicies_4b);
           arrayGetResults.push_back(readOp);
         }
 
-        auto concatOp = rewriter.create<comb::ConcatOp>(constArrayOp.getLoc(), arrayGetResults);
+        if (arrayGetResults.size() > 1) {
+          auto concatOp = rewriter.create<comb::ConcatOp>(constArrayOp.getLoc(), arrayGetResults);
 
-        copyCustomizedAttrs(userOp, concatOp);
-        rewriter.replaceAllUsesWith(arrayGetOp, concatOp);
+          copyCustomizedAttrs(userOp, concatOp);
+          rewriter.replaceAllUsesWith(arrayGetOp, concatOp);
+        } else {
+          auto result = arrayGetResults[0];
+          copyCustomizedAttrs(userOp, result.getDefiningOp());
+          rewriter.replaceAllUsesWith(arrayGetOp, result);
+        }
+        
 
       } else {
         return userOp->emitError() << "Unknow op using const array";
@@ -210,6 +220,9 @@ struct LowerCombPreProcessPass : toucan::impl::LowerCombPreProcessBase<LowerComb
     OpBuilder builder(arrayCreateOp);
     IRRewriter rewriter(builder);
 
+    auto zeroConstOp = rewriter.create<hw::ConstantOp>(arrayCreateOp.getLoc(), rewriter.getI4Type(), 0);
+    auto zeroConstValue = zeroConstOp.getResult();
+
     SmallVector<SmallVector<Value>> array_values;
 
     auto arrayInputs = arrayCreateOp.getInputs();
@@ -218,6 +231,10 @@ struct LowerCombPreProcessPass : toucan::impl::LowerCombPreProcessBase<LowerComb
     auto numChunks = (elemWidth + 3) / 4;
     for (size_t i = 0; i < static_cast<size_t>(numChunks); i++) {
       array_values.push_back({});
+    }
+
+    if (arrayInputs.size() <= 8) {
+      arrayCreateOp.emitRemark() << "TODO: this array may be too small. Consider implement using mux array instead of vector (potentially reduce divergence)";
     }
 
     for (const auto &arrayElem: arrayInputs) {
@@ -250,14 +267,20 @@ struct LowerCombPreProcessPass : toucan::impl::LowerCombPreProcessBase<LowerComb
 
         SmallVector<Value> arrayGetResults;
         for (auto vecHandle: defVecHandles) {
-          auto readOp = rewriter.create<toucan::VectorReadOp>(arrayGetOp.getLoc(), vecHandle, indicies_4b);
+          auto readOp = rewriter.create<toucan::VectorReadOp>(arrayGetOp.getLoc(), vecHandle, zeroConstValue, indicies_4b);
           arrayGetResults.push_back(readOp);
         }
 
-        auto concatOp = rewriter.create<comb::ConcatOp>(arrayCreateOp.getLoc(), arrayGetResults);
+        if (arrayGetResults.size() > 1) {
+          auto concatOp = rewriter.create<comb::ConcatOp>(arrayGetOp.getLoc(), arrayGetResults);
 
-        copyCustomizedAttrs(userOp, concatOp);
-        rewriter.replaceAllUsesWith(arrayGetOp, concatOp);
+          copyCustomizedAttrs(userOp, concatOp);
+          rewriter.replaceAllUsesWith(arrayGetOp, concatOp);
+        } else {
+          auto result = arrayGetResults[0];
+          copyCustomizedAttrs(userOp, result.getDefiningOp());
+          rewriter.replaceAllUsesWith(arrayGetOp, result);
+        }
 
       } else {
         return userOp->emitError() << "Unknow op using const array";

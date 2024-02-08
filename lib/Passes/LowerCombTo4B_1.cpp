@@ -37,6 +37,7 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/Format.h"
 
+#include <cstddef>
 #include <memory>
 #include <string>
 
@@ -91,20 +92,18 @@ struct LowerCombReplicateOp: OpRewritePattern<comb::ReplicateOp> {
 class DynamicShiftOperations {
   public:
   // shift left, inputs are 4b values from msb to lsb
-  Value dshlCore(SmallVector<Value> &inputs, Value shamt, RewriterBase &rewriter, Operation* op) const {
+  Value dshlCore(SmallVector<Value> &inputs, Value shamt, RewriterBase &rewriter, Operation* op, size_t realInputWidth) const {
 
     auto shamtWidth = hw::getBitWidth(shamt.getType());
-    uint64_t possibleShifts = 1L << shamtWidth;
 
     auto int4BType = rewriter.getI4Type();
     auto zeroConst = rewriter.create<hw::ConstantOp>(op->getLoc(), int4BType, 0);
     auto zeroConstValue = zeroConst.getResult();
 
-    uint64_t resultWidth = 0;
+    uint64_t resultWidth = inputs.size() * 4;
     for (auto each_section: inputs) {
         auto sectionBitWidth = hw::getBitWidth(each_section.getType());
-        resultWidth += sectionBitWidth;
-        assert(sectionBitWidth <= 4);
+        assert(sectionBitWidth == 4);
     }
 
     auto result_sections = (resultWidth + 3) / 4;
@@ -112,147 +111,139 @@ class DynamicShiftOperations {
     assert(result_sections == input_sections);
 
     // intermediateResult[m][n] is inputs[m] << n
-    SmallVector<SmallVector<Value, 4>, 128> intermediateResults;
+    SmallVector<Value, 128> intermediateResults;
+
+    Value shamt_l2b;
+    if (shamtWidth > 2) {
+      auto extractLower2BOp = rewriter.create<comb::ExtractOp>(op->getLoc(), shamt, 0, 2);
+      shamt_l2b = extractLower2BOp.getResult();
+    } else {
+      shamt_l2b = shamt;
+    }
+
     for (size_t i = 0; i < inputs.size(); i++) {
       // Shift by 1, 2, and 3
       auto op1 = inputs[i];
       auto op2 = (i < inputs.size() - 1) ? inputs[i+1] : zeroConstValue;
 
-      auto sh1Op = rewriter.create<toucan::LUTOp>(op->getLoc(), toucan::LUTOpName::LUT_Shl1, op1, op2);
-      auto sh2Op = rewriter.create<toucan::LUTOp>(op->getLoc(), toucan::LUTOpName::LUT_Shl2, op1, op2);
-      auto sh3Op = rewriter.create<toucan::LUTOp>(op->getLoc(), toucan::LUTOpName::LUT_Shl3, op1, op2);
+      auto dshlOp = rewriter.create<toucan::LUTOp>(op->getLoc(), toucan::LUTOpName::LUT_DShl, shamt_l2b, op1, op2);
 
-      intermediateResults.push_back({op1, sh1Op.getResult(), sh2Op.getResult(), sh3Op.getResult()});
+      intermediateResults.push_back(dshlOp.getResult());
     }
-
 
     SmallVector<Value> shiftResult;
-    for (size_t shamt_static = 0; shamt_static < possibleShifts; shamt_static++) {
-      // Result of shift by i
-      auto shamt_real = shamt_static % 4;
-      auto shamt_filling = shamt_static - shamt_real;
-      auto filling_sections = shamt_filling / 4;
 
-      if ((result_sections < filling_sections)) {
-        // if shamt_static is too large
-        filling_sections = result_sections;
-      }
-
-      SmallVector<Value> tempResult;
-      for (int j = (result_sections - filling_sections - 1); j >= 0; j--) {
-        auto this_section_value = intermediateResults[j][shamt_real];
-        tempResult.push_back(this_section_value);
-      }
-      // Fill trailing zeros
-      for (int j = filling_sections - 1; j >= 0; j--) {
-        tempResult.push_back(zeroConstValue);
-      }
-
-      auto concatOp = rewriter.create<comb::ConcatOp>(op->getLoc(), tempResult);
-      auto concatValue = concatOp.getResult();
-      auto concatValueWidth = static_cast<uint64_t>(hw::getBitWidth(concatValue.getType()));
-      assert(concatValueWidth >= resultWidth);
-
-      auto result = concatValue;
-      if (concatValueWidth > resultWidth) {
-        // remove some extra bits
-        auto extractOp = rewriter.create<comb::ExtractOp>(op->getLoc(), concatValue, 0, resultWidth);
-        result = extractOp.getResult();
-      }
-
-      shiftResult.push_back(result);
+    if (intermediateResults.size() <= 8) {
+      op->emitRemark() << "TODO: this array may be too small. Consider implement using mux array instead of vector (potentially reduce divergence)";
     }
 
-    // Finally, select result using muxes
-    auto result = generate_mux_chain(op, rewriter, shiftResult, shamt);
-    assert(static_cast<uint64_t>(hw::getBitWidth(result.getType())) == resultWidth);
-    return result;
+    std::reverse(intermediateResults.begin(), intermediateResults.end());
+    auto createVecOp = rewriter.create<toucan::DefVectorOp>(op->getLoc(), intermediateResults);
+    auto vecHandle = createVecOp.getHandle();
+
+    if (shamtWidth > 2) {
+      auto extractHighBitsOp = rewriter.create<comb::ExtractOp>(op->getLoc(), shamt, 2, shamtWidth - 2);
+      auto shamt_high = extractHighBitsOp.getResult();
+      auto shamt_high_split = (hw::getBitWidth(shamt_high.getType()) > 4) ? split_value_4B(op, shamt_high, rewriter) : SmallVector<Value>({shamt_high});
+      
+      for (size_t i = 0; i < intermediateResults.size(); i++) {
+        auto vecReadOp = rewriter.create<toucan::VectorReadOp>(op->getLoc(), vecHandle, i, zeroConstValue, shamt_high_split);
+        shiftResult.push_back(vecReadOp.getResult());
+      }
+    } else {
+      shiftResult = std::move(intermediateResults);
+    }
+
+
+    if (realInputWidth < resultWidth) {
+      // extract leading bits
+      auto extractOp = rewriter.create<comb::ExtractOp>(op->getLoc(), shiftResult[0], 0, realInputWidth % 4);
+      shiftResult[0] = extractOp.getResult();
+    }
+
+    if (shiftResult.size() > 1) {
+      auto concatOp = rewriter.create<comb::ConcatOp>(op->getLoc(), shiftResult);
+      return concatOp.getResult();
+    } else {
+      return shiftResult[0];
+    }
   }
 
-
   // shift right, inputs need to be extended!!!, inputs are 4b values from msb to lsb
-  Value dshrCore(RewriterBase &rewriter, Operation* op, SmallVector<Value> &inputs, uint64_t resultWidth, Value shamt, Value fillingValue) const {
+  Value dshrCore(SmallVector<Value> &inputs, Value shamt, RewriterBase &rewriter, Operation* op, size_t realInputWidth, Value fillingValue) const {
 
     auto shamtWidth = hw::getBitWidth(shamt.getType());
-    uint64_t possibleShifts = 1L << shamtWidth;
+
+    uint64_t resultWidth = inputs.size() * 4;
+    for (auto each_section: inputs) {
+        auto sectionBitWidth = hw::getBitWidth(each_section.getType());
+        assert(sectionBitWidth == 4);
+    }
 
     auto result_sections = (resultWidth + 3) / 4;
     auto input_sections = inputs.size();
     assert(result_sections == input_sections);
-    assert(result_sections > 0);
 
-    for (auto each_section: inputs) {
-        auto sectionBitWidth = hw::getBitWidth(each_section.getType());
-        // inputTotalBitWidth += sectionBitWidth;
-        // Unlike dshl, here we require input aligned to 4b, to avoid complexity of signed extention here
-        assert(sectionBitWidth == 4);
+    // intermediateResult[m][n] is inputs[m] << n
+    SmallVector<Value, 128> intermediateResults;
+
+    Value shamt_l2b;
+    if (shamtWidth > 2) {
+      auto extractLower2BOp = rewriter.create<comb::ExtractOp>(op->getLoc(), shamt, 0, 2);
+      shamt_l2b = extractLower2BOp.getResult();
+    } else {
+      shamt_l2b = shamt;
     }
 
-    // intermediateResult[m][n] is inputs[m] >> n
-    SmallVector<SmallVector<Value, 4>, 128> intermediateResults;
     for (size_t i = 0; i < inputs.size(); i++) {
       // Shift by 1, 2, and 3
       auto op1 = (i == 0) ? fillingValue : inputs[i-1];
       auto op2 = inputs[i];
 
-      auto sh1Op = rewriter.create<toucan::LUTOp>(op->getLoc(), toucan::LUTOpName::LUT_Shr1, op1, op2);
-      auto sh2Op = rewriter.create<toucan::LUTOp>(op->getLoc(), toucan::LUTOpName::LUT_Shr2, op1, op2);
-      auto sh3Op = rewriter.create<toucan::LUTOp>(op->getLoc(), toucan::LUTOpName::LUT_Shr3, op1, op2);
+      auto dshlOp = rewriter.create<toucan::LUTOp>(op->getLoc(), toucan::LUTOpName::LUT_DShr, shamt_l2b, op1, op2);
 
-      intermediateResults.push_back({op2, sh1Op.getResult(), sh2Op.getResult(), sh3Op.getResult()});
-      assert(intermediateResults.size() < 10000);
+      intermediateResults.push_back(dshlOp.getResult());
     }
-    assert(intermediateResults.size() == result_sections);
-
 
     SmallVector<Value> shiftResult;
-    for (size_t shamt_static = 0; shamt_static < possibleShifts; shamt_static++) {
-      // Result of shift by i
-      auto shamt_real = shamt_static % 4;
-      auto shamt_filling = shamt_static - shamt_real;
-      auto filling_sections = shamt_filling / 4;
 
-      if ((result_sections < filling_sections)) {
-        // if shamt_static is too large
-        filling_sections = result_sections;
-      }
-
-      SmallVector<Value> tempResult;
-      // Fill heading 4bs
-      for (size_t j = 0; j < filling_sections; j++) {
-        tempResult.push_back(fillingValue);
-        assert(tempResult.size() < 10000);
-      }
-      for (int j = result_sections - 1; j >= static_cast<int>(filling_sections); j--) {
-        auto this_section_value = intermediateResults[j][shamt_real];
-        tempResult.push_back(this_section_value);
-        assert(tempResult.size() < 10000);
-      }
-
-      auto concatOp = rewriter.create<comb::ConcatOp>(op->getLoc(), tempResult);
-      auto concatValue = concatOp.getResult();
-      auto concatValueWidth = static_cast<uint64_t>(hw::getBitWidth(concatValue.getType()));
-      assert(concatValueWidth >= resultWidth);
-
-      auto result = concatValue;
-      if (concatValueWidth > resultWidth) {
-        // remove some extra bits
-        assert(concatValueWidth - resultWidth < 4);
-        auto extractOp = rewriter.create<comb::ExtractOp>(op->getLoc(), concatValue, 0, resultWidth);
-        result = extractOp.getResult();
-      }
-
-      shiftResult.push_back(result);
+    if (intermediateResults.size() <= 8) {
+      op->emitRemark() << "TODO: this array may be too small. Consider implement using mux array instead of vector (potentially reduce divergence)";
     }
 
-    // Finally, select result using muxes
-    auto result = generate_mux_chain(op, rewriter, shiftResult, shamt);
+    auto createVecOp = rewriter.create<toucan::DefVectorOp>(op->getLoc(), intermediateResults);
+    auto vecHandle = createVecOp.getHandle();
 
-    assert(static_cast<uint64_t>(hw::getBitWidth(result.getType())) == resultWidth);
-    
-    return result;
+    if (shamtWidth > 2) {
+      auto extractHighBitsOp = rewriter.create<comb::ExtractOp>(op->getLoc(), shamt, 2, shamtWidth - 2);
+      auto shamt_high = extractHighBitsOp.getResult();
+      auto shamt_high_split = (hw::getBitWidth(shamt_high.getType()) > 4) ? split_value_4B(op, shamt_high, rewriter) : SmallVector<Value>({shamt_high});
 
+      for (size_t i = 0; i < intermediateResults.size(); i++) {
+        auto vecReadOp = rewriter.create<toucan::VectorReadOp>(op->getLoc(), vecHandle, i, fillingValue, shamt_high_split);
+        shiftResult.push_back(vecReadOp.getResult());
+      }
+    } else {
+      shiftResult = std::move(intermediateResults);
+    }
+
+
+
+    if (realInputWidth < resultWidth) {
+      // extract leading bits
+      auto extractOp = rewriter.create<comb::ExtractOp>(op->getLoc(), shiftResult[0], 0, realInputWidth % 4);
+      shiftResult[0] = extractOp.getResult();
+    }
+
+    if (shiftResult.size() > 1) {
+      auto concatOp = rewriter.create<comb::ConcatOp>(op->getLoc(), shiftResult);
+      return concatOp.getResult();
+    } else {
+      return shiftResult[0];
+    }
   }
+
+
 
   // This function may modify shamtValue!
   // For now, don't check if shamt has extra bits. leave it to canonicalizer.
@@ -288,12 +279,13 @@ struct LowerCombShlOp: OpRewritePattern<comb::ShlOp>, DynamicShiftOperations {
     assert(hw::getBitWidth(shamtValue.getType()) == shamtWidth);
 
     // Split input signals
-    auto inputValues_4b = split_value_4B(shlOp.getOperation(), inputValue, rewriter);
 
-    auto result = dshlCore(inputValues_4b, shamtValue, rewriter, shlOp.getOperation());
+    auto inputValueWithPadding = padding_with_0_and_align_4b(shlOp.getOperation(), rewriter, inputValue);
+    auto inputValuesWithPadding_4b = split_value_4B(shlOp.getOperation(), inputValueWithPadding, rewriter);
+
+    auto result = dshlCore(inputValuesWithPadding_4b, shamtValue, rewriter, shlOp.getOperation(), hw::getBitWidth(inputValue.getType()));
 
     auto oldResult = shlOp.getResult();
-
     auto oldResultWidth = hw::getBitWidth(oldResult.getType());
     auto newResultWidth = hw::getBitWidth(result.getType());
     assert(oldResultWidth == newResultWidth);
@@ -317,39 +309,19 @@ struct LowerCombShrUOp: OpRewritePattern<comb::ShrUOp>, DynamicShiftOperations {
       return failure();
     }
 
+    auto inputValueWithPadding = padding_with_0_and_align_4b(shruOp.getOperation(), rewriter, inputValue);
+    auto inputValuesWithPadding_4b = split_value_4B(shruOp.getOperation(), inputValueWithPadding, rewriter);
+
     auto inputValueWidth = hw::getBitWidth(inputValue.getType());
     assert(inputValueWidth > 1);
 
-    // shamtWidth = limitShamtWidth(inputValue, shamtValue, rewriter, shruOp.getOperation());
-    assert(hw::getBitWidth(shamtValue.getType()) == shamtWidth);
-
-    // Split input signals
-    auto inputValues_4b = split_value_4B(shruOp.getOperation(), inputValue, rewriter);
-
-    auto headFragmentWidth = hw::getBitWidth(inputValues_4b[0].getType());
-    if (headFragmentWidth != 4) {
-      assert(headFragmentWidth < 4);
-      // Since it's ShrU, simply fill head with 0
-      auto paddingBits = 4 - headFragmentWidth;
-      auto dataType = rewriter.getIntegerType(paddingBits);
-      auto zeroConstOp = rewriter.create<hw::ConstantOp>(shruOp.getLoc(), dataType, 0);
-      auto zeroConstValue = zeroConstOp.getResult();
-
-      auto concatOp = rewriter.create<comb::ConcatOp>(shruOp.getLoc(), zeroConstValue, inputValues_4b[0]);
-
-      auto concatValue = concatOp.getResult();
-      assert(hw::getBitWidth(concatValue.getType()) == 4);
-
-      inputValues_4b[0] = concatValue;
-    }
 
     auto zeroConstOp = rewriter.create<hw::ConstantOp>(shruOp.getLoc(), rewriter.getI4Type(), 0);
     auto zeroConstValue = zeroConstOp.getResult();
 
-    auto result = dshrCore(rewriter, shruOp.getOperation(), inputValues_4b, inputValueWidth, shamtValue, zeroConstValue);
+    auto result = dshrCore(inputValuesWithPadding_4b, shamtValue, rewriter, shruOp.getOperation(), inputValueWidth, zeroConstValue);
 
     auto oldResult = shruOp.getResult();
-
     auto oldResultWidth = hw::getBitWidth(oldResult.getType());
     auto newResultWidth = hw::getBitWidth(result.getType());
     assert(oldResultWidth == newResultWidth);
@@ -408,10 +380,9 @@ struct LowerCombShrSOp: OpRewritePattern<comb::ShrSOp>, DynamicShiftOperations {
       inputValues_4b[0] = concatOp.getResult();
     }
 
-    auto result = dshrCore(rewriter, shrsOp.getOperation(), inputValues_4b, inputValueWidth, shamtValue, fillingValue);
+    auto result = dshrCore(inputValues_4b, shamtValue, rewriter, shrsOp.getOperation(), inputValueWidth, fillingValue);
 
     auto oldResult = shrsOp.getResult();
-
     auto oldResultWidth = hw::getBitWidth(oldResult.getType());
     auto newResultWidth = hw::getBitWidth(result.getType());
     assert(oldResultWidth == newResultWidth);
@@ -711,6 +682,7 @@ struct LowerCombMulOp: OpRewritePattern<comb::MulOp> {
     // Merge 4b fragments
     SmallVector<Value> addition_inputs;
     for (auto valFragments: tempValues) {
+      assert(valFragments.size() > 1);
       auto concatOp = rewriter.create<comb::ConcatOp>(op.getLoc(), valFragments);
       addition_inputs.push_back(concatOp.getResult());
     }
