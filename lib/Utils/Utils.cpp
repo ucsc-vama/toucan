@@ -101,7 +101,7 @@ namespace toucan {
     return chunks;
   }
 
-  llvm::SmallVector<mlir::Value> split_value_4B(mlir::Operation *op, mlir::Value &value, mlir::RewriterBase &rewriter) {
+  llvm::SmallVector<mlir::Value> split_value_4B(mlir::Operation *op, const mlir::Value &value, mlir::RewriterBase &rewriter) {
     llvm::SmallVector<mlir::Value> ret;
 
     // TODO: this need improvement. Need consider sv namehint and rename this method

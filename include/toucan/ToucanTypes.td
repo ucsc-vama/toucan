@@ -24,15 +24,30 @@ def MemType: ToucanType<"Mem"> {
 }
 
 def RegType: ToucanType<"Reg"> {
-    let summary = "simulated register type";
-    let parameters = (ins
-        "mlir::IntegerType": $element_type
-    );
-    let mnemonic = "reg";
-    let assemblyFormat = "`reg` $element_type";
-    let extraClassDeclaration = [{
-        uint64_t getElementWidth() {return getElementType().getWidth();}
-    }];
+  let summary = "simulated register type";
+  let parameters = (ins
+    "mlir::IntegerType": $element_type
+  );
+  let mnemonic = "reg";
+  let assemblyFormat = "`reg` $element_type";
+  let extraClassDeclaration = [{
+    uint64_t getElementWidth() {return getElementType().getWidth();}
+  }];
+}
+
+def VecType: ToucanType<"Vec"> {
+  let summary = "vector bundle";
+  let parameters = (ins 
+    "bool": $is_constant,
+    "uint64_t": $length,
+    "mlir::IntegerType": $element_type
+  );
+  let mnemonic = "vec";
+  let assemblyFormat = " `vec` $element_type `[` $length `]` $is_constant";
+  let extraClassDeclaration = [{
+    uint64_t getElementWidth() {return getElementType().getWidth();}
+    uint64_t getTotalWidth() {return getLength() * getElementWidth();}
+  }];
 }
 
 #endif

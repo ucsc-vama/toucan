@@ -100,8 +100,6 @@ static LogicalResult compileAndEmit(
         pm.addPass(toucan::createSplitRegistersPass());
         // Remove all mem write masks. Split memory if there is any mask
         pm.addPass(toucan::createRemoveMemMaskPass());
-        // Convert hw.vector to value/const and muxes
-        pm.addPass(toucan::createExpandHWArrayPass());
 
         pm.addPass(mlir::createCanonicalizerPass());
     }
@@ -115,13 +113,14 @@ static LogicalResult compileAndEmit(
         // Remove clock and AsClock. 
         pm.addPass(toucan::createEnsureNoClockOpPass());
         // Fold binary ops with more than 2 operands
+        // Convert hw array
         pm.addPass(toucan::createLowerCombPreProcessPass());
 
         // 2. Lower HW to 4B
         // 2.1 lowers most ops
-        pm.addPass(toucan::createLowerCombTo4B_1Pass());
-        pm.addPass(toucan::createLowerCombTo4B_2Pass());
-        pm.addPass(toucan::createLowerCombTo4B_3Pass());
+        // pm.addPass(toucan::createLowerCombTo4B_1Pass());
+        // pm.addPass(toucan::createLowerCombTo4B_2Pass());
+        // pm.addPass(toucan::createLowerCombTo4B_3Pass());
         // 2.2 remove unnecessary concat/extracts (a simple, quick canonicalizer), since the canonicalizer is single-threaded.
         // pm.addPass(toucan::createLowerCombTo4B_2Pass());
 

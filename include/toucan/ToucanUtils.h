@@ -59,7 +59,7 @@ namespace toucan {
 
   std::vector<std::tuple<int, int>> split_signal_4B(int bit_width);
 
-  llvm::SmallVector<mlir::Value> split_value_4B(mlir::Operation *op, mlir::Value &value, mlir::RewriterBase &rewriter);
+  llvm::SmallVector<mlir::Value> split_value_4B(mlir::Operation *op, const mlir::Value &value, mlir::RewriterBase &rewriter);
 
   void concat_4b_and_replace(mlir::Operation *op, mlir::Value opResult, llvm::SmallVector<mlir::Value> &values, mlir::RewriterBase &rewriter);
 

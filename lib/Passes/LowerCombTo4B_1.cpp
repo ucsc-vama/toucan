@@ -824,6 +824,7 @@ struct LowerCombTo4B_1Pass : toucan::impl::LowerCombTo4B_1Base<LowerCombTo4B_1Pa
     conversionTarget.addIllegalOp<comb::ShrSOp>();
     conversionTarget.addIllegalOp<comb::ICmpOp>();
     conversionTarget.addIllegalOp<comb::MulOp>();
+    // TODO: Lower Vector to 4b
 
     conversionTarget.addIllegalOp<comb::DivUOp>();
     conversionTarget.addIllegalOp<comb::DivSOp>();

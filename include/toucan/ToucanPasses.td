@@ -67,11 +67,6 @@ def EnsureNoClockOp: Pass<"ensure-no-clock", "circt::ModuleOp"> {
   let constructor = "toucan::createEnsureNoClockOpPass()";
 }
 
-def ExpandHWArray: Pass<"expand-hw-array", "circt::ModuleOp"> {
-  let summary = "Expand hw.array in hw dialect";
-  let description = "Handles hw.array_create, hw.array_get and hw.aggregate_const. Note: This pass don't handles hw.array_concat and hw.array_slice, as they never appears in firrtl-generated files.";
-  let constructor = "toucan::createExpandHWArrayPass()";
-}
 
 def LowerCombPreProcess: Pass<"lower-comb-pre-process", "circt::ModuleOp"> {
   let summary = "Lower comb,and, comb.add, comb.xor, comb.xor to binary op (it may contains more than 2 operands). Handle replicateOp when input width greater than 1. Warning: This pass may be reverted by canonicalizer pass!";

@@ -151,6 +151,21 @@ LogicalResult LUTOp::verify() {
   return success();
 }
 
+LogicalResult DefVectorOp::verify() {
+  auto inputs = getInputs();
+  assert(!inputs.empty());
+
+  auto expectedElemWidth = hw::getBitWidth(inputs[0].getType());
+  for (auto elem: inputs) {
+    auto elemWidth = hw::getBitWidth(elem.getType());
+    if (elemWidth != expectedElemWidth) {
+      return emitError() << "Elements inside vector should have same width";
+    }
+  }
+
+  return success();
+}
+
 size_t LUTOp::getResultWidth1(toucan::LUTOpName opName, ValueRange inputs) {
   assert(opName != toucan::LUTOpName::LUT_Rep1b && "LUT_Rep1b's output size should be given, instead of inffered");
   return hw::getBitWidth(inputs[0].getType());

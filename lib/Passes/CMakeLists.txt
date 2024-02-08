@@ -12,7 +12,6 @@ add_circt_dialect_library(
   ParallelCanonicalizer.cpp
   LowerRegMemTo4B.cpp
   EnsureNoClockOp.cpp
-  ExpandHWArray.cpp
   LowerCombPreProcess.cpp
   LowerCombTo4B_1.cpp
   LowerCombTo4B_2.cpp

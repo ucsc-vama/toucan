@@ -25,7 +25,6 @@ std::unique_ptr<mlir::Pass> createParallelCanonicalizerPass(const mlir::GreedyRe
 
 std::unique_ptr<mlir::Pass> createLowerRegMemTo4BPass();
 std::unique_ptr<mlir::Pass> createEnsureNoClockOpPass();
-std::unique_ptr<mlir::Pass> createExpandHWArrayPass();
 std::unique_ptr<mlir::Pass> createLowerCombPreProcessPass();
 std::unique_ptr<mlir::Pass> createLowerCombTo4B_1Pass();
 std::unique_ptr<mlir::Pass> createLowerCombTo4B_2Pass();

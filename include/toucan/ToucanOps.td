@@ -193,6 +193,54 @@ def LUTOp : ToucanOp<"lut", [Pure]> {
 
 }
 
+def DefConstVectorOp : ToucanOp<"const_vector", [Pure]> {
+  let summary = "def const vector";
+  let description = summary;
+
+  let arguments = (ins ArrayAttr: $values);
+  let results = (outs VecType: $handle);
+  // let hasVerifier = 1;
+  let builders = [
+    OpBuilder<(ins "mlir::ArrayAttr":$values), [{
+      auto elemBitWidth = hw::getBitWidth(values[0].cast<IntegerAttr>().getType());
+      auto vecType = $_builder.getAttr<toucan::VecType>(true, values.size(), $_builder.getIntegerType(elemBitWidth));
+      return build($_builder, $_state, vecType, values);
+    }]>
+  ];
+}
+
+def DefVectorOp : ToucanOp<"vector", [Pure]> {
+  let summary = "def vector";
+  let description = summary;
+
+  let arguments = (ins Variadic<HWIntegerType>: $inputs);
+  let results = (outs VecType: $handle);
+  let hasVerifier = 1;
+  let builders = [
+    OpBuilder<(ins CArg<"mlir::ArrayRef<mlir::Value>","{}">:$inputs), [{
+      auto vecType = $_builder.getAttr<toucan::VecType>(false, inputs.size(), inputs[0].getType().cast<mlir::IntegerType>());
+      return build($_builder, $_state, vecType, inputs);
+    }]>
+  ];
+}
+
+def VectorReadOp : ToucanOp<"vec_read", [Pure]> {
+  let summary = "vec read";
+  let description = summary;
+
+  let arguments = (ins
+    VecType: $handle,
+    Variadic<HWIntegerType>: $indicies
+  );
+  let results = (outs HWIntegerType: $result);
+  let builders = [
+    OpBuilder<(ins "mlir::Value": $vec, CArg<"mlir::ArrayRef<mlir::Value>","{}">:$indicies), [{
+      auto resultType = vec.getType().cast<VecType>().getElementType();
+      return build($_builder, $_state, resultType, vec, indicies);
+    }]>
+  ];
+}
+
 
 // def BitScatterOp : ToucanOp<"bit_scatter"> {
 //   let summary = "Split a signal into multiple signals <= 4 bits. Temporary operation.";
