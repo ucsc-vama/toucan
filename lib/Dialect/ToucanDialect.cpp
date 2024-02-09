@@ -221,41 +221,105 @@ size_t LUTOp::getResultWidth3(toucan::LUTOpName opName, ValueRange inputs) {
   return std::max(lhsWidth, rhsWidth);
 }
 
-// LogicalResult BitScatterOp::verify() {
-//   int64_t expectedInputWidth = 0;
-//   for (auto elem: getOutputs()) {
-//     expectedInputWidth += hw::getBitWidth(elem.getType());
-//   }
-//   if (expectedInputWidth != hw::getBitWidth(getInput().getType())) {
-//     return emitError() << "Input and output width not match!";
-//   }
-//   return success();
-// }
+LogicalResult LUTOp::canonicalize(LUTOp op, PatternRewriter &rewriter) {
+  auto opName = op.getOpName();
+  auto inputs = op.getInputs();
+  // SmallVector<bool> opRandIsConst;
+  // for (opRand: inputs) {
+  //   opRandIsConst
+  // }
 
-// void BitScatterOp::build(OpBuilder &odsBuilder, OperationState &odsState, mlir::Value input) {
-//   // build
-//   auto inputBitWidth = hw::getBitWidth(input.getType());
-//   std::vector<mlir::Type> outputTypes;
-
-//   auto chunks = split_signal_4B(inputBitWidth);
-//   for (auto &chunk: llvm::reverse(chunks)) {
-//     auto bitWidth = std::get<1>(chunk);
-//     outputTypes.push_back(std::move(odsBuilder.getIntegerType(bitWidth)));
-//   }
-
-//   build(odsBuilder, odsState, mlir::ArrayRef<mlir::Type>(outputTypes), input);
-// }
-
-
-// LogicalResult BitAggregateOp::verify() {
-//   int64_t expectedResultWidth = 0;
-//   for (auto elem: getInputs()) {
-//     expectedResultWidth += hw::getBitWidth(elem.getType());
-//   }
-//   if (expectedResultWidth != hw::getBitWidth(getOutput().getType())) {
-//     return emitError() << "Input and output width not match!";
-//   }
-//   return success();
-// }
+  switch(opName) {
+    case LUTOpName::LUT_Nop: {
+      // Nop should not appear
+      return failure();
+    }
+    case LUTOpName::LUT_And: {
+      assert(inputs.size() == 2);
+      for (size_t i = 0; i < 2; i++) {
+        auto opRand = inputs[i];
+        if (value_is_const_zero(opRand)) {
+          auto constZeroOp = rewriter.create<hw::ConstantOp>(op.getLoc(), rewriter.getIntegerType(hw::getBitWidth(opRand.getType())), 0);
+          rewriter.replaceOp(op, constZeroOp);
+          return success();
+        } else if (value_is_const_ones(opRand)) {
+          rewriter.replaceOp(op, inputs[1-i]);
+          return success();
+        }
+      }
+      return failure();
+    }
+    case LUTOpName::LUT_Or: {
+      assert(inputs.size() == 2);
+      for (size_t i = 0; i < 2; i++) {
+        auto opRand = inputs[i];
+        if (value_is_const_zero(opRand)) {
+          auto constZeroOp = rewriter.create<hw::ConstantOp>(op.getLoc(), rewriter.getIntegerType(hw::getBitWidth(opRand.getType())), 0);
+          rewriter.replaceOp(op, constZeroOp);
+          return success();
+        } else if (value_is_const_ones(opRand)) {
+          auto constOnesOp = rewriter.create<hw::ConstantOp>(op.getLoc(), rewriter.getIntegerType(hw::getBitWidth(opRand.getType())), -1);
+          rewriter.replaceOp(op, constOnesOp);
+          return success();
+        }
+      }
+      return failure();
+    }
+    case LUTOpName::LUT_Xor: {
+      assert(inputs.size() == 2);
+      for (size_t i = 0; i < 2; i++) {
+        auto opRand = inputs[i];
+        if (value_is_const_zero(opRand)) {
+          rewriter.replaceOp(op, inputs[1-i]);
+          return success();
+        }
+      }
+      return failure();
+    }
+    case LUTOpName::LUT_Rep1b:
+    case LUTOpName::LUT_Shl1:
+    case LUTOpName::LUT_Shl2:
+    case LUTOpName::LUT_Shl3:
+    case LUTOpName::LUT_Shr1:
+    case LUTOpName::LUT_Shr2:
+    case LUTOpName::LUT_Shr3:
+    case LUTOpName::LUT_Cmp_Eq:
+    case LUTOpName::LUT_Mul_Hi:
+    case LUTOpName::LUT_Mul_Lo:
+    case LUTOpName::LUT_Add: {
+      // carry, lhs, rhs
+      if (all_of(inputs, [&](auto val){return value_is_const_zero(val);})) {
+        rewriter.replaceOp(op, inputs[1]);
+        return success();
+      }
+      return failure();
+    }
+    case LUTOpName::LUT_Carry:
+      break;
+    case LUTOpName::LUT_Mux: {
+      assert(inputs.size() == 3);
+      auto enSignal = inputs[0];
+      if (value_is_const_zero(enSignal)) {
+        // Replace with fVal
+        rewriter.replaceOp(op, inputs[2]);
+        return success();
+      }
+      if (value_is_const_ones(enSignal)) {
+        // Replace with tVal
+        rewriter.replaceOp(op, inputs[1]);
+        return success();
+      }
+      if (inputs[1] == inputs[2]) {
+        rewriter.replaceOp(op, inputs[1]);
+        return success();
+      }
+      return failure();
+    }
+    case LUTOpName::LUT_DShl:
+    case LUTOpName::LUT_DShr:
+    break;
+  }
+  return failure();
+}
 
 

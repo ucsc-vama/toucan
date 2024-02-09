@@ -206,6 +206,22 @@ namespace toucan {
     return false;
   }
 
+  bool value_is_const_ones(mlir::Value &inputVal) {
+    if (auto constOp = inputVal.getDefiningOp<hw::ConstantOp>()) {
+      if (constOp.getValue().isAllOnes()) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  bool value_is_const(mlir::Value &inputVal) {
+    if (auto constOp = inputVal.getDefiningOp<hw::ConstantOp>()) {
+      return true;
+    }
+    return false;
+  }
+
   mlir::Value extractMinimumWidth(mlir::Value val, mlir::RewriterBase &rewriter, mlir::Operation* op) {
     if (auto concatOp = val.getDefiningOp<comb::ConcatOp>()) {
       auto inputs = concatOp.getInputs();

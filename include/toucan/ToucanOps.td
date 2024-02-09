@@ -166,6 +166,7 @@ def LUTOp : ToucanOp<"lut", [Pure]> {
 
   let results = (outs HWIntegerType: $result);
   let hasVerifier = 1;
+  let hasCanonicalizeMethod = 1;
 
   let assemblyFormat = "$op_name $inputs `,` attr-dict `:` `(` type($inputs) `)` `->` type($result)";
 
@@ -257,48 +258,5 @@ def VectorReadOp : ToucanOp<"vec_read", [Pure]> {
   let assemblyFormat = "$handle `[` type($indicies) $indicies `+` $offset `]` `out_range` type($out_range_value) $out_range_value attr-dict `:` type($handle) `->` type($result)";
 }
 
-
-// def BitScatterOp : ToucanOp<"bit_scatter"> {
-//   let summary = "Split a signal into multiple signals <= 4 bits. Temporary operation.";
-//   let description = summary;
-//   let arguments = (ins HWIntegerType: $input);
-
-//   let results = (outs Variadic<HWIntegerType>:$outputs);
-
-//   let hasVerifier = 1;
-
-//   let builders = [
-//     OpBuilder<(ins "mlir::Value":$input)>
-//   ];
-
-//   let assemblyFormat = [{
-//      $input `,` attr-dict `:` type($input) `->` type($outputs)
-//   }];
-// }
-
-// def BitAggregateOp : ToucanOp<"bit_aggregate"> {
-//   let summary = "Aggregate multiple signals <= 4 bits into 1. Temporary operation.";
-//   let description = summary;
-//   let arguments = (ins Variadic<HWIntegerType>: $inputs);
-
-//   let results = (outs HWIntegerType:$output);
-
-//   let hasVerifier = 1;
-
-//   let builders = [
-//     OpBuilder<(ins CArg<"mlir::ArrayRef<mlir::Value>","{}">:$inputs), [{
-//       int64_t resultWidth = 0;
-//       for (auto elem: inputs) {
-//         resultWidth += hw::getBitWidth(elem.getType());
-//       }
-//       auto resultType = $_builder.getIntegerType(resultWidth);
-//       return build($_builder, $_state, resultType, inputs);
-//     }]>
-//   ];
-
-//   let assemblyFormat = [{
-//     $inputs `,` attr-dict `:` type($inputs) `->` type($output)
-//   }];
-// }
 
 #endif

@@ -35,6 +35,8 @@
 namespace toucan {
 
   bool value_is_const_zero(mlir::Value &inputVal);
+  bool value_is_const_ones(mlir::Value &inputVal);
+  bool value_is_const(mlir::Value &inputVal);
 
   mlir::StringRef getSVNameHitRef();
 
