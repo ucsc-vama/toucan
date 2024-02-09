@@ -91,6 +91,46 @@ struct LowerCombReplicateOp: OpRewritePattern<comb::ReplicateOp> {
 
 class DynamicShiftOperations {
   public:
+
+  Value shiftCore(RewriterBase &rewriter, Operation *op, SmallVector<Value> intermediateResults, Value shamt, Value fillingValue, size_t realInputWidth) const {
+    auto shamtWidth = hw::getBitWidth(shamt.getType());
+
+    SmallVector<Value> shiftResult;
+
+    if (shamtWidth > 2) {
+      auto createVecOp = rewriter.create<toucan::DefVectorOp>(op->getLoc(), intermediateResults);
+      auto vecHandle = createVecOp.getHandle();
+
+      auto extractHighBitsOp = rewriter.create<comb::ExtractOp>(op->getLoc(), shamt, 2, shamtWidth - 2);
+      auto shamt_high = extractHighBitsOp.getResult();
+
+      auto shamt_high_split = (hw::getBitWidth(shamt_high.getType()) > 4) ? split_value_4B(op, shamt_high, rewriter) : SmallVector<Value>({shamt_high});
+      
+      for (size_t i = 0; i < intermediateResults.size(); i++) {
+        auto vecReadOp = rewriter.create<toucan::VectorReadOp>(op->getLoc(), vecHandle, i, fillingValue, shamt_high_split);
+        shiftResult.push_back(vecReadOp.getResult());
+      }
+      
+    } else {
+      shiftResult = std::move(intermediateResults);
+    }
+
+    auto resultWidth = shiftResult.size() * 4;
+
+    if (realInputWidth < resultWidth) {
+      // extract leading bits
+      auto extractOp = rewriter.create<comb::ExtractOp>(op->getLoc(), shiftResult[0], 0, realInputWidth % 4);
+      shiftResult[0] = extractOp.getResult();
+    }
+
+    if (shiftResult.size() > 1) {
+      auto concatOp = rewriter.create<comb::ConcatOp>(op->getLoc(), shiftResult);
+      return concatOp.getResult();
+    } else {
+      return shiftResult[0];
+    }
+  }
+
   // shift left, inputs are 4b values from msb to lsb
   Value dshlCore(SmallVector<Value> &inputs, Value shamt, RewriterBase &rewriter, Operation* op, size_t realInputWidth) const {
 
@@ -111,7 +151,7 @@ class DynamicShiftOperations {
     assert(result_sections == input_sections);
 
     // intermediateResult[m][n] is inputs[m] << n
-    SmallVector<Value, 128> intermediateResults;
+    SmallVector<Value> intermediateResults;
 
     Value shamt_l2b;
     if (shamtWidth > 2) {
@@ -131,42 +171,8 @@ class DynamicShiftOperations {
       intermediateResults.push_back(dshlOp.getResult());
     }
 
-    SmallVector<Value> shiftResult;
-
-    if (intermediateResults.size() <= 8) {
-      op->emitRemark() << "TODO: this array may be too small. Consider implement using mux array instead of vector (potentially reduce divergence)";
-    }
-
     std::reverse(intermediateResults.begin(), intermediateResults.end());
-    auto createVecOp = rewriter.create<toucan::DefVectorOp>(op->getLoc(), intermediateResults);
-    auto vecHandle = createVecOp.getHandle();
-
-    if (shamtWidth > 2) {
-      auto extractHighBitsOp = rewriter.create<comb::ExtractOp>(op->getLoc(), shamt, 2, shamtWidth - 2);
-      auto shamt_high = extractHighBitsOp.getResult();
-      auto shamt_high_split = (hw::getBitWidth(shamt_high.getType()) > 4) ? split_value_4B(op, shamt_high, rewriter) : SmallVector<Value>({shamt_high});
-      
-      for (size_t i = 0; i < intermediateResults.size(); i++) {
-        auto vecReadOp = rewriter.create<toucan::VectorReadOp>(op->getLoc(), vecHandle, i, zeroConstValue, shamt_high_split);
-        shiftResult.push_back(vecReadOp.getResult());
-      }
-    } else {
-      shiftResult = std::move(intermediateResults);
-    }
-
-
-    if (realInputWidth < resultWidth) {
-      // extract leading bits
-      auto extractOp = rewriter.create<comb::ExtractOp>(op->getLoc(), shiftResult[0], 0, realInputWidth % 4);
-      shiftResult[0] = extractOp.getResult();
-    }
-
-    if (shiftResult.size() > 1) {
-      auto concatOp = rewriter.create<comb::ConcatOp>(op->getLoc(), shiftResult);
-      return concatOp.getResult();
-    } else {
-      return shiftResult[0];
-    }
+    return shiftCore(rewriter, op, intermediateResults, shamt, zeroConstValue, realInputWidth);
   }
 
   // shift right, inputs need to be extended!!!, inputs are 4b values from msb to lsb
@@ -185,7 +191,7 @@ class DynamicShiftOperations {
     assert(result_sections == input_sections);
 
     // intermediateResult[m][n] is inputs[m] << n
-    SmallVector<Value, 128> intermediateResults;
+    SmallVector<Value> intermediateResults;
 
     Value shamt_l2b;
     if (shamtWidth > 2) {
@@ -205,42 +211,7 @@ class DynamicShiftOperations {
       intermediateResults.push_back(dshlOp.getResult());
     }
 
-    SmallVector<Value> shiftResult;
-
-    if (intermediateResults.size() <= 8) {
-      op->emitRemark() << "TODO: this array may be too small. Consider implement using mux array instead of vector (potentially reduce divergence)";
-    }
-
-    auto createVecOp = rewriter.create<toucan::DefVectorOp>(op->getLoc(), intermediateResults);
-    auto vecHandle = createVecOp.getHandle();
-
-    if (shamtWidth > 2) {
-      auto extractHighBitsOp = rewriter.create<comb::ExtractOp>(op->getLoc(), shamt, 2, shamtWidth - 2);
-      auto shamt_high = extractHighBitsOp.getResult();
-      auto shamt_high_split = (hw::getBitWidth(shamt_high.getType()) > 4) ? split_value_4B(op, shamt_high, rewriter) : SmallVector<Value>({shamt_high});
-
-      for (size_t i = 0; i < intermediateResults.size(); i++) {
-        auto vecReadOp = rewriter.create<toucan::VectorReadOp>(op->getLoc(), vecHandle, i, fillingValue, shamt_high_split);
-        shiftResult.push_back(vecReadOp.getResult());
-      }
-    } else {
-      shiftResult = std::move(intermediateResults);
-    }
-
-
-
-    if (realInputWidth < resultWidth) {
-      // extract leading bits
-      auto extractOp = rewriter.create<comb::ExtractOp>(op->getLoc(), shiftResult[0], 0, realInputWidth % 4);
-      shiftResult[0] = extractOp.getResult();
-    }
-
-    if (shiftResult.size() > 1) {
-      auto concatOp = rewriter.create<comb::ConcatOp>(op->getLoc(), shiftResult);
-      return concatOp.getResult();
-    } else {
-      return shiftResult[0];
-    }
+    return shiftCore(rewriter, op, intermediateResults, shamt, fillingValue, realInputWidth);
   }
 
 

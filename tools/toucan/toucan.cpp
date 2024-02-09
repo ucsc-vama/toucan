@@ -121,15 +121,10 @@ static LogicalResult compileAndEmit(
         pm.addPass(toucan::createLowerCombTo4B_1Pass());
         pm.addPass(toucan::createLowerCombTo4B_2Pass());
         pm.addPass(toucan::createLowerCombTo4B_3Pass());
-        // 2.2 remove unnecessary concat/extracts (a simple, quick canonicalizer), since the canonicalizer is single-threaded.
-        // pm.addPass(toucan::createLowerCombTo4B_2Pass());
 
-        // mlir::GreedyRewriteConfig canonicalizerConfig;
-        // canonicalizerConfig.maxIterations = 2;
-        // // canonicalizerConfig.useTopDownTraversal = true;
-        // canonicalizerConfig.enableRegionSimplification = false;
+        // TODO: Consider a new pass to preserve name hints
 
-        // pm.addPass(toucan::createParallelCanonicalizerPass(canonicalizerConfig));
+        pm.addPass(toucan::createParallelCanonicalizerPass());
 
 
         // pm.addPass(mlir::createCanonicalizerPass());
