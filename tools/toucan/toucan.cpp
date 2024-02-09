@@ -101,7 +101,7 @@ static LogicalResult compileAndEmit(
         // Remove all mem write masks. Split memory if there is any mask
         pm.addPass(toucan::createRemoveMemMaskPass());
 
-        pm.addPass(mlir::createCanonicalizerPass());
+        pm.addPass(toucan::createParallelCanonicalizerPass());
     }
 
     if (inputLevel < Toucan4B) {
@@ -125,15 +125,16 @@ static LogicalResult compileAndEmit(
         // TODO: Consider a new pass to preserve name hints
 
         pm.addPass(toucan::createParallelCanonicalizerPass());
-
-
-        // pm.addPass(mlir::createCanonicalizerPass());
-
     }
 
     if (inputLevel < ToucanFlattened) {
         // Lower to flattened
+        pm.addPass(toucan::createFlattenPass());
+        // pm.addPass(mlir::createCanonicalizerPass());
     }
+
+//    pm.addPass(mlir::createCanonicalizerPass());
+     pm.addPass(toucan::createParallelCanonicalizerPass());
 
 
     if(failed(pm.run(mod.get()))) {

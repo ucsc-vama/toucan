@@ -92,20 +92,12 @@ struct ParallelCanonicalizerPass : toucan::impl::ParallelCanonicalizerBase<Paral
 
     RewritePatternSet owningPatterns(context);
     for (auto *dialect : context->getLoadedDialects()) {
-      if (isa<comb::CombDialect>(dialect) || isa<toucan::ToucanDialect>(dialect));
       dialect->getCanonicalizationPatterns(owningPatterns);
     }
       
     for (RegisteredOperationName op : context->getRegisteredOperations()) {
-      // llvm::dbgs() << op << "\n";
-      // if (enabledOps.contains(op.getStringRef())) {
-
-      // }
       op.getCanonicalizationPatterns(owningPatterns, context);
     }
-
-
-
 
     patterns = std::make_shared<FrozenRewritePatternSet>(
         std::move(owningPatterns), disabledPatterns, enabledPatterns);

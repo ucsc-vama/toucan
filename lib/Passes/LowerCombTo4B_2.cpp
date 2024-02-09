@@ -142,8 +142,6 @@ struct LowerCombSubOp: OpRewritePattern<comb::SubOp>, AddSubCore {
 struct LowerCombMuxOp: OpRewritePattern<comb::MuxOp> {
   using OpRewritePattern<comb::MuxOp>::OpRewritePattern;
 
-  // TODO: This is too slow
-
   LogicalResult matchAndRewrite(comb::MuxOp op, PatternRewriter &rewriter) const final {
     auto condVal = op.getCond();
     auto tValValue = op.getTrueValue();

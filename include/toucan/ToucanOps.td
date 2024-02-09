@@ -53,7 +53,7 @@ def RegReadOp: ToucanOp<"reg_read", [Pure]> {
   ];
   
   let assemblyFormat = [{
-    $reg `,` attr-dict `:` type($reg) `->` type($result)
+    $reg attr-dict `:` type($reg) `->` type($result)
   }];
 }
 
@@ -70,7 +70,7 @@ def RegWriteOp: ToucanOp<"reg_write"> {
   let hasVerifier = 1;
 
   let assemblyFormat = [{
-    $reg $data `,` attr-dict `:` `(` type($reg) `,` type($data) `)`
+    $reg $data attr-dict `:` `(` type($reg)  type($data) `)`
   }];
 
 }
@@ -98,7 +98,7 @@ def MemReadOp: ToucanOp<"mem_read", [Pure]> {
     }]>
   ];
 
-  let assemblyFormat = "$mem `[`  type($addr) $addr `]` `en` $en `,` attr-dict `:` type($mem) `->` type($result)";
+  let assemblyFormat = "$mem `[` type($addr) $addr `]` `en` $en attr-dict `:` type($mem) `->` type($result)";
 
 }
 
@@ -125,7 +125,7 @@ def DefMemOp : ToucanOp<"def_mem", [Symbol]> {
   let results = (outs MemType: $handle);
 
   let assemblyFormat = [{
-    $sym_name `,` attr-dict `:` type($handle)
+    $sym_name attr-dict `:` type($handle)
   }];
   
   // let builders = [
@@ -149,7 +149,7 @@ def DefRegOp : ToucanOp<"def_reg", [Symbol]> {
   ];
 
   let assemblyFormat = [{
-    $sym_name `,` attr-dict `:` type($handle)
+    $sym_name attr-dict `:` type($handle)
   }];
 
 }
@@ -168,7 +168,7 @@ def LUTOp : ToucanOp<"lut", [Pure]> {
   let hasVerifier = 1;
   let hasCanonicalizeMethod = 1;
 
-  let assemblyFormat = "$op_name $inputs `,` attr-dict `:` `(` type($inputs) `)` `->` type($result)";
+  let assemblyFormat = "$op_name $inputs attr-dict `:` `(` type($inputs) `)` `->` type($result)";
 
   let extraClassDeclaration = [{
     static size_t getResultWidth1(toucan::LUTOpName opName, mlir::ValueRange inputs);
@@ -201,7 +201,7 @@ def DefConstVectorOp : ToucanOp<"const_vector", [Pure]> {
   let arguments = (ins ArrayAttr: $values);
   let results = (outs VecType: $handle);
   let assemblyFormat = [{
-    $values `,` attr-dict `:` type($handle)
+    $values attr-dict `:` type($handle)
   }];
   // let hasVerifier = 1;
   let builders = [
@@ -221,7 +221,7 @@ def DefVectorOp : ToucanOp<"vector", [Pure]> {
   let results = (outs VecType: $handle);
   let hasVerifier = 1;
   let assemblyFormat = [{
-    $inputs `,` attr-dict `:` type($inputs) `->` type($handle)
+    $inputs attr-dict `:` type($inputs) `->` type($handle)
   }];
   let builders = [
     OpBuilder<(ins CArg<"mlir::ArrayRef<mlir::Value>","{}">:$inputs), [{
