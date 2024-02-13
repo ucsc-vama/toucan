@@ -134,7 +134,7 @@ static LogicalResult compileAndEmit(
     }
 
 //    pm.addPass(mlir::createCanonicalizerPass());
-     pm.addPass(toucan::createParallelCanonicalizerPass());
+    //  pm.addPass(toucan::createParallelCanonicalizerPass());
 
 
     if(failed(pm.run(mod.get()))) {

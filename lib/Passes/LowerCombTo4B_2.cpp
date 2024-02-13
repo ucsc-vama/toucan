@@ -58,7 +58,7 @@ using namespace llvm;
 
 struct AddSubCore {
   public:
-  Value addCore(Operation *op, PatternRewriter &rewriter, Value lhsValue, Value rhsValue, Value base_carry) const {
+  Value addCore(Operation *op, PatternRewriter &rewriter, Value lhsValue, Value rhsValue, Value base_carry, std::optional<StringAttr> namehint) const {
     auto lhsValues = split_value_4B(op, lhsValue, rewriter);
     auto rhsValues = split_value_4B(op, rhsValue, rewriter);
 
@@ -81,6 +81,7 @@ struct AddSubCore {
     }
 
     // Concat
+    attachNameHintAndFragmentId(rewriter, results, namehint);
     auto concatOp = rewriter.create<comb::ConcatOp>(op->getLoc(), results);
     
     return concatOp.getResult();
@@ -105,9 +106,9 @@ struct LowerCombAddOp: OpRewritePattern<comb::AddOp>, AddSubCore {
     auto lhs = inputs[0];
     auto rhs = inputs[1];
 
-    auto addResult = addCore(op.getOperation(), rewriter, lhs, rhs, constZero1B);
+    auto optionalNameHint = getSVNameHintAttr(op);;
+    auto addResult = addCore(op.getOperation(), rewriter, lhs, rhs, constZero1B, optionalNameHint);
 
-    copyCustomizedAttrs(op, addResult.getDefiningOp());
     rewriter.replaceOp(op, addResult);
     
     return success();
@@ -130,9 +131,9 @@ struct LowerCombSubOp: OpRewritePattern<comb::SubOp>, AddSubCore {
 
     auto notRhs = notRhsOp.getResult();
 
-    auto addResult = addCore(op.getOperation(), rewriter, lhs, notRhs, constOne1B);
+    auto optionalNameHint = getSVNameHintAttr(op);
+    auto addResult = addCore(op.getOperation(), rewriter, lhs, notRhs, constOne1B, optionalNameHint);
 
-    copyCustomizedAttrs(op, addResult.getDefiningOp());
     rewriter.replaceOp(op, addResult);
     
     return success();
@@ -146,29 +147,30 @@ struct LowerCombMuxOp: OpRewritePattern<comb::MuxOp> {
     auto condVal = op.getCond();
     auto tValValue = op.getTrueValue();
     auto fValValue = op.getFalseValue();
-
     auto valueWidth = hw::getBitWidth(tValValue.getType());
+    auto optionalNameHint = getSVNameHintAttr(op);
+
     if (valueWidth > 4) {
       // return failure();
       auto tValValues = split_value_4B(op.getOperation(), tValValue, rewriter);
       auto fValValues = split_value_4B(op.getOperation(), fValValue, rewriter);
 
-      SmallVector<Value, 256> results;
+      SmallVector<Value> results;
       for (auto [tval, fval]: zip(tValValues, fValValues)) {
 
         auto muxOp = rewriter.create<toucan::LUTOp>(op->getLoc(), toucan::LUTOpName::LUT_Mux, condVal, tval, fval);
         results.push_back(muxOp.getResult());
       }
 
+      attachNameHintAndFragmentId(rewriter, results, optionalNameHint);
+
       auto concatOp = rewriter.create<comb::ConcatOp>(op.getLoc(), results);
 
-
-      copyCustomizedAttrs(op, concatOp);
       rewriter.replaceOp(op, concatOp);
     } else {
       auto muxOp = rewriter.create<toucan::LUTOp>(op->getLoc(), toucan::LUTOpName::LUT_Mux, condVal, tValValue, fValValue);
 
-      copyCustomizedAttrs(op, muxOp);
+      attachNameHintAndFragmentId(rewriter, muxOp, optionalNameHint);
       rewriter.replaceOp(op, muxOp);
     }
     

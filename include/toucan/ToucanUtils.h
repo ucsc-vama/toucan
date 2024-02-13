@@ -7,6 +7,7 @@
 #include "circt/Dialect/Seq/SeqDialect.h"
 #include "circt/Dialect/OM/OMDialect.h"
 
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Value.h"
 #include "toucan/ToucanDialect.h"
 
@@ -64,6 +65,12 @@ namespace toucan {
   llvm::SmallVector<mlir::Value> split_value_4B(mlir::Operation *op, const mlir::Value &value, mlir::RewriterBase &rewriter);
 
   void concat_4b_and_replace(mlir::Operation *op, mlir::Value opResult, llvm::SmallVector<mlir::Value> &values, mlir::RewriterBase &rewriter);
+
+  void attachNameHintAndFragmentId(mlir::RewriterBase &rewriter, mlir::SmallVector<mlir::Value> &values, std::optional<mlir::StringAttr> namehint);
+
+  void attachNameHintAndFragmentId(mlir::RewriterBase &rewriter, mlir::Value &value, std::optional<mlir::StringAttr> namehint);
+
+  void attachNameHintAndFragmentId(mlir::RewriterBase &rewriter, mlir::Operation *op, std::optional<mlir::StringAttr> namehint);
 
   mlir::Value generate_mux_chain(mlir::Operation *op, mlir::RewriterBase &rewriter, llvm::SmallVector<mlir::Value> values, mlir::Value index);
 

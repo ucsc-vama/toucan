@@ -76,11 +76,14 @@ struct LowerCombReplicateOp: OpRewritePattern<comb::ReplicateOp> {
         auto newOp = rewriter.create<toucan::LUTOp>(repOp.getLoc(), resultType, toucan::LUTOpName::LUT_Rep1b, ValueRange({inputValue}));
         intermediateResults.push_back(newOp.getResult());
       }
+      attachNameHintAndFragmentId(rewriter, intermediateResults, getSVNameHintAttr(repOp.getOperation()));
+
       concat_4b_and_replace(repOp.getOperation(), repOp.getResult(), intermediateResults, rewriter);
     } else {
       auto resultType = rewriter.getIntegerType(resultValueWidth);
       auto newOp = rewriter.create<toucan::LUTOp>(repOp.getLoc(), resultType, toucan::LUTOpName::LUT_Rep1b, ValueRange({inputValue}));
-      copyCustomizedAttrs(repOp.getOperation(), newOp.getOperation());
+      attachNameHintAndFragmentId(rewriter, newOp, getSVNameHintAttr(newOp));
+
       rewriter.replaceOp(repOp, newOp);
     }
 
@@ -92,7 +95,7 @@ struct LowerCombReplicateOp: OpRewritePattern<comb::ReplicateOp> {
 class DynamicShiftOperations {
   public:
 
-  Value shiftCore(RewriterBase &rewriter, Operation *op, SmallVector<Value> intermediateResults, Value shamt, Value fillingValue, size_t realInputWidth) const {
+  Value shiftCore(RewriterBase &rewriter, Operation *op, SmallVector<Value> intermediateResults, Value shamt, Value fillingValue, size_t realInputWidth, std::optional<StringAttr> namehint) const {
     auto shamtWidth = hw::getBitWidth(shamt.getType());
 
     SmallVector<Value> shiftResult;
@@ -124,15 +127,17 @@ class DynamicShiftOperations {
     }
 
     if (shiftResult.size() > 1) {
+      attachNameHintAndFragmentId(rewriter, shiftResult, namehint);
       auto concatOp = rewriter.create<comb::ConcatOp>(op->getLoc(), shiftResult);
       return concatOp.getResult();
     } else {
+      attachNameHintAndFragmentId(rewriter, shiftResult[0], namehint);
       return shiftResult[0];
     }
   }
 
   // shift left, inputs are 4b values from msb to lsb
-  Value dshlCore(SmallVector<Value> &inputs, Value shamt, RewriterBase &rewriter, Operation* op, size_t realInputWidth) const {
+  Value dshlCore(SmallVector<Value> &inputs, Value shamt, RewriterBase &rewriter, Operation* op, size_t realInputWidth, std::optional<StringAttr> namehint) const {
 
     auto shamtWidth = hw::getBitWidth(shamt.getType());
 
@@ -172,11 +177,11 @@ class DynamicShiftOperations {
     }
 
     std::reverse(intermediateResults.begin(), intermediateResults.end());
-    return shiftCore(rewriter, op, intermediateResults, shamt, zeroConstValue, realInputWidth);
+    return shiftCore(rewriter, op, intermediateResults, shamt, zeroConstValue, realInputWidth, namehint);
   }
 
   // shift right, inputs need to be extended!!!, inputs are 4b values from msb to lsb
-  Value dshrCore(SmallVector<Value> &inputs, Value shamt, RewriterBase &rewriter, Operation* op, size_t realInputWidth, Value fillingValue) const {
+  Value dshrCore(SmallVector<Value> &inputs, Value shamt, RewriterBase &rewriter, Operation* op, size_t realInputWidth, Value fillingValue, std::optional<StringAttr> namehint) const {
 
     auto shamtWidth = hw::getBitWidth(shamt.getType());
 
@@ -211,7 +216,7 @@ class DynamicShiftOperations {
       intermediateResults.push_back(dshlOp.getResult());
     }
 
-    return shiftCore(rewriter, op, intermediateResults, shamt, fillingValue, realInputWidth);
+    return shiftCore(rewriter, op, intermediateResults, shamt, fillingValue, realInputWidth, namehint);
   }
 
 
@@ -254,14 +259,15 @@ struct LowerCombShlOp: OpRewritePattern<comb::ShlOp>, DynamicShiftOperations {
     auto inputValueWithPadding = padding_with_0_and_align_4b(shlOp.getOperation(), rewriter, inputValue);
     auto inputValuesWithPadding_4b = split_value_4B(shlOp.getOperation(), inputValueWithPadding, rewriter);
 
-    auto result = dshlCore(inputValuesWithPadding_4b, shamtValue, rewriter, shlOp.getOperation(), hw::getBitWidth(inputValue.getType()));
+    auto optionalNameHint = getSVNameHintAttr(shlOp);
+
+    auto result = dshlCore(inputValuesWithPadding_4b, shamtValue, rewriter, shlOp.getOperation(), hw::getBitWidth(inputValue.getType()), optionalNameHint);
 
     auto oldResult = shlOp.getResult();
     auto oldResultWidth = hw::getBitWidth(oldResult.getType());
     auto newResultWidth = hw::getBitWidth(result.getType());
     assert(oldResultWidth == newResultWidth);
 
-    copyCustomizedAttrs(shlOp, result.getDefiningOp());
     rewriter.replaceOp(shlOp, result);
 
     return success();
@@ -290,14 +296,15 @@ struct LowerCombShrUOp: OpRewritePattern<comb::ShrUOp>, DynamicShiftOperations {
     auto zeroConstOp = rewriter.create<hw::ConstantOp>(shruOp.getLoc(), rewriter.getI4Type(), 0);
     auto zeroConstValue = zeroConstOp.getResult();
 
-    auto result = dshrCore(inputValuesWithPadding_4b, shamtValue, rewriter, shruOp.getOperation(), inputValueWidth, zeroConstValue);
+    auto optionalNameHint = getSVNameHintAttr(shruOp);
+
+    auto result = dshrCore(inputValuesWithPadding_4b, shamtValue, rewriter, shruOp.getOperation(), inputValueWidth, zeroConstValue, optionalNameHint);
 
     auto oldResult = shruOp.getResult();
     auto oldResultWidth = hw::getBitWidth(oldResult.getType());
     auto newResultWidth = hw::getBitWidth(result.getType());
     assert(oldResultWidth == newResultWidth);
 
-    copyCustomizedAttrs(shruOp, result.getDefiningOp());
     rewriter.replaceOp(shruOp, result);
 
     return success();
@@ -346,19 +353,21 @@ struct LowerCombShrSOp: OpRewritePattern<comb::ShrSOp>, DynamicShiftOperations {
       auto fragmentFillingOp = rewriter.create<comb::ExtractOp>(shrsOp.getLoc(), fillingValue, 0, paddingBits);
       auto fragmentFillingValue = fragmentFillingOp.getResult();
 
+      // Temp value, don't need namehint
       auto concatOp = rewriter.create<comb::ConcatOp>(shrsOp.getLoc(), fragmentFillingValue, inputValues_4b[0]);
 
       inputValues_4b[0] = concatOp.getResult();
     }
 
-    auto result = dshrCore(inputValues_4b, shamtValue, rewriter, shrsOp.getOperation(), inputValueWidth, fillingValue);
+    auto optionalNameHint = getSVNameHintAttr(shrsOp);
+
+    auto result = dshrCore(inputValues_4b, shamtValue, rewriter, shrsOp.getOperation(), inputValueWidth, fillingValue, optionalNameHint);
 
     auto oldResult = shrsOp.getResult();
     auto oldResultWidth = hw::getBitWidth(oldResult.getType());
     auto newResultWidth = hw::getBitWidth(result.getType());
     assert(oldResultWidth == newResultWidth);
 
-    copyCustomizedAttrs(shrsOp, result.getDefiningOp());
     rewriter.replaceOp(shrsOp, result);
 
     return success();
@@ -411,6 +420,7 @@ struct LowerCombICmpOp: OpRewritePattern<comb::ICmpOp> {
     auto constOp = rewriter.create<hw::ConstantOp>(op.getLoc(), rewriter.getIntegerType(paddingTargetWidth - inputValueWidth), 0);
     auto constVal = constOp.getResult();
 
+    // Temp value, don't need namehint
     auto paddingOp = rewriter.create<comb::ConcatOp>(op.getLoc(), ValueRange({constVal, val}));
     auto paddingValue = paddingOp.getResult();
 
@@ -578,7 +588,8 @@ struct LowerCombICmpOp: OpRewritePattern<comb::ICmpOp> {
       result = addNot(op, rewriter, result);
     }
 
-    copyCustomizedAttrs(op, result.getDefiningOp());
+    auto optionalNameHint = getSVNameHintAttr(op);
+    attachNameHintAndFragmentId(rewriter, result, optionalNameHint);
     rewriter.replaceOp(op, result);
 
     return success();
@@ -685,7 +696,9 @@ struct LowerCombMulOp: OpRewritePattern<comb::MulOp> {
     auto shrinkOp = rewriter.create<comb::ExtractOp>(op.getLoc(), rawResult, 0, inputBitWidth);
     auto result = shrinkOp.getResult();
 
-    copyCustomizedAttrs(op, result.getDefiningOp());
+    // Note: the shrinkOp may be removed later. Keep namehints in rawResult
+    // No fragment id for now, will be expand later by lowerAddOp
+    copyCustomizedAttrs(rawResult.getDefiningOp(), result.getDefiningOp());
     rewriter.replaceOp(op, result);
 
     return success();

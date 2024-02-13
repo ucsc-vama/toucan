@@ -104,7 +104,7 @@ namespace toucan {
   llvm::SmallVector<mlir::Value> split_value_4B(mlir::Operation *op, const mlir::Value &value, mlir::RewriterBase &rewriter) {
     llvm::SmallVector<mlir::Value> ret;
 
-    // TODO: this need improvement. Need consider sv namehint and rename this method
+    // If this value is defined by concat of 4bits, simply use value before concat
     auto valDefiningOp = value.getDefiningOp();
     if (valDefiningOp) {
       if (auto concatOp = llvm::dyn_cast<comb::ConcatOp>(valDefiningOp)) {
@@ -148,6 +148,36 @@ namespace toucan {
        rewriter.replaceOp(opResult.getDefiningOp(), values[0]);
     }
       
+  }
+
+  void attachNameHintAndFragmentId(RewriterBase &rewriter, mlir::SmallVector<mlir::Value> &values, std::optional<mlir::StringAttr> namehint) {
+    if (namehint) {
+      for (size_t i = 0; i < values.size(); i++) {
+        auto &val = values[i];
+        auto valDefiningOp = val.getDefiningOp();
+        auto valFragmentId = rewriter.getI32IntegerAttr(values.size() - 1 - i);
+        setSVNameHintAttr(valDefiningOp, namehint.value());
+        setSignalFragmentIDAttr(valDefiningOp, valFragmentId);
+      }
+    }
+  }
+
+  void attachNameHintAndFragmentId(mlir::RewriterBase &rewriter, mlir::Value &value, std::optional<mlir::StringAttr> namehint) {
+    if (namehint) {
+      auto valDefiningOp = value.getDefiningOp();
+      auto valFragmentId = rewriter.getI32IntegerAttr(0);
+      setSVNameHintAttr(valDefiningOp, namehint.value());
+      setSignalFragmentIDAttr(valDefiningOp, valFragmentId);
+      
+    }
+  }
+
+  void attachNameHintAndFragmentId(mlir::RewriterBase &rewriter, mlir::Operation *op, std::optional<mlir::StringAttr> namehint) {
+    if (namehint) {
+      auto valFragmentId = rewriter.getI32IntegerAttr(0);
+      setSVNameHintAttr(op, namehint.value());
+      setSignalFragmentIDAttr(op, valFragmentId);
+    }
   }
 
   mlir::Value generate_mux_chain(mlir::Operation *op, mlir::RewriterBase &rewriter, llvm::SmallVector<mlir::Value> values, mlir::Value index) {

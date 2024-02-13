@@ -71,6 +71,8 @@ struct LowerCombAndOp: OpRewritePattern<comb::AndOp> {
     auto rhs = op.getInputs()[1];
     assert(hw::getBitWidth(lhs.getType()) == hw::getBitWidth(rhs.getType()));
 
+    auto optionalNameHint = getSVNameHintAttr(op);
+
     if (resultValueWidth > 4) {
       auto lhsValues = split_value_4B(op.getOperation(), lhs, rewriter);
       auto rhsValues = split_value_4B(op.getOperation(), rhs, rewriter);
@@ -81,10 +83,12 @@ struct LowerCombAndOp: OpRewritePattern<comb::AndOp> {
         intermediateResults.push_back(andOp.getResult());
       }
 
+      attachNameHintAndFragmentId(rewriter, intermediateResults, optionalNameHint);
       concat_4b_and_replace(op.getOperation(), op.getResult(), intermediateResults, rewriter);
     } else {
       auto andOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_And, lhs, rhs);
-      copyCustomizedAttrs(op, andOp);
+
+      attachNameHintAndFragmentId(rewriter, andOp, optionalNameHint);
       rewriter.replaceOp(op, andOp);
     }
     
@@ -109,6 +113,8 @@ struct LowerCombOrOp: OpRewritePattern<comb::OrOp> {
     auto rhs = op.getInputs()[1];
     assert(hw::getBitWidth(lhs.getType()) == hw::getBitWidth(rhs.getType()));
 
+    auto optionalNameHint = getSVNameHintAttr(op);
+
     if (resultValueWidth > 4) {
       auto lhsValues = split_value_4B(op.getOperation(), lhs, rewriter);
       auto rhsValues = split_value_4B(op.getOperation(), rhs, rewriter);
@@ -118,11 +124,13 @@ struct LowerCombOrOp: OpRewritePattern<comb::OrOp> {
         auto orOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Or, lhs, rhs);
         intermediateResults.push_back(orOp.getResult());
       }
-
+      
+      attachNameHintAndFragmentId(rewriter, intermediateResults, optionalNameHint);
       concat_4b_and_replace(op.getOperation(), op.getResult(), intermediateResults, rewriter);
     } else {
       auto orOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Or, lhs, rhs);
-      copyCustomizedAttrs(op.getOperation(), orOp.getOperation());
+
+      attachNameHintAndFragmentId(rewriter, orOp, optionalNameHint);
       rewriter.replaceOp(op, orOp);
     }
     
@@ -147,6 +155,8 @@ struct LowerCombXorOp: OpRewritePattern<comb::XorOp> {
     auto rhs = op.getInputs()[1];
     assert(hw::getBitWidth(lhs.getType()) == hw::getBitWidth(rhs.getType()));
 
+    auto optionalNameHint = getSVNameHintAttr(op);
+
     if (resultValueWidth > 4) {
       auto lhsValues = split_value_4B(op.getOperation(), lhs, rewriter);
       auto rhsValues = split_value_4B(op.getOperation(), rhs, rewriter);
@@ -157,10 +167,12 @@ struct LowerCombXorOp: OpRewritePattern<comb::XorOp> {
         intermediateResults.push_back(xorOp.getResult());
       }
 
+      attachNameHintAndFragmentId(rewriter, intermediateResults, optionalNameHint);
       concat_4b_and_replace(op.getOperation(), op.getResult(), intermediateResults, rewriter);
     } else {
       auto xorOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Xor, lhs, rhs);
-      copyCustomizedAttrs(op.getOperation(), xorOp.getOperation());
+
+      attachNameHintAndFragmentId(rewriter, xorOp, optionalNameHint);
       rewriter.replaceOp(op, xorOp);
     }
     
