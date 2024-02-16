@@ -85,6 +85,23 @@ namespace toucan {
     return std::optional<IntegerAttr>();
   }
 
+  mlir::StringRef getIOSignalMarkerAttrName() {
+    return "resultIsIO";
+  }
+  bool hasIOSignalMarker(mlir::Operation *op) {
+    if (op->hasAttr(getIOSignalMarkerAttrName())) {
+      return op->getAttrOfType<BoolAttr>(getIOSignalMarkerAttrName()).getValue();
+    }
+    return false;
+  }
+  void setIOSignalMarker(mlir::Operation *op) {
+    auto trueAttr = BoolAttr::get(op->getContext(), true);
+    op->setAttr(getIOSignalMarkerAttrName(), trueAttr);
+  }
+  void removeIOSignalMarker(mlir::Operation *op) {
+    op->removeAttr(getIOSignalMarkerAttrName());
+  }
+
   std::vector<std::tuple<int, int>> split_signal_4B(int bit_width) {
     assert(bit_width > 0);
     std::vector<std::tuple<int, int>> chunks;

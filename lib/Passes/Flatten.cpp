@@ -8,9 +8,13 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/IRMapping.h"
+#include "mlir/IR/MLIRContext.h"
 #include "mlir/Support/LLVM.h"
+#include "mlir/Support/LogicalResult.h"
+#include "toucan/ToucanUtils.h"
 
 #include "llvm/Support/Casting.h"
+#include "llvm/Support/Debug.h"
 #include "llvm/Support/GraphWriter.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/ADT/PostOrderIterator.h"
@@ -21,32 +25,96 @@
 using namespace circt;
 using namespace mlir;
 using namespace llvm;
+using namespace toucan;
+
+// TODO: Inline external module
 
 struct FlattenPass : toucan::impl::FlattenBase<FlattenPass> {
   using toucan::impl::FlattenBase<FlattenPass>::FlattenBase;
-  static bool inlineOne(hw::HWModuleOp parent, hw::InstanceOp inst, hw::HWModuleOp inner) {
+
+  static void flattenName(MLIRContext *ctx, Operation *op, StringRef prefix) {
+    if(op->hasAttr("sv.namehint")) {
+      auto attr = op->getAttrOfType<StringAttr>("sv.namehint");
+      auto newName = prefix + "." + attr.getValue();
+      // Here, we allow name collision, as splitted signals share same name
+      op->setAttr("sv.namehint", StringAttr::get(ctx, newName));
+    }
+  }
+
+  static LogicalResult inlineExternalModule(hw::HWModuleOp parent, hw::InstanceOp inst, hw::HWModuleExternOp innerModule) {
+    auto instName = inst.getInstanceName();
+    // Treat each signal as a register
+
+    // TODO
+
+    return failure();
+  }
+
+  static LogicalResult inlineOne(hw::HWModuleOp parent, hw::InstanceOp inst, hw::HWModuleOp innerModule) {
+    auto instName = inst.getInstanceName();
+
     auto builder = OpBuilder(parent.getBodyBlock(), inst->getIterator());
-    auto block = inner.getBodyBlock();
+    auto bodyBlock = innerModule.getBodyBlock();
+
     IRMapping mapping;
-    mapping.map(block->getArguments(), inst->getOperands());
-    SmallVector<Operation*, 4> cloneOps;
-    block->walk([&](Operation * op) {
-      if(auto outputOp = dyn_cast<hw::OutputOp>(op)) {
+
+    SmallVector<Operation*> cloneOps;
+    cloneOps.reserve(bodyBlock->getOperations().size());
+
+    // Map all input signals
+    mapping.map(bodyBlock->getArguments(), inst->getOperands());
+
+    // clone all ops
+    bodyBlock->walk([&](Operation *op) {
+      if (auto outputOp = dyn_cast<hw::OutputOp>(op)) {
         mapping.map(inst.getResults(), outputOp.getOutputs());
-      }
-      else {
+      } else {
+        // clone
         auto clone = op->clone();
         mapping.map(op->getResults(), clone->getResults());
         cloneOps.push_back(clone);
       }
     });
+
     auto getMap = [&](mlir::Value x) {
       while(mapping.contains(x)) {
         x = mapping.lookup(x);
       }
       return x;
     };
+
+    // rename
+    for (auto val: bodyBlock->getArguments()) {
+      auto argId = val.getArgNumber();
+      auto argName = innerModule.getArgName(argId).getValue();
+      auto newVal = getMap(val);
+      if (auto valDefOp = newVal.getDefiningOp()) {
+        // Add namehint
+        auto newName = instName + "." + argName;
+        auto namehint = builder.getStringAttr(newName);
+        setSVNameHintAttr(valDefOp, namehint);
+        setIOSignalMarker(valDefOp);
+      }
+    }
+    for (auto val: inst.getResults()) {
+      auto argId = val.getResultNumber();
+      auto argName = inst.getResultName(argId).getValue();
+      auto newVal = getMap(val);
+      if (auto valDefOp = newVal.getDefiningOp()) {
+        // Add namehint
+        auto newName = instName + "." + argName;
+        auto namehint = builder.getStringAttr(newName);
+        setSVNameHintAttr(valDefOp, namehint);
+        setIOSignalMarker(valDefOp);
+      }
+    }
+
+    // flatten
+    auto context = inst.getContext();
     for(auto op: cloneOps) {
+      if (!hasIOSignalMarker(op)) {
+        flattenName(context, op, instName);
+      }
       for(auto& opOperand: op->getOpOperands()) {
         opOperand.set(getMap(opOperand.get()));
       }
@@ -57,8 +125,11 @@ struct FlattenPass : toucan::impl::FlattenBase<FlattenPass> {
     }
     assert(inst->getUses().empty());
     inst->erase();
-    return true;
+
+    return success();
   }
+
+
   static void inlineChild(hw::HWModuleOp mod, hw::InstanceGraph &graph) {
     auto context = mod->getContext();
     auto block = mod.getBodyBlock();
@@ -104,6 +175,7 @@ struct FlattenPass : toucan::impl::FlattenBase<FlattenPass> {
       auto modop = modNode->getModule().getOperation();
       if(!modop) continue;
       if(auto mod = dyn_cast<hw::HWModuleOp>(modop)) {
+        // TODO: parallel
         inlineChild(mod, instGraph);
       }
     }

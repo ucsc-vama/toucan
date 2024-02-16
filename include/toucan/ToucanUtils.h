@@ -58,6 +58,12 @@ namespace toucan {
   void copyCustomizedAttrs(mlir::Operation *from, mlir::Operation *to);
 
 
+  mlir::StringRef getIOSignalMarkerAttrName();
+  bool hasIOSignalMarker(mlir::Operation *op);
+  void setIOSignalMarker(mlir::Operation *op);
+  void removeIOSignalMarker(mlir::Operation *op);
+
+
 
 
   std::vector<std::tuple<int, int>> split_signal_4B(int bit_width);
