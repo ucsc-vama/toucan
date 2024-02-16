@@ -99,6 +99,7 @@ class DynamicShiftOperations {
     auto shamtWidth = hw::getBitWidth(shamt.getType());
 
     SmallVector<Value> shiftResult;
+    shiftResult.reserve(intermediateResults.size());
 
     if (shamtWidth > 2) {
       auto createVecOp = rewriter.create<toucan::DefVectorOp>(op->getLoc(), intermediateResults);
@@ -157,6 +158,7 @@ class DynamicShiftOperations {
 
     // intermediateResult[m][n] is inputs[m] << n
     SmallVector<Value> intermediateResults;
+    intermediateResults.reserve(inputs.size());
 
     Value shamt_l2b;
     if (shamtWidth > 2) {
@@ -197,6 +199,7 @@ class DynamicShiftOperations {
 
     // intermediateResult[m][n] is inputs[m] << n
     SmallVector<Value> intermediateResults;
+    intermediateResults.reserve(inputs.size());
 
     Value shamt_l2b;
     if (shamtWidth > 2) {
@@ -635,6 +638,7 @@ struct LowerCombMulOp: OpRewritePattern<comb::MulOp> {
     SmallVector<SmallVector<Value>> tempValues;
     for (size_t i = 0; i < outputIntegers; i++) {
       tempValues.push_back({});
+      tempValues.reserve(outputSections);
       for (size_t j = 0; j < outputSections; j++) {
         tempValues[i].push_back(zeroConstValue);
       }
@@ -663,6 +667,7 @@ struct LowerCombMulOp: OpRewritePattern<comb::MulOp> {
 
     // Merge 4b fragments
     SmallVector<Value> addition_inputs;
+    addition_inputs.reserve(tempValues.size());
     for (auto valFragments: tempValues) {
       assert(valFragments.size() > 1);
       auto concatOp = rewriter.create<comb::ConcatOp>(op.getLoc(), valFragments);
@@ -677,6 +682,7 @@ struct LowerCombMulOp: OpRewritePattern<comb::MulOp> {
 
     assert(!addition_inputs.empty());
     SmallVector<Value> outputs;
+    outputs.reserve(addition_inputs.size());
     while (addition_inputs.size() != 1) {
       for (size_t i = 0; i < addition_inputs.size(); i += 2) {
         auto lhs = addition_inputs[i];
@@ -796,10 +802,7 @@ struct LowerCombTo4B_1Pass : toucan::impl::LowerCombTo4B_1Base<LowerCombTo4B_1Pa
 
 
   LogicalResult runOnModule(hw::HWModuleOp mod) {
-    SmallVector<Operation*> toRemove;
-
     return applyFullConversion(mod, *target, *patterns);
-
   }
 
   void runOnOperation() final {
