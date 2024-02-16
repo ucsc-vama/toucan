@@ -53,7 +53,6 @@ struct LowerRegMemTo4BPass : toucan::impl::LowerRegMemTo4BBase<LowerRegMemTo4BPa
 
     for (auto &stmt: mod.getOps()) {
       if (auto regOp = dyn_cast<toucan::DefRegOp>(stmt)) {
-        auto regName = regOp.getSymName();
         auto regHandle = regOp.getHandle();
         auto regBitWidth = regHandle.getType().getElementWidth();
 
@@ -62,7 +61,10 @@ struct LowerRegMemTo4BPass : toucan::impl::LowerRegMemTo4BBase<LowerRegMemTo4BPa
         OpBuilder builder(regOp);
         IRRewriter rewriter(builder);
 
-        auto namehint = rewriter.getStringAttr(regName);
+        auto defaultNameAttr = rewriter.getStringAttr("__no_name");
+
+        auto namehintRaw = getSVNameHintAttr(regOp).value_or(defaultNameAttr).str();
+        auto namehint = rewriter.getStringAttr(namehintRaw);
 
         // First, expand
         rewriter.setInsertionPointAfter(regOp);
@@ -72,10 +74,9 @@ struct LowerRegMemTo4BPass : toucan::impl::LowerRegMemTo4BBase<LowerRegMemTo4BPa
 
           auto chunks = split_signal_4B(regBitWidth);
           for (auto [regId, regWidth]: chunks) {
-            auto newRegName = rewriter.getStringAttr(regName + "_Fragment_" + std::to_string(regId));
             auto regDataType = rewriter.getIntegerType(regWidth);
 
-            auto newRegOp_4B = rewriter.create<toucan::DefRegOp>(regOp.getLoc(), newRegName, regDataType);
+            auto newRegOp_4B = rewriter.create<toucan::DefRegOp>(regOp.getLoc(), regDataType);
 
             auto newRegHandle = newRegOp_4B.getHandle();
 
@@ -145,15 +146,16 @@ struct LowerRegMemTo4BPass : toucan::impl::LowerRegMemTo4BBase<LowerRegMemTo4BPa
       } else if (auto memOp = dyn_cast<toucan::DefMemOp>(stmt)) {
         // Memory
         auto memValue = memOp.getHandle();
-        auto memName = memOp.getSymName();
         auto memType = memValue.getType();
         auto memDepth = memType.getDepth();
         auto memWidth = memType.getElementWidth();
 
         OpBuilder builder(memOp);
         IRRewriter rewriter(builder);
+        auto defaultNameAttr = rewriter.getStringAttr("__no_name");
 
-        auto namehint = rewriter.getStringAttr(memName);
+        auto namehint = getSVNameHintAttr(memOp).value_or(defaultNameAttr);
+        // auto namehint = rewriter.getStringAttr(memName);
 
         if (memWidth > 4) {
           SmallVector<std::tuple<IntegerAttr, int, mlir::Value, mlir::StringAttr>> newMemInfos;
@@ -161,11 +163,10 @@ struct LowerRegMemTo4BPass : toucan::impl::LowerRegMemTo4BBase<LowerRegMemTo4BPa
           auto chunks = split_signal_4B(memWidth);
           for (auto [newMemId, newMemWidth]: chunks) {
 
-            auto newMemName = rewriter.getStringAttr(memName + "_Fragment_" + std::to_string(newMemId));
             auto newMemElemType = rewriter.getIntegerType(newMemWidth);
             auto newMemDataType = rewriter.getType<toucan::MemType>(memDepth, newMemElemType);
 
-            auto newMemOp_4B = rewriter.create<toucan::DefMemOp>(memOp.getLoc(), newMemDataType, newMemName);
+            auto newMemOp_4B = rewriter.create<toucan::DefMemOp>(memOp.getLoc(), newMemDataType);
 
             auto newMemHandle = newMemOp_4B.getHandle();
 

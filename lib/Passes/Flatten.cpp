@@ -1,6 +1,10 @@
+#include "circt/Dialect/Comb/CombOps.h"
 #include "circt/Dialect/HW/HWOpInterfaces.h"
 #include "circt/Dialect/HW/HWOps.h"
 #include "circt/Dialect/HW/HWInstanceGraph.h"
+#include "circt/Dialect/HW/HWTypes.h"
+#include "circt/Dialect/Seq/SeqOps.h"
+#include "circt/Dialect/Seq/SeqTypes.h"
 #include "circt/Support/Namespace.h"
 
 #include "mlir/IR/Builders.h"
@@ -9,10 +13,13 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/MLIRContext.h"
+#include "mlir/IR/PatternMatch.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
+#include "toucan/ToucanOps.h"
 #include "toucan/ToucanUtils.h"
 
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/GraphWriter.h"
@@ -41,16 +48,142 @@ struct FlattenPass : toucan::impl::FlattenBase<FlattenPass> {
     }
   }
 
-  static LogicalResult inlineExternalModule(hw::HWModuleOp parent, hw::InstanceOp inst, hw::HWModuleExternOp innerModule) {
-    auto instName = inst.getInstanceName();
-    // Treat each signal as a register
+  // static LogicalResult inlineExternalModule(hw::HWModuleOp parent, hw::InstanceOp inst, hw::HWModuleExternOp innerModule) {
+  //   auto instName = inst.getInstanceName();
+  //   // Treat each signal as a register
 
-    // TODO
+  //   // TODO
 
-    return failure();
+  //   return failure();
+  // }
+
+  static Value createDummpyClockValue(OpBuilder &builder, Location loc) {
+    auto constOneOp = builder.create<hw::ConstantOp>(loc, builder.getI1Type(), 1);
+    auto asClockOp = builder.create<seq::ToClockOp>(loc, constOneOp.getResult());
+    return asClockOp.getResult();
   }
 
-  static LogicalResult inlineOne(hw::HWModuleOp parent, hw::InstanceOp inst, hw::HWModuleOp innerModule) {
+  static Value createRegAndReturnSingleReadValue(size_t valueWidth, Location loc, OpBuilder &builder, StringAttr valueNewNameAttr) {
+    SmallVector<Value> chunkValues;
+
+    for (auto [chunkId, chunkSize]: split_signal_4B(valueWidth)) {
+      auto regType = builder.getIntegerType(chunkSize);
+      auto regOp = builder.create<toucan::DefRegOp>(loc, regType);
+
+      auto regReadOp = builder.create<toucan::RegReadOp>(loc, regOp.getHandle());
+
+
+      auto idAttr = builder.getI32IntegerAttr(chunkId);
+
+      auto regOperation = regOp.getOperation();
+      auto regReadOperation = regReadOp.getOperation();
+
+      setSVNameHintAttr(regOperation, valueNewNameAttr);
+      setSignalFragmentIDAttr(regOperation, idAttr);
+      setIOSignalMarker(regOperation);
+
+      setSVNameHintAttr(regReadOperation, valueNewNameAttr);
+      setSignalFragmentIDAttr(regReadOperation, idAttr);
+      setIOSignalMarker(regReadOperation);
+
+      chunkValues.push_back(regReadOp.getResult());
+    }
+    if (chunkValues.size() > 1) {
+      // merge segments
+      auto concatOp = builder.create<comb::ConcatOp>(loc, chunkValues);
+      return concatOp.getResult();
+    }
+    return chunkValues[0];
+  }
+
+  static void createRegAndWrite(Operation *op, Value &inputVal, RewriterBase &rewriter, StringAttr &valueNewNameAttr) {
+    auto splitedVals = split_value_4B(op, inputVal, rewriter);
+    for (size_t chunkId = 0; chunkId < splitedVals.size(); chunkId++) {
+      auto inputChunk = splitedVals[chunkId];
+      auto inputChunkWidth = hw::getBitWidth(inputChunk.getType());
+      auto regType = rewriter.getIntegerType(inputChunkWidth);
+
+      auto regOp = rewriter.create<toucan::DefRegOp>(op->getLoc(), regType);
+
+      rewriter.create<toucan::RegWriteOp>(op->getLoc(), inputChunk, regOp.getHandle());
+
+      auto idAttr = rewriter.getI32IntegerAttr(chunkId);
+
+      auto regOperation = regOp.getOperation();
+
+      setSVNameHintAttr(regOperation, valueNewNameAttr);
+      setSignalFragmentIDAttr(regOperation, idAttr);
+      setIOSignalMarker(regOperation);
+
+    }
+  }
+
+
+  static LogicalResult inlineExternalModule(hw::HWModuleOp parent, hw::InstanceOp inst, hw::HWModuleExternOp innerModule) {
+    auto instName = inst.getInstanceName();
+
+    auto builder = OpBuilder(parent.getBodyBlock(), inst->getIterator());
+    IRRewriter rewriter(builder);
+    auto context = inst->getContext();
+
+    IRMapping mapping;
+
+
+    // // Map all input signals
+    // mapping.map(bodyBlock->getArguments(), inst->getOperands());
+    for (auto [inputVal, valName]: zip(inst.getInputs(), inst.getArgNames()) ) {
+      // input values are transformed to a register with writer only
+      auto valueNewName = instName + "." + valName.cast<StringAttr>().getValue();
+      auto valueNewNameAttr = StringAttr::get(context, valueNewName);
+
+      if (isa<seq::ClockType>(inputVal.getType()) || hw::getBitWidth(inputVal.getType()) <= 0) {
+        continue;
+      }
+
+      createRegAndWrite(inst, inputVal, rewriter, valueNewNameAttr);
+    }
+
+
+    // // Map all output signals
+    for (auto [outputVal, valName]: zip(inst.getResults(), inst.getResultNames()) ) {
+
+      // Dirty hack for seq.clock
+      if (isa<seq::ClockType>(outputVal.getType())) {
+        auto dummyClockVal = createDummpyClockValue(builder, inst->getLoc());
+
+        mapping.map(outputVal, dummyClockVal);
+      } else {
+        // input values are transformed to a register with writer only
+        auto valueWidth = hw::getBitWidth(outputVal.getType());
+        auto valueNewName = instName + "." + valName.cast<StringAttr>().getValue();
+        auto valueNewNameAttr = StringAttr::get(context, valueNewName);
+
+        auto regVal = createRegAndReturnSingleReadValue(valueWidth, inst->getLoc(), rewriter, valueNewNameAttr);
+
+        mapping.map(outputVal, regVal);
+      }
+    }
+
+
+    auto getMap = [&](mlir::Value x) {
+      while(mapping.contains(x)) {
+        x = mapping.lookup(x);
+      }
+      return x;
+    };
+
+    // flatten
+    for(auto outval: inst.getResults()) {
+      outval.replaceAllUsesWith(getMap(outval));
+    }
+    assert(inst->getUses().empty());
+    inst->erase();
+
+    return success();
+  }
+
+
+  static LogicalResult inlineModule(hw::HWModuleOp parent, hw::InstanceOp inst, hw::HWModuleOp innerModule) {
     auto instName = inst.getInstanceName();
 
     auto builder = OpBuilder(parent.getBodyBlock(), inst->getIterator());
@@ -112,9 +245,7 @@ struct FlattenPass : toucan::impl::FlattenBase<FlattenPass> {
     // flatten
     auto context = inst.getContext();
     for(auto op: cloneOps) {
-      if (!hasIOSignalMarker(op)) {
-        flattenName(context, op, instName);
-      }
+      flattenName(context, op, instName);
       for(auto& opOperand: op->getOpOperands()) {
         opOperand.set(getMap(opOperand.get()));
       }
@@ -130,33 +261,111 @@ struct FlattenPass : toucan::impl::FlattenBase<FlattenPass> {
   }
 
 
-  static void inlineChild(hw::HWModuleOp mod, hw::InstanceGraph &graph) {
+  static LogicalResult inlineChild(hw::HWModuleOp mod, hw::InstanceGraph &graph) {
     auto context = mod->getContext();
     auto block = mod.getBodyBlock();
     auto insts = to_vector(block->getOps<hw::InstanceOp>());
+
     for(auto inst: insts) {
       auto innerNode = graph.lookup(StringAttr::get(context, inst.getModuleName()));
       auto modlike = innerNode->getModule();
-      if(auto modop = dyn_cast<hw::HWModuleOp>(modlike.getOperation())) {
-        inlineOne(mod, inst, modop);
+      if (auto modop = dyn_cast<hw::HWModuleOp>(modlike.getOperation())) {
+        if (!succeeded(inlineModule(mod, inst, modop))) return failure();
+      } else if (auto extmodOp = dyn_cast<hw::HWModuleExternOp>(modlike.getOperation())) {
+        if (!succeeded(inlineExternalModule(mod, inst, extmodOp))) return failure();
       }
     }
+    return success();
   }
-  static void resetNames(MLIRContext * ctx, Operation * op) {
-    Namespace ns;
-    op->walk([&](Operation * op){
-      if(op->hasAttr("sv.namehint")) {
-        auto attr = op->getAttrOfType<StringAttr>("sv.namehint");
-        auto name = ns.newName(attr.getValue());
-        if(name != attr.str()) {
-          op->setAttr("sv.namehint", StringAttr::get(ctx, name));
-        }
+
+  static LogicalResult flattenTopModule(hw::HWModuleOp topMod) {
+    // Remove module IO, redfine it as register
+    auto bodyBlock = topMod.getBodyBlock();
+    OpBuilder builder(bodyBlock, bodyBlock->begin());
+    auto loc = bodyBlock->begin()->getLoc();
+
+    SmallVector<unsigned int> inPortToErase;
+
+    for (auto [argVal, portInfo]: zip(bodyBlock->getArguments(), topMod.getPortList())) {
+      if (isa<seq::ClockType>(argVal.getType())) {
+        auto dummyClockVal = createDummpyClockValue(builder, loc);
+
+        argVal.replaceAllUsesWith(dummyClockVal);
+      } else {
+        // Not clock
+        auto argName = portInfo.getName();
+        auto valueWidth = hw::getBitWidth(argVal.getType());
+        auto newNameAttr = builder.getStringAttr(argName);
+
+        auto newVal = createRegAndReturnSingleReadValue(valueWidth, loc, builder, newNameAttr);
+
+        argVal.replaceAllUsesWith(newVal);
+      }
+      inPortToErase.push_back(argVal.getArgNumber());
+    }
+
+    // Transform output to regwrite
+    bodyBlock->walk([&](hw::OutputOp outputOp) {
+
+      IRRewriter rewriter(builder);
+      rewriter.setInsertionPoint(outputOp);
+
+      for (auto [outVal, valName]: zip(outputOp.getOutputs(), topMod.getOutputNames())) {
+        auto argName = valName.cast<StringAttr>().getValue();
+        auto valueNewNameAttr = rewriter.getStringAttr(argName);
+
+        createRegAndWrite(outputOp.getOperation(), outVal, rewriter, valueNewNameAttr);
       }
     });
+
+    SmallVector<Operation*> cloneOps;
+    cloneOps.reserve(bodyBlock->getOperations().size());
+
+    IRMapping mapping;
+    auto getMap = [&](mlir::Value x) {
+      while(mapping.contains(x)) {
+        x = mapping.lookup(x);
+      }
+      return x;
+    };
+
+    // clone all ops
+    bodyBlock->walk([&](Operation *op) {
+      if (!isa<hw::OutputOp>(op)) {
+        // clone
+        auto clone = op->clone();
+        mapping.map(op->getResults(), clone->getResults());
+        cloneOps.push_back(clone);
+      }
+    });
+
+    // flatten
+    builder.setInsertionPoint(topMod);
+
+    auto context = topMod.getContext();
+    auto modName = topMod.getSymName();
+    for(auto op: cloneOps) {
+      flattenName(context, op, modName);
+      for(auto& opOperand: op->getOpOperands()) {
+        opOperand.set(getMap(opOperand.get()));
+      }
+      builder.insert(op);
+    }
+    topMod.erase();
+
+
+    return success();
   }
+
   void runOnOperation() final {
     auto modlist = getOperation();
     hw::HWModuleOp topModule = nullptr;
+
+    SmallVector<hw::HWModuleExternOp> externModules;
+    modlist->walk([&](hw::HWModuleExternOp op) {
+      externModules.push_back(op);
+    });
+
     SmallVector<hw::HWModuleOp> nodesToDelete;
     modlist->walk([&](hw::HWModuleOp op) {
       if(op.isPrivate()) {
@@ -170,24 +379,32 @@ struct FlattenPass : toucan::impl::FlattenBase<FlattenPass> {
         topModule = op;
       }
     });
+
     auto & instGraph = getAnalysis<hw::InstanceGraph>();
+    
     for(auto modNode: post_order(&instGraph)) {
       auto modop = modNode->getModule().getOperation();
       if(!modop) continue;
       if(auto mod = dyn_cast<hw::HWModuleOp>(modop)) {
         // TODO: parallel
-        inlineChild(mod, instGraph);
+        if (failed(inlineChild(mod, instGraph))) return signalPassFailure();
       }
     }
     for(auto mod: nodesToDelete) {
       mod.erase();
     }
-    resetNames(&getContext(), getOperation());
-    modlist->walk([&](hw::HWModuleOp mod) {
-      for(auto & op: mod.getOps()) {
-        numEdges += op.getNumOperands();
+    for (auto extmod: externModules) {
+      extmod.erase();
+    }
+
+    if (failed(flattenTopModule(topModule))) return signalPassFailure();
+
+
+
+    modlist->walk([&](Operation *op) {
+        numEdges += op->getNumOperands();
         numOps += 1;
-      }
+      
     });
   }
 };

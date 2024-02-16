@@ -93,7 +93,7 @@ struct RemoveMemMaskPass : toucan::impl::RemoveMemMaskBase<RemoveMemMaskPass> {
             // Create i'th memory
             auto splitMemName = rewriter.getStringAttr(memName + "_" + std::to_string(i));
 
-            auto newMemOp = rewriter.create<toucan::DefMemOp>(memOp.getLoc(), splitMemTypeAttr, splitMemName);
+            auto newMemOp = rewriter.create<toucan::DefMemOp>(memOp.getLoc(), splitMemTypeAttr);
             auto newMem = newMemOp.getHandle();
 
             newMemValues.push_back(newMem);
@@ -106,7 +106,7 @@ struct RemoveMemMaskPass : toucan::impl::RemoveMemMaskBase<RemoveMemMaskPass> {
           auto memElemType = rewriter.getIntegerType(memWidth);
           // auto memType = rewriter.getType<toucan::MemType>(memDepth, memElemType);
           auto memTypeAttr = rewriter.getAttr<toucan::MemType>(memDepth, memElemType);
-          auto newMemOp = rewriter.create<toucan::DefMemOp>(memOp.getLoc(), memTypeAttr, memName);
+          auto newMemOp = rewriter.create<toucan::DefMemOp>(memOp.getLoc(), memTypeAttr);
           auto newMem = newMemOp.getHandle();
 
           newMemValues.push_back(newMem);

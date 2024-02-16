@@ -55,16 +55,17 @@ struct SplitRegistersPass : toucan::impl::SplitRegistersBase<SplitRegistersPass>
         IRRewriter rewriter(builder);
         rewriter.setInsertionPointAfter(regOp);
 
-        // auto regName = getSVNameHintAttr(regOp).value_or(regOp.getNameAttr());
-        auto regName = regOp.getNameAttr();
+        auto regName = getSVNameHintAttr(regOp).value_or(regOp.getNameAttr());
 
         // auto regName = regOp.getNameAttr();
         auto elemType = cast<mlir::IntegerType>(regOp.getData().getType());
         // auto regWidth = hw::getBitWidth(elemType);
 
         // Declare register
-        auto regDefOp = rewriter.create<toucan::DefRegOp>(regOp.getLoc(), regName, elemType);
+        auto regDefOp = rewriter.create<toucan::DefRegOp>(regOp.getLoc(), elemType);
         auto regDefReference = regDefOp.getHandle();
+
+        setSVNameHintAttr(regDefOp, regName);
 
         // Read 
         auto regReadOp = rewriter.create<toucan::RegReadOp>(regOp.getLoc(), regDefReference);

@@ -117,39 +117,34 @@ def MemWriteOp: ToucanOp<"mem_write"> {
   let assemblyFormat = "$mem `[` $addr `]` `=` $data `en` $en attr-dict `:` type($mem) `[` type($addr) `]` type($data) `en` type($en) `->` `(``)`";
 }
 
-def DefMemOp : ToucanOp<"def_mem", [Symbol]> {
+def DefMemOp : ToucanOp<"def_mem"> {
   let summary = "def memory";
   let description = summary;
-  let arguments = (ins SymbolNameAttr:$sym_name);
+  // let arguments = ();
 
   let results = (outs MemType: $handle);
 
   let assemblyFormat = [{
-    $sym_name attr-dict `:` type($handle)
+    attr-dict `:` type($handle)
   }];
-  
-  // let builders = [
-  //   OpBuilder<(ins "mlir::StringRef":$sym_name, "mlir::TypeAttr":$type), [{
-  //     build($_builder, $_state, $_builder.getType<MemType>(type), sym_name);
-  //   }]>
-  // ];
+
 }
 
-def DefRegOp : ToucanOp<"def_reg", [Symbol]> {
+def DefRegOp : ToucanOp<"def_reg"> {
   let summary = "def register";
   let description = summary;
-  let arguments = (ins SymbolNameAttr:$sym_name);
+  // let arguments = (ins SymbolNameAttr:$sym_name);
 
   let results = (outs RegType: $handle);
 
   let builders = [
-    OpBuilder<(ins "mlir::StringRef":$sym_name, "mlir::IntegerType":$element_type), [{
-      build($_builder, $_state, $_builder.getType<RegType>(element_type), sym_name);
+    OpBuilder<(ins "mlir::IntegerType":$element_type), [{
+      build($_builder, $_state, $_builder.getType<RegType>(element_type));
     }]>
   ];
 
   let assemblyFormat = [{
-    $sym_name attr-dict `:` type($handle)
+    attr-dict `:` type($handle)
   }];
 
 }
