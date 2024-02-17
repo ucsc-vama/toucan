@@ -93,7 +93,7 @@ def LowerCombTo4B_3: Pass<"lower-comb-to-4b-3", "circt::ModuleOp"> {
 }
 
 def Flatten: Pass<"flatten", "circt::ModuleOp"> {
-  let summary = "Flatten whole design, only leave top module";
+  let summary = "Flatten whole design, include top module";
   let description = summary;
   let constructor = "toucan::createFlattenPass()";
   let statistics = [
