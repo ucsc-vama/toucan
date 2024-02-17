@@ -118,6 +118,8 @@ struct ParallelCanonicalizerPass : toucan::impl::ParallelCanonicalizerBase<Paral
   LogicalResult runOnModule(hw::HWModuleOp mod) {
     auto converged = applyPatternsAndFoldGreedily(mod, *patterns, config);
 
+    if (succeeded(converged)) return success();
+
     return success();
   }
 
