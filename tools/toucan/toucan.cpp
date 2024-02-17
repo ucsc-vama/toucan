@@ -122,8 +122,6 @@ static LogicalResult compileAndEmit(
         pm.addPass(toucan::createLowerCombTo4B_2Pass());
         pm.addPass(toucan::createLowerCombTo4B_3Pass());
 
-        // TODO: Consider a new pass to preserve name hints
-
         pm.addPass(toucan::createParallelCanonicalizerPass());
     }
 
