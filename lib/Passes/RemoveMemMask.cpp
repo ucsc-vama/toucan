@@ -124,6 +124,7 @@ struct RemoveMemMaskPass : toucan::impl::RemoveMemMaskBase<RemoveMemMaskPass> {
           if (auto memReadOp = dyn_cast<seq::FirMemReadOp>(op)) {
 
             auto memAddr = memReadOp.getAddress();
+            auto memAddrs = split_value_4B(op, memAddr, rewriter);
             auto memEn = memReadOp.getEnable();
 
             auto trueVal = rewriter.getIntegerAttr(rewriter.getI1Type(), 1);
@@ -137,7 +138,7 @@ struct RemoveMemMaskPass : toucan::impl::RemoveMemMaskBase<RemoveMemMaskPass> {
               // only 1, no mask
               auto newMem = newMemValues.front();
 
-              auto readOp = rewriter.create<toucan::MemReadOp>(op->getLoc(), newMem, memAddr, memEnSignal);
+              auto readOp = rewriter.create<toucan::MemReadOp>(op->getLoc(), newMem, memAddrs, memEnSignal);
 
               auto namehint = getSVNameHintAttr(newMem.getDefiningOp()).value();
               setSVNameHintAttr(readOp, namehint);
@@ -148,7 +149,7 @@ struct RemoveMemMaskPass : toucan::impl::RemoveMemMaskBase<RemoveMemMaskPass> {
               SmallVector<mlir::Value> memReadResults;
               
               for (auto &newMem: newMemValues) {
-                auto readOp = rewriter.create<toucan::MemReadOp>(op->getLoc(), newMem, memAddr, memEnSignal);
+                auto readOp = rewriter.create<toucan::MemReadOp>(op->getLoc(), newMem, memAddrs, memEnSignal);
                 memReadResults.push_back(readOp.getResult());
 
                 auto namehint = getSVNameHintAttr(newMem.getDefiningOp()).value();
@@ -163,13 +164,15 @@ struct RemoveMemMaskPass : toucan::impl::RemoveMemMaskBase<RemoveMemMaskPass> {
             }
           } else if (auto memWriteOp = dyn_cast<seq::FirMemWriteOp>(op)) {
             auto memAddr = memWriteOp.getAddress();
+            auto memAddrs = split_value_4B(op, memAddr, rewriter);
+
             auto memEn = memWriteOp.getEnable();
             auto memData = memWriteOp.getData();
 
             if (newMemValues.size() == 1){
               auto newMem = newMemValues.front();
               
-              auto newMemWriteOp = rewriter.create<toucan::MemWriteOp>(op->getLoc(), newMem, memAddr, memData, memEn);auto namehint = getSVNameHintAttr(newMem.getDefiningOp()).value();
+              auto newMemWriteOp = rewriter.create<toucan::MemWriteOp>(op->getLoc(), newMem, memAddrs, memData, memEn);auto namehint = getSVNameHintAttr(newMem.getDefiningOp()).value();
               setSVNameHintAttr(newMemWriteOp, namehint);
             } else {
               auto memMask = memWriteOp.getMask();
@@ -187,7 +190,7 @@ struct RemoveMemMaskPass : toucan::impl::RemoveMemMaskBase<RemoveMemMaskPass> {
                 auto dataSliceOp = rewriter.create<comb::ExtractOp>(op->getLoc(), memData, memId * maskLaneWidth, maskLaneWidth);
                 auto dataSlice = dataSliceOp.getResult();
 
-                auto newMemWriteOp = rewriter.create<toucan::MemWriteOp>(op->getLoc(), newMem, memAddr, dataSlice, newMemEn);
+                auto newMemWriteOp = rewriter.create<toucan::MemWriteOp>(op->getLoc(), newMem, memAddrs, dataSlice, newMemEn);
                 
                 auto namehint = getSVNameHintAttr(newMem.getDefiningOp()).value();
                 setSVNameHintAttr(newMemWriteOp, namehint);

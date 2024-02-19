@@ -123,6 +123,10 @@ static LogicalResult compileAndEmit(
         pm.addPass(toucan::createLowerCombTo4B_3Pass());
 
         pm.addPass(toucan::createParallelCanonicalizerPass());
+
+        // auto option = toucan::FactorConcatExtractOptions();
+        // option.parallel = true;
+        // pm.addPass(toucan::createFactorConcatExtractPass(option));
     }
 
     if (inputLevel < ToucanFlattened) {
@@ -130,6 +134,10 @@ static LogicalResult compileAndEmit(
         pm.addPass(toucan::createFlattenPass());
         // pm.addPass(mlir::createCanonicalizerPass());
     }
+    // pm.addPass(toucan::createRemoveSeqPass());
+    auto option = toucan::FactorConcatExtractOptions();
+    option.parallel = false;
+    pm.addPass(toucan::createFactorConcatExtractPass(option));
 
 //    pm.addPass(mlir::createCanonicalizerPass());
     //  pm.addPass(toucan::createParallelCanonicalizerPass());

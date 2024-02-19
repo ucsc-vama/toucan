@@ -188,11 +188,11 @@ struct LowerRegMemTo4BPass : toucan::impl::LowerRegMemTo4BBase<LowerRegMemTo4BPa
               //
               SmallVector<mlir::Value> memReadValues_4B;
               auto memReadEn = memReadOp.getEn();
-              auto memReadAddr = memReadOp.getAddr();
+              auto memReadAddrs = SmallVector<Value>(memReadOp.getAddrs());
 
               for (auto [memId_4b, memWidth_4b, memHandle_4b, memNameHint_4b]: newMemInfos) {
 
-                auto memReadOp_4b = rewriter.create<toucan::MemReadOp>(memReadOp->getLoc(), memHandle_4b, memReadAddr, memReadEn);
+                auto memReadOp_4b = rewriter.create<toucan::MemReadOp>(memReadOp->getLoc(), memHandle_4b, memReadAddrs, memReadEn);
 
                 setSVNameHintAttr(memReadOp_4b, memNameHint_4b);
                 setSignalFragmentIDAttr(memReadOp_4b, memId_4b);
@@ -208,7 +208,7 @@ struct LowerRegMemTo4BPass : toucan::impl::LowerRegMemTo4BBase<LowerRegMemTo4BPa
             } else if (auto memWriteOp = dyn_cast<toucan::MemWriteOp>(op)) {
               // todo
               auto memWriteData = memWriteOp.getData();
-              auto memWriteAddr = memWriteOp.getAddr();
+              auto memWriteAddrs = memWriteOp.getAddrs();
               auto memWriteEn = memWriteOp.getEn();
 
               for (auto [memId_4b, memWidth_4b, memHandle_4b, memNameHint_4b]: newMemInfos) {
@@ -216,7 +216,7 @@ struct LowerRegMemTo4BPass : toucan::impl::LowerRegMemTo4BBase<LowerRegMemTo4BPa
                 auto signalExtractOp = rewriter.create<comb::ExtractOp>(memWriteOp.getLoc(), memWriteData, memId_4b.getInt() * 4, memWidth_4b);
                 auto writeData_4b = signalExtractOp.getResult();
 
-                rewriter.create<toucan::MemWriteOp>(memWriteOp->getLoc(), memHandle_4b, memWriteAddr, writeData_4b, memWriteEn);
+                rewriter.create<toucan::MemWriteOp>(memWriteOp->getLoc(), memHandle_4b, memWriteAddrs, writeData_4b, memWriteEn);
 
                 // setSVNameHintAttr(regReadOp_4b, regNameHint_4b);
                 // setSignalFragmentIDAttr(regReadOp_4b, regId_4b);

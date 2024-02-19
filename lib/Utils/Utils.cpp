@@ -55,6 +55,10 @@ namespace toucan {
     }
   }
 
+  bool hasSignalFragmentId(mlir::Operation *op) {
+    return op->hasAttr(getSignalFragmentIDRef());
+  }
+
   void copyCustomizedAttrs(mlir::Operation *from, mlir::Operation *to) {
     auto namehint = getSVNameHintAttr(from);
     if (namehint) {
@@ -63,6 +67,9 @@ namespace toucan {
     auto fragmentId = getSignalFragmentIDAttr(from);
     if (fragmentId) {
       setSignalFragmentIDAttr(to, fragmentId.value());
+    }
+    if (hasIOSignalMarker(from)) {
+      setIOSignalMarker(to);
     }
   }
 

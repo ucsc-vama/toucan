@@ -181,31 +181,31 @@ struct LowerCombXorOp: OpRewritePattern<comb::XorOp> {
 };
 
 
-struct LowerHWConstantOp: OpRewritePattern<hw::ConstantOp> {
-  using OpRewritePattern<hw::ConstantOp>::OpRewritePattern;
+// struct LowerHWConstantOp: OpRewritePattern<hw::ConstantOp> {
+//   using OpRewritePattern<hw::ConstantOp>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(hw::ConstantOp op, PatternRewriter &rewriter) const final {
-    SmallVector<Value> results;
+//   LogicalResult matchAndRewrite(hw::ConstantOp op, PatternRewriter &rewriter) const final {
+//     SmallVector<Value> results;
 
-    auto constValueWidth = op.getValue().getBitWidth();
-    // auto constValueRaw = op.getValue().extractBits(0, 2);
+//     auto constValueWidth = op.getValue().getBitWidth();
+//     // auto constValueRaw = op.getValue().extractBits(0, 2);
 
-    if (constValueWidth > 4) {
-      auto chunks = split_signal_4B(constValueWidth);
-      for (auto [chunkId, chunkWidth]: chunks) {
-        auto newValue = op.getValue().extractBits(chunkWidth, chunkId * 4);
-        auto newConstOp = rewriter.create<hw::ConstantOp>(op->getLoc(), newValue);
-        results.push_back(newConstOp.getResult());
-      }
+//     if (constValueWidth > 4) {
+//       auto chunks = split_signal_4B(constValueWidth);
+//       for (auto [chunkId, chunkWidth]: chunks) {
+//         auto newValue = op.getValue().extractBits(chunkWidth, chunkId * 4);
+//         auto newConstOp = rewriter.create<hw::ConstantOp>(op->getLoc(), newValue);
+//         results.push_back(newConstOp.getResult());
+//       }
 
-      auto bitConcatOp = rewriter.create<comb::ConcatOp>(op.getLoc(), results);
-      copyCustomizedAttrs(op, bitConcatOp);
-      rewriter.replaceOp(op, bitConcatOp);
-      // consider remove op
-    }
-    return success();
-  }
-};
+//       auto bitConcatOp = rewriter.create<comb::ConcatOp>(op.getLoc(), results);
+//       copyCustomizedAttrs(op, bitConcatOp);
+//       rewriter.replaceOp(op, bitConcatOp);
+//       return success();
+//     }
+//     return failure();
+//   }
+// };
 
 
 
@@ -221,7 +221,7 @@ struct LowerCombTo4B_3Pass : toucan::impl::LowerCombTo4B_3Base<LowerCombTo4B_3Pa
     RewritePatternSet owningPatterns(context);
     ConversionTarget conversionTarget(*context);
     
-    owningPatterns.add<LowerHWConstantOp>(context);
+    // owningPatterns.add<LowerHWConstantOp>(context);
     owningPatterns.add<LowerCombAndOp>(context);
     owningPatterns.add<LowerCombOrOp>(context);
     owningPatterns.add<LowerCombXorOp>(context);

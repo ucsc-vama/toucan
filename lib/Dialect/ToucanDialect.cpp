@@ -322,4 +322,31 @@ LogicalResult LUTOp::canonicalize(LUTOp op, PatternRewriter &rewriter) {
   return failure();
 }
 
+/// Build a ConstantOp from an APInt, infering the result type from the
+/// width of the APInt.
+void ConstantOp::build(OpBuilder &builder, OperationState &result,
+                       const APInt &value) {
+
+  auto type = IntegerType::get(builder.getContext(), value.getBitWidth());
+  auto attr = builder.getIntegerAttr(type, value);
+  return build(builder, result, type, attr);
+}
+
+/// Build a ConstantOp from an APInt, infering the result type from the
+/// width of the APInt.
+void ConstantOp::build(OpBuilder &builder, OperationState &result,
+                       IntegerAttr value) {
+  return build(builder, result, value.getType(), value);
+}
+
+/// This builder allows construction of small signed integers like 0, 1, -1
+/// matching a specified MLIR IntegerType.  This shouldn't be used for general
+/// constant folding because it only works with values that can be expressed in
+/// an int64_t.  Use APInt's instead.
+void ConstantOp::build(OpBuilder &builder, OperationState &result, Type type,
+                       int64_t value) {
+  auto numBits = type.cast<IntegerType>().getWidth();
+  build(builder, result, APInt(numBits, (uint64_t)value, /*isSigned=*/true));
+}
+
 

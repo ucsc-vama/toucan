@@ -50,6 +50,8 @@ namespace toucan {
   const char* getRegNextSuffix();
 
   mlir::StringRef getSignalFragmentIDRef();
+  
+  bool hasSignalFragmentId(mlir::Operation *op);
 
   void setSignalFragmentIDAttr(mlir::Operation *op, mlir::IntegerAttr &id);
 

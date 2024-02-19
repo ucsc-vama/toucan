@@ -85,20 +85,21 @@ def MemReadOp: ToucanOp<"mem_read", [Pure]> {
 
   let arguments = (ins
     MemType: $mem,
-    HWIntegerType: $addr,
+    // HWIntegerType: $addr,
+    Variadic<HWIntegerType>: $addrs,
     I1: $en
   );
 
   let results = (outs AnySignlessInteger: $result);
 
   let builders = [
-    OpBuilder<(ins "mlir::Value":$mem, "mlir::Value":$addr, "mlir::Value":$en), [{
+    OpBuilder<(ins "mlir::Value":$mem, "mlir::ArrayRef<mlir::Value>":$addrs, "mlir::Value":$en), [{
       auto dataType = mem.getType().cast<toucan::MemType>().getElementType();
-      build($_builder, $_state, dataType, mem, addr, en);
+      build($_builder, $_state, dataType, mem, addrs, en);
     }]>
   ];
 
-  let assemblyFormat = "$mem `[` type($addr) $addr `]` `en` $en attr-dict `:` type($mem) `->` type($result)";
+  let assemblyFormat = "$mem `[` type($addrs) $addrs `]` `en` $en attr-dict `:` type($mem) `->` type($result)";
 
 }
 
@@ -109,12 +110,13 @@ def MemWriteOp: ToucanOp<"mem_write"> {
 
   let arguments = (ins 
     MemType: $mem,
-    HWIntegerType: $addr,
+    // HWIntegerType: $addr,
+    Variadic<HWIntegerType>: $addrs,
     HWIntegerType: $data,
     I1: $en
   );
 
-  let assemblyFormat = "$mem `[` $addr `]` `=` $data `en` $en attr-dict `:` type($mem) `[` type($addr) `]` type($data) `en` type($en) `->` `(``)`";
+  let assemblyFormat = "$mem `[` $addrs `]` `=` $data `en` $en attr-dict `:` type($mem) `[` type($addrs) `]` type($data) `en` type($en) `->` `(``)`";
 }
 
 def DefMemOp : ToucanOp<"def_mem"> {
@@ -251,6 +253,34 @@ def VectorReadOp : ToucanOp<"vec_read", [Pure]> {
   ];
 
   let assemblyFormat = "$handle `[` type($indicies) $indicies `+` $offset `]` `out_range` type($out_range_value) $out_range_value attr-dict `:` type($handle) `->` type($result)";
+}
+
+def ConstantOp : ToucanOp<"const", [Pure]> {
+  let summary = "constant";
+  let description = summary;
+  
+  let arguments = (ins APIntAttr:$value);
+  let results = (outs HWIntegerType:$result);
+  
+  let assemblyFormat = [{
+    $value attr-dict `:` type($result)
+  }];
+
+
+  let builders = [
+    /// Build a ConstantOp from an APInt, infering the result type from the
+    /// width of the APInt.
+    OpBuilder<(ins "const mlir::APInt &":$value)>,
+
+    /// This builder allows construction of small signed integers like 0, 1, -1
+    /// matching a specified MLIR IntegerType.  This shouldn't be used for
+    /// general constant folding because it only works with values that can be
+    /// expressed in an int64_t.  Use APInt's instead.
+    OpBuilder<(ins "mlir::Type":$type, "int64_t":$value)>,
+
+    /// Build a ConstantOp from a prebuilt attribute.
+    OpBuilder<(ins "mlir::IntegerAttr":$value)>
+  ];
 }
 
 

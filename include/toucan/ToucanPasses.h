@@ -31,6 +31,8 @@ std::unique_ptr<mlir::Pass> createLowerCombTo4B_2Pass();
 std::unique_ptr<mlir::Pass> createLowerCombTo4B_3Pass();
 
 std::unique_ptr<mlir::Pass> createFlattenPass();
+std::unique_ptr<mlir::Pass> createRemoveSeqPass();
+std::unique_ptr<mlir::Pass> createFactorConcatExtractPass(FactorConcatExtractOptions options = {});
 
 #define GEN_PASS_REGISTRATION
 #include "toucan/ToucanPasses.h.inc"
