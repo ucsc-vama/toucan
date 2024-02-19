@@ -112,9 +112,6 @@ def FactorConcatExtract: Pass<"factor-concat-extract", "circt::ModuleOp"> {
   let summary = "Replace comb::Extract and comb::Concat. This pass should finally remove all of them.";
   let description = summary;
   let constructor = "toucan::createFactorConcatExtractPass()";
-  let options = [
-    Option<"parallel", "parallel", "bool", "false", "parallel by module">
-  ];
 }
 
 #endif

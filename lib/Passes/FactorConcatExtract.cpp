@@ -614,6 +614,8 @@ struct FactorConcatExtractPass : toucan::impl::FactorConcatExtractBase<FactorCon
     conversionTarget.addIllegalOp<hw::HWModuleOp>();
     conversionTarget.addIllegalOp<hw::HWModuleExternOp>();
     conversionTarget.addIllegalOp<hw::ArrayGetOp>();
+    conversionTarget.addIllegalOp<comb::ConcatOp>();
+    conversionTarget.addIllegalOp<comb::ExtractOp>();
 
     patterns = std::make_shared<FrozenRewritePatternSet>(std::move(owningPatterns));
     target = std::make_shared<ConversionTarget>(std::move(
@@ -631,39 +633,15 @@ struct FactorConcatExtractPass : toucan::impl::FactorConcatExtractBase<FactorCon
     return success();
   }
 
-  void parallelRunOnModules(ModuleOp &mod) {
-
-    SmallVector<hw::HWModuleOp> modulesToProcess;
-    for(auto & inner: mod.getOps()) {
-      if(auto mod = dyn_cast<hw::HWModuleOp>(&inner)) {
-        modulesToProcess.push_back(mod);
-      }
-    }
-
-    // Parallel
-    auto result = mlir::failableParallelForEach(&getContext(), modulesToProcess.begin(), modulesToProcess.end(), [&](auto mod) {
-      return runOnModule(mod);
-    });
-
-    if (failed(result)) return signalPassFailure();
-  }
-
-
 
   void runOnOperation() final {
     auto mod = getOperation();
-
-    if (parallel) {
-      parallelRunOnModules(mod);
-    } else {
-      // Non parallel. do one by one
-      auto ret = applyPatternsAndFoldGreedily(mod, *patterns);
-      if (succeeded(ret))
-        ;
-    }
+    auto ret = applyPatternsAndFoldGreedily(mod, *patterns);
+    if (succeeded(ret))
+      ;
   }
 };
 
-std::unique_ptr<mlir::Pass> toucan::createFactorConcatExtractPass(FactorConcatExtractOptions options) {
-  return std::make_unique<FactorConcatExtractPass>(options);
+std::unique_ptr<mlir::Pass> toucan::createFactorConcatExtractPass() {
+  return std::make_unique<FactorConcatExtractPass>();
 }

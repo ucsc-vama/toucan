@@ -123,25 +123,19 @@ static LogicalResult compileAndEmit(
         pm.addPass(toucan::createLowerCombTo4B_3Pass());
 
         pm.addPass(toucan::createParallelCanonicalizerPass());
-
-        // auto option = toucan::FactorConcatExtractOptions();
-        // option.parallel = true;
-        // pm.addPass(toucan::createFactorConcatExtractPass(option));
     }
 
     if (inputLevel < ToucanFlattened) {
         // Lower to flattened
         pm.addPass(toucan::createFlattenPass());
+        pm.addPass(toucan::createRemoveSeqPass());
         // pm.addPass(mlir::createCanonicalizerPass());
     }
     // pm.addPass(toucan::createRemoveSeqPass());
-    auto option = toucan::FactorConcatExtractOptions();
-    option.parallel = false;
-    pm.addPass(toucan::createFactorConcatExtractPass(option));
+    pm.addPass(toucan::createFactorConcatExtractPass());
 
-//    pm.addPass(mlir::createCanonicalizerPass());
-    //  pm.addPass(toucan::createParallelCanonicalizerPass());
-
+    // Note: Add a canonicalizer here may cut some operations, but it's too slow and has little benefits. Seems not worthy.
+    // pm.addPass(mlir::createCanonicalizerPass());
 
     if(failed(pm.run(mod.get()))) {
         llvm::outs() << "Passes failed!!!!\n";
