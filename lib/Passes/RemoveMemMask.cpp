@@ -169,10 +169,16 @@ struct RemoveMemMaskPass : toucan::impl::RemoveMemMaskBase<RemoveMemMaskPass> {
             auto memEn = memWriteOp.getEnable();
             auto memData = memWriteOp.getData();
 
+            auto trueVal = rewriter.getIntegerAttr(rewriter.getI1Type(), 1);
+            auto enSignalOp = rewriter.create<hw::ConstantOp>(op->getLoc(), trueVal);
+            auto constTrue = cast<TypedValue<IntegerType>>(enSignalOp.getResult());
+
+            auto memEnSignal = (memEn) ? memEn : constTrue;
+
             if (newMemValues.size() == 1){
               auto newMem = newMemValues.front();
               
-              auto newMemWriteOp = rewriter.create<toucan::MemWriteOp>(op->getLoc(), newMem, memAddrs, memData, memEn);auto namehint = getSVNameHintAttr(newMem.getDefiningOp()).value();
+              auto newMemWriteOp = rewriter.create<toucan::MemWriteOp>(op->getLoc(), newMem, memAddrs, memData, memEnSignal);auto namehint = getSVNameHintAttr(newMem.getDefiningOp()).value();
               setSVNameHintAttr(newMemWriteOp, namehint);
             } else {
               auto memMask = memWriteOp.getMask();
@@ -182,8 +188,11 @@ struct RemoveMemMaskPass : toucan::impl::RemoveMemMaskBase<RemoveMemMaskPass> {
                 auto newMem = newMemValues[memId];
                 auto maskLaneWidth = newMem.getType().cast<MemType>().getElementWidth();
 
+                auto memMaskWidth = hw::getBitWidth(memMask.getType());
+                assert(memId < memMaskWidth);
+
                 auto maskBitOp = rewriter.create<comb::ExtractOp>(op->getLoc(), memMask, memId, 1);
-                auto newMemEnOp = rewriter.create<comb::AndOp>(op->getLoc(), maskBitOp.getResult(), memEn);
+                auto newMemEnOp = rewriter.create<comb::AndOp>(op->getLoc(), maskBitOp.getResult(), memEnSignal, true);
 
                 auto newMemEn = newMemEnOp.getResult();
 
@@ -222,17 +231,17 @@ struct RemoveMemMaskPass : toucan::impl::RemoveMemMaskBase<RemoveMemMaskPass> {
         modulesToProcess.push_back(mod);
       }
     }
-    // // Sequential
-    // for (auto mod: modulesToProcess) {
-    //   auto ret = runOnModule(mod);
-    //   if (failed(ret)) return signalPassFailure();
-    // }
+     // Sequential
+     for (auto mod: modulesToProcess) {
+       auto ret = runOnModule(mod);
+       if (failed(ret)) return signalPassFailure();
+     }
 
-    // Parallel
-    auto result = mlir::failableParallelForEach(&getContext(), modulesToProcess.begin(), modulesToProcess.end(), [&](auto mod) {
-      return runOnModule(mod);
-    });
-    if (failed(result)) return signalPassFailure();
+//    // Parallel
+//    auto result = mlir::failableParallelForEach(&getContext(), modulesToProcess.begin(), modulesToProcess.end(), [&](auto mod) {
+//      return runOnModule(mod);
+//    });
+//    if (failed(result)) return signalPassFailure();
   }
 
 };
