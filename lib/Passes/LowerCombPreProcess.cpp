@@ -17,6 +17,9 @@
 #include "mlir/IR/Visitors.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/IR/Threading.h"
+#include "mlir/Transforms/DialectConversion.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+
 #include "mlir/Support/LogicalResult.h"
 #include "toucan/ToucanTypes.h"
 
@@ -31,8 +34,11 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/Format.h"
 
+#include <__chrono/duration.h>
 #include <algorithm>
 #include <memory>
+
+#include <chrono>
 
 
 #define GEN_PASS_DEF_LOWERCOMBPREPROCESS
@@ -48,31 +54,10 @@ using namespace llvm;
 
 #define DEBUG_TYPE "LowerCombPreProcessPass"
 
-struct LowerCombPreProcessPass : toucan::impl::LowerCombPreProcessBase<LowerCombPreProcessPass> {
-  using LowerCombPreProcessBase<LowerCombPreProcessPass>::LowerCombPreProcessBase;
+struct LowerLongCombReplicateOp: OpRewritePattern<comb::ReplicateOp> {
+  using OpRewritePattern<comb::ReplicateOp>::OpRewritePattern;
 
-  template<class OpTy>
-  LogicalResult lowerOp(OpTy &op) {
-    auto inputs = op.getInputs();
-    if (inputs.size() > 2) {
-      OpBuilder builder(op);
-      IRRewriter rewriter(builder);
-
-      auto head = inputs[0];
-      for (size_t i = 1; i < inputs.size(); i++) {
-        auto currentVal = inputs[i];
-        auto newInputs = ValueRange({head, currentVal});
-        auto newOp = rewriter.create<OpTy>(op.getLoc(), newInputs, false);
-        head = newOp.getResult();
-      }
-
-      rewriter.replaceAllUsesWith(op.getResult(), head);
-      return success();
-    }
-    return failure();
-  }
-
-  LogicalResult lowerReplicateOp(comb::ReplicateOp &op) {
+  LogicalResult matchAndRewrite(comb::ReplicateOp op, PatternRewriter &rewriter) const final {
     // Handles repop with input width > 1
     auto inputValue = op.getInput();
     auto inputValueWidth = hw::getBitWidth(inputValue.getType());
@@ -80,9 +65,6 @@ struct LowerCombPreProcessPass : toucan::impl::LowerCombPreProcessBase<LowerComb
       // Do nothing if width is 1
       return failure();
     }
-    
-    OpBuilder builder(op);
-    IRRewriter rewriter(builder);
 
     auto resultValue = op.getResult();
     auto resultValueWidth = hw::getBitWidth(resultValue.getType());
@@ -99,19 +81,76 @@ struct LowerCombPreProcessPass : toucan::impl::LowerCombPreProcessBase<LowerComb
     }
 
     auto newOp = rewriter.create<comb::ConcatOp>(op.getLoc(), values);
-    rewriter.replaceAllUsesWith(op, newOp);
+    rewriter.replaceOp(op, newOp);
+
 
     return success();
   }
+};
 
-  LogicalResult lowerShru_1b(comb::ShrUOp &op) {
+struct LowerBinaryOpWithMultipleOperandBase {
+  public:
+  template<class OpTy>
+  LogicalResult lowerOp(OpTy &op, PatternRewriter &rewriter) const {
+    auto inputs = op.getInputs();
+    if (inputs.size() > 2) {
+      auto head = inputs[0];
+      for (size_t i = 1; i < inputs.size(); i++) {
+        auto currentVal = inputs[i];
+        auto newInputs = ValueRange({head, currentVal});
+        auto newOp = rewriter.create<OpTy>(op.getLoc(), newInputs, false);
+        head = newOp.getResult();
+      }
+
+      rewriter.replaceOp(op, head);
+      return success();
+    }
+    return failure();
+  }
+};
+
+
+struct LowerCombAndWithMultipleOperands: OpRewritePattern<comb::AndOp>, LowerBinaryOpWithMultipleOperandBase {
+  using OpRewritePattern<comb::AndOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(comb::AndOp op, PatternRewriter &rewriter) const final {
+    return lowerOp<comb::AndOp>(op, rewriter);
+  }
+};
+
+struct LowerCombOrWithMultipleOperands: OpRewritePattern<comb::OrOp>, LowerBinaryOpWithMultipleOperandBase {
+  using OpRewritePattern<comb::OrOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(comb::OrOp op, PatternRewriter &rewriter) const final {
+    return lowerOp<comb::OrOp>(op, rewriter);
+  }
+};
+
+struct LowerCombXorWithMultipleOperands: OpRewritePattern<comb::XorOp>, LowerBinaryOpWithMultipleOperandBase {
+  using OpRewritePattern<comb::XorOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(comb::XorOp op, PatternRewriter &rewriter) const final {
+    return lowerOp<comb::XorOp>(op, rewriter);
+  }
+};
+
+struct LowerCombAddWithMultipleOperands: OpRewritePattern<comb::AddOp>, LowerBinaryOpWithMultipleOperandBase {
+  using OpRewritePattern<comb::AddOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(comb::AddOp op, PatternRewriter &rewriter) const final {
+    return lowerOp<comb::AddOp>(op, rewriter);
+  }
+};
+
+struct Replace1BShruWithMux: OpRewritePattern<comb::ShrUOp>, LowerBinaryOpWithMultipleOperandBase {
+  using OpRewritePattern<comb::ShrUOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(comb::ShrUOp op, PatternRewriter &rewriter) const final {
     // Remove some 1 bit shru
     auto resultValue = op.getResult();
     auto resultWidth = hw::getBitWidth(resultValue.getType());
 
     if (resultWidth == 1) {
-      OpBuilder builder(op);
-      IRRewriter rewriter(builder);
 
       auto en = op.getRhs();
       auto data = op.getLhs();
@@ -123,17 +162,21 @@ struct LowerCombPreProcessPass : toucan::impl::LowerCombPreProcessBase<LowerComb
 
       auto muxOp = rewriter.create<comb::MuxOp>(op.getLoc(), en, constZeroValue, data);
 
-      rewriter.replaceAllUsesWith(op, muxOp);
+      rewriter.replaceOp(op, muxOp);
 
       return success();
     }
     return failure();
   }
+};
 
-  LogicalResult lowerAggregateConsts(hw::AggregateConstantOp &constArrayOp) {
-    OpBuilder builder(constArrayOp);
-    IRRewriter rewriter(builder);
 
+
+struct LowerConstArray: OpRewritePattern<hw::AggregateConstantOp>, LowerBinaryOpWithMultipleOperandBase {
+  using OpRewritePattern<hw::AggregateConstantOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(hw::AggregateConstantOp constArrayOp, PatternRewriter &rewriter) const final {
+    
     auto zeroConstOp = rewriter.create<hw::ConstantOp>(constArrayOp.getLoc(), rewriter.getI4Type(), 0);
     auto zeroConstValue = zeroConstOp.getResult();
 
@@ -199,31 +242,30 @@ struct LowerCombPreProcessPass : toucan::impl::LowerCombPreProcessBase<LowerComb
           auto concatOp = rewriter.create<comb::ConcatOp>(constArrayOp.getLoc(), arrayGetResults);
 
           copyCustomizedAttrs(userOp, concatOp);
-          rewriter.replaceAllUsesWith(arrayGetOp, concatOp);
+          rewriter.replaceOp(arrayGetOp, concatOp);
         } else {
           auto result = arrayGetResults[0];
           copyCustomizedAttrs(userOp, result.getDefiningOp());
-          rewriter.replaceAllUsesWith(arrayGetOp, result);
+          rewriter.replaceOp(arrayGetOp, result);
         }
-        
-
       } else {
         return userOp->emitError() << "Unknow op using const array: " << userOp->getName();
       }
     }
-
     return success();
-
   }
+};
 
-  LogicalResult lowerArray(hw::ArrayCreateOp &arrayCreateOp) {
-    OpBuilder builder(arrayCreateOp);
-    IRRewriter rewriter(builder);
+struct LowerHWArray: OpRewritePattern<hw::ArrayCreateOp>, LowerBinaryOpWithMultipleOperandBase {
+  using OpRewritePattern<hw::ArrayCreateOp>::OpRewritePattern;
 
+  LogicalResult matchAndRewrite(hw::ArrayCreateOp arrayCreateOp, PatternRewriter &rewriter) const final {
+    
     auto zeroConstOp = rewriter.create<hw::ConstantOp>(arrayCreateOp.getLoc(), rewriter.getI4Type(), 0);
     auto zeroConstValue = zeroConstOp.getResult();
 
     SmallVector<SmallVector<Value>> array_values;
+    SmallVector<Value> defVecHandles;
 
     auto arrayInputs = arrayCreateOp.getInputs();
     auto arrayLength = arrayInputs.size();
@@ -233,28 +275,27 @@ struct LowerCombPreProcessPass : toucan::impl::LowerCombPreProcessBase<LowerComb
       array_values.push_back({});
     }
 
+    bool useMux = false;
+
     if (arrayInputs.size() <= 8) {
-      arrayCreateOp.emitRemark() << "TODO: this array may be too small. Consider implement using mux array instead of vector (potentially reduce divergence)";
-    }
-
-    for (const auto &arrayElem: arrayInputs) {
-      // auto arrayElemWidth = hw::getBitWidth(arrayElem.getType());
-      auto chunkValues = split_value_4B(arrayCreateOp.getOperation(), arrayElem, rewriter);
-      for (size_t i = 0; i < chunkValues.size(); i++) {
-        array_values[i].push_back(chunkValues[i]);
+      useMux = true;
+    } else {
+      for (const auto &arrayElem: arrayInputs) {
+        // auto arrayElemWidth = hw::getBitWidth(arrayElem.getType());
+        auto chunkValues = split_value_4B(arrayCreateOp.getOperation(), arrayElem, rewriter);
+        for (size_t i = 0; i < chunkValues.size(); i++) {
+          array_values[i].push_back(chunkValues[i]);
+        }
       }
-    }
 
-    SmallVector<Value> defVecHandles;
-    for (auto elems: array_values) {
-      auto newDefVecOp = rewriter.create<toucan::DefVectorOp>(arrayCreateOp.getLoc(), elems);
-      defVecHandles.push_back(newDefVecOp.getHandle());
+      for (auto elems: array_values) {
+        auto newDefVecOp = rewriter.create<toucan::DefVectorOp>(arrayCreateOp.getLoc(), elems);
+        defVecHandles.push_back(newDefVecOp.getHandle());
+      }
     }
 
     for (auto userOp: arrayCreateOp->getUsers()) {
       if (auto arrayGetOp = dyn_cast<hw::ArrayGetOp>(userOp)) {
-        rewriter.setInsertionPointAfter(arrayGetOp);
-
         auto arrayIndex = extractMinimumWidth(arrayGetOp.getIndex(), rewriter, userOp);
         auto arrayIndexBits = hw::getBitWidth(arrayIndex.getType());
 
@@ -263,83 +304,72 @@ struct LowerCombPreProcessPass : toucan::impl::LowerCombPreProcessBase<LowerComb
           arrayGetOp.emitWarning() << "Too much index bits than necessary. (Expect index bits no more than " << maxIndexBits << ", but got " << arrayIndexBits;
         }
 
-        auto indicies_4b = split_value_4B(userOp, arrayIndex, rewriter);
-
-        SmallVector<Value> arrayGetResults;
-        for (auto vecHandle: defVecHandles) {
-          auto readOp = rewriter.create<toucan::VectorReadOp>(arrayGetOp.getLoc(), vecHandle, zeroConstValue, indicies_4b);
-          arrayGetResults.push_back(readOp);
-        }
-
-        if (arrayGetResults.size() > 1) {
-          auto concatOp = rewriter.create<comb::ConcatOp>(arrayGetOp.getLoc(), arrayGetResults);
-
-          copyCustomizedAttrs(userOp, concatOp);
-          rewriter.replaceAllUsesWith(arrayGetOp, concatOp);
+        if (useMux) {
+          auto readResult = generate_mux_chain(arrayGetOp, rewriter, arrayInputs, arrayIndex);
+          copyCustomizedAttrs(userOp, readResult.getDefiningOp());
+          rewriter.replaceOp(userOp, readResult);
+          return success();
         } else {
-          auto result = arrayGetResults[0];
-          copyCustomizedAttrs(userOp, result.getDefiningOp());
-          rewriter.replaceAllUsesWith(arrayGetOp, result);
-        }
+          auto indicies_4b = split_value_4B(userOp, arrayIndex, rewriter);
+          SmallVector<Value> arrayGetResults;
 
+          for (auto vecHandle: defVecHandles) {
+            auto readOp = rewriter.create<toucan::VectorReadOp>(arrayGetOp.getLoc(), vecHandle, zeroConstValue, indicies_4b);
+            arrayGetResults.push_back(readOp.getResult());
+          }
+
+          if (arrayGetResults.size() > 1) {
+            auto concatOp = rewriter.create<comb::ConcatOp>(arrayGetOp.getLoc(), arrayGetResults);
+
+            copyCustomizedAttrs(userOp, concatOp);
+            rewriter.replaceOp(arrayGetOp, concatOp);
+          } else {
+            auto result = arrayGetResults[0];
+            copyCustomizedAttrs(userOp, result.getDefiningOp());
+            rewriter.replaceOp(arrayGetOp, result);
+          }
+        }
       } else {
         return userOp->emitError() << "Unknow op using const array";
       }
     }
 
     return success();
+  }
+};
 
+
+
+struct LowerCombPreProcessPass : toucan::impl::LowerCombPreProcessBase<LowerCombPreProcessPass> {
+  using LowerCombPreProcessBase<LowerCombPreProcessPass>::LowerCombPreProcessBase;
+
+  std::shared_ptr<FrozenRewritePatternSet> patterns;
+  LogicalResult initialize(MLIRContext *context) override {
+
+    RewritePatternSet owningPatterns(context);
+    
+    owningPatterns.add<LowerLongCombReplicateOp>(context);
+    owningPatterns.add<LowerCombAddWithMultipleOperands>(context);
+    owningPatterns.add<LowerCombAndWithMultipleOperands>(context);
+    owningPatterns.add<LowerCombOrWithMultipleOperands>(context);
+    owningPatterns.add<LowerCombXorWithMultipleOperands>(context);
+    owningPatterns.add<Replace1BShruWithMux>(context);
+    owningPatterns.add<LowerHWArray>(context);
+    owningPatterns.add<LowerConstArray>(context);
+
+
+
+    patterns = std::make_shared<FrozenRewritePatternSet>(std::move(owningPatterns));
+
+    return success();
   }
 
+
   LogicalResult runOnModule(hw::HWModuleOp mod) {
-    SmallVector<Operation*> toRemove;
-
-    for (auto &stmt: mod.getOps()) {
-
-      if (auto andOp = dyn_cast<comb::AndOp>(stmt)) {
-        if (succeeded(lowerOp<comb::AndOp>(andOp))) toRemove.push_back(andOp);
-      } else if (auto addOp = dyn_cast<comb::AddOp>(stmt)) {
-        if (succeeded(lowerOp<comb::AddOp>(addOp))) toRemove.push_back(addOp);
-      } else if (auto orOp = dyn_cast<comb::OrOp>(stmt)) {
-        if (succeeded(lowerOp<comb::OrOp>(orOp))) toRemove.push_back(orOp);
-      } else if (auto xorOp = dyn_cast<comb::XorOp>(stmt)) {
-        if (succeeded(lowerOp<comb::XorOp>(xorOp))) toRemove.push_back(xorOp);
-      } else if (auto addOp = dyn_cast<comb::AddOp>(stmt)) {
-        if (succeeded(lowerOp<comb::AddOp>(addOp))) toRemove.push_back(xorOp);
-      } else if (auto repOp = dyn_cast<comb::ReplicateOp>(stmt)) {
-        if (succeeded(lowerReplicateOp(repOp))) toRemove.push_back(repOp);
-      } else if (auto shruOp = dyn_cast<comb::ShrUOp>(stmt)) {
-        if (succeeded(lowerShru_1b(shruOp))) toRemove.push_back(shruOp);
-      } else if (auto constVecOp = dyn_cast<hw::AggregateConstantOp>(stmt)) {
-        // if (succeeded(lowerAggregateConsts(constVecOp))) toRemove.push_back(constVecOp);
-        if (failed(lowerAggregateConsts(constVecOp))) return failure();
-        toRemove.push_back(constVecOp);
-        for (auto eachUser: constVecOp->getUsers()) toRemove.push_back(eachUser);
-      } else if (auto vecOp = dyn_cast<hw::ArrayCreateOp>(stmt)) {
-        // if (succeeded(lowerArray(vecOp))) toRemove.push_back(vecOp);
-        if (failed(lowerArray(vecOp))) return failure();
-        toRemove.push_back(vecOp);
-        for (auto eachUser: vecOp->getUsers()) toRemove.push_back(eachUser);
-      } else if (
-        isa<hw::ArrayConcatOp>(stmt) 
-        || isa<hw::ArraySliceOp>(stmt)
-        || isa<hw::StructCreateOp>(stmt)
-        || isa<hw::UnionCreateOp>(stmt)
-      ) {
-        return stmt.emitError() << "Unsupported op " << stmt.getName();
-      }
-
-    }
-
-    if (!toRemove.empty()) {
-      LLVM_DEBUG(
-        char buffer[128];
-        format("Removing %d Ops\n", toRemove.size()).snprint(buffer, 128);
-        llvm::dbgs() << buffer
-        );
-      for (auto op: llvm::reverse(toRemove)) op->erase();
-    }
-
+    auto ret = applyPatternsAndFoldGreedily(mod, *patterns);
+    // This pass won't convert all matched operations. It's fine to fail
+    if (failed(ret))
+      ;
     return success();
   }
 

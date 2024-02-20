@@ -48,15 +48,6 @@ struct FlattenPass : toucan::impl::FlattenBase<FlattenPass> {
     }
   }
 
-  // static LogicalResult inlineExternalModule(hw::HWModuleOp parent, hw::InstanceOp inst, hw::HWModuleExternOp innerModule) {
-  //   auto instName = inst.getInstanceName();
-  //   // Treat each signal as a register
-
-  //   // TODO
-
-  //   return failure();
-  // }
-
   static Value createDummpyClockValue(OpBuilder &builder, Location loc) {
     auto constOneOp = builder.create<hw::ConstantOp>(loc, builder.getI1Type(), 1);
     auto asClockOp = builder.create<seq::ToClockOp>(loc, constOneOp.getResult());

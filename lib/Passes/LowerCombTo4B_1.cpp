@@ -56,7 +56,7 @@ using namespace llvm;
 #define DEBUG_TYPE "LowerCombTo4B_1Pass"
 
 
-struct LowerCombReplicateOp: OpRewritePattern<comb::ReplicateOp> {
+struct LowerShortCombReplicateOpTo4B: OpRewritePattern<comb::ReplicateOp> {
   using OpRewritePattern<comb::ReplicateOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(comb::ReplicateOp repOp, PatternRewriter &rewriter) const final {
@@ -762,7 +762,7 @@ struct LowerCombTo4B_1Pass : toucan::impl::LowerCombTo4B_1Base<LowerCombTo4B_1Pa
     RewritePatternSet owningPatterns(context);
     ConversionTarget conversionTarget(*context);
     
-    owningPatterns.add<LowerCombReplicateOp>(context);
+    owningPatterns.add<LowerShortCombReplicateOpTo4B>(context);
     owningPatterns.add<LowerCombShlOp>(context);
     owningPatterns.add<LowerCombShrUOp>(context);
     owningPatterns.add<LowerCombShrSOp>(context);

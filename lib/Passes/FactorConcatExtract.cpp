@@ -626,12 +626,12 @@ struct FactorConcatExtractPass : toucan::impl::FactorConcatExtractBase<FactorCon
 
 
 
-  LogicalResult runOnModule(hw::HWModuleOp mod) {
-    auto converged = applyPatternsAndFoldGreedily(mod, *patterns);
+  // LogicalResult runOnModule(hw::HWModuleOp mod) {
+  //   auto converged = applyPatternsAndFoldGreedily(mod, *patterns);
 
-    if (succeeded(converged)) return success();
-    return success();
-  }
+  //   if (succeeded(converged)) return success();
+  //   return success();
+  // }
 
 
   void runOnOperation() final {
