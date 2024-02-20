@@ -102,6 +102,8 @@ static LogicalResult compileAndEmit(
         pm.addPass(toucan::createRemoveMemMaskPass());
 
         pm.addPass(toucan::createParallelCanonicalizerPass());
+        // Factor array_get. This is introduced by the Canonicalizer
+        pm.addPass(toucan::createFactorArrayGetPass());
     }
 
     if (inputLevel < Toucan4B) {

@@ -1,6 +1,7 @@
 
 #include "circt/Dialect/HW/HWDialect.h"
 #include "circt/Dialect/HW/HWTypes.h"
+#include "circt/Dialect/Seq/SeqDialect.h"
 #include "circt/Support/LLVM.h"
 #include "circt/Dialect/Comb/CombDialect.h"
 #include "circt/Dialect/Comb/CombOps.h"
@@ -91,8 +92,13 @@ struct ParallelCanonicalizerPass : toucan::impl::ParallelCanonicalizerBase<Paral
   LogicalResult initialize(MLIRContext *context) override {
 
     RewritePatternSet owningPatterns(context);
+    // Don't run canonicalizer for hw dialect!
     for (auto *dialect : context->getLoadedDialects()) {
-      dialect->getCanonicalizationPatterns(owningPatterns);
+      if (isa<comb::CombDialect>(dialect)
+        || isa<toucan::ToucanDialect>(dialect)
+        || isa<seq::SeqDialect>(dialect)) {
+        dialect->getCanonicalizationPatterns(owningPatterns);
+      }
     }
       
     for (RegisteredOperationName op : context->getRegisteredOperations()) {

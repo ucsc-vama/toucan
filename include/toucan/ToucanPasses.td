@@ -16,6 +16,12 @@ def FactorSV: Pass<"toucan-factor-sv", "circt::ModuleOp"> {
   let constructor = "toucan::createFactorSVPass()";
 }
 
+def FactorArrayGet: Pass<"factor-array-get", "circt::ModuleOp"> {
+  let summary = "Remove Mux before array_get";
+  let description = summary;
+  let constructor = "toucan::createFactorArrayGetPass()";
+}
+
 def SplitFirMemRWPorts: Pass<"split-firmem-rw-ports", "circt::ModuleOp"> {
   let summary = "Split FirMem ReadWritePort into ReadPort and WritePort";
   let description = summary;

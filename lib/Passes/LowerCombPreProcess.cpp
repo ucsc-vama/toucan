@@ -208,7 +208,7 @@ struct LowerCombPreProcessPass : toucan::impl::LowerCombPreProcessBase<LowerComb
         
 
       } else {
-        return userOp->emitError() << "Unknow op using const array";
+        return userOp->emitError() << "Unknow op using const array: " << userOp->getName();
       }
     }
 

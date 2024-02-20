@@ -15,6 +15,7 @@ namespace toucan {
 std::unique_ptr<mlir::Pass> createRemoveSVnOMPass();
 std::unique_ptr<mlir::Pass> createFactorSVPass();
 std::unique_ptr<mlir::Pass> createExpandMemoryDelayPass();
+std::unique_ptr<mlir::Pass> createFactorArrayGetPass();
 std::unique_ptr<mlir::Pass> createSplitFirMemRWPortsPass();
 std::unique_ptr<mlir::Pass> createReplaceAsyncResetRegsPass();
 std::unique_ptr<mlir::Pass> createSplitRegistersPass();
