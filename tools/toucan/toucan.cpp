@@ -125,6 +125,7 @@ static LogicalResult compileAndEmit(
         pm.addPass(toucan::createLowerCombTo4B_3Pass());
 
         pm.addPass(toucan::createParallelCanonicalizerPass());
+        // Canonicalizer may generates ReplicateOp. Revert back.
         pm.addPass(toucan::createLowerCombTo4B_ReplicateOpPass());
     }
 
