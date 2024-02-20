@@ -116,6 +116,7 @@ size_t LUTOp::getLegalOperandCount(toucan::LUTOpName opName) {
     case LUTOpName::LUT_Nop:
       return 0;
     case LUTOpName::LUT_Rep1b:
+    case LUTOpName::LUT_XorR:
       return 1;
     case LUTOpName::LUT_And:
     case LUTOpName::LUT_Or:
@@ -172,7 +173,12 @@ LogicalResult DefVectorOp::verify() {
 }
 
 size_t LUTOp::getResultWidth1(toucan::LUTOpName opName, ValueRange inputs) {
-  assert(opName != toucan::LUTOpName::LUT_Rep1b && "LUT_Rep1b's output size should be given, instead of inffered");
+  switch (opName) {
+    case LUTOpName::LUT_Rep1b: return 4;
+    case LUTOpName::LUT_XorR: return 1;
+    default:
+      break;
+  }
   return hw::getBitWidth(inputs[0].getType());
 }
 
@@ -286,6 +292,7 @@ LogicalResult LUTOp::canonicalize(LUTOp op, PatternRewriter &rewriter) {
     case LUTOpName::LUT_Cmp_Eq:
     case LUTOpName::LUT_Mul_Hi:
     case LUTOpName::LUT_Mul_Lo:
+      break;
     case LUTOpName::LUT_Add: {
       // carry, lhs, rhs
       if (all_of(inputs, [&](auto val){return value_is_const_zero(val);})) {
@@ -317,6 +324,7 @@ LogicalResult LUTOp::canonicalize(LUTOp op, PatternRewriter &rewriter) {
     }
     case LUTOpName::LUT_DShl:
     case LUTOpName::LUT_DShr:
+    case LUTOpName::LUT_XorR:
     break;
   }
   return failure();

@@ -118,13 +118,14 @@ static LogicalResult compileAndEmit(
         // Convert hw array
         pm.addPass(toucan::createLowerCombPreProcessPass());
 
-        // 2. Lower HW to 4B
-        // 2.1 lowers most ops
+        // Lower HW to 4B
+        pm.addPass(toucan::createLowerCombTo4B_ReplicateOpPass());
         pm.addPass(toucan::createLowerCombTo4B_1Pass());
         pm.addPass(toucan::createLowerCombTo4B_2Pass());
         pm.addPass(toucan::createLowerCombTo4B_3Pass());
 
         pm.addPass(toucan::createParallelCanonicalizerPass());
+        pm.addPass(toucan::createLowerCombTo4B_ReplicateOpPass());
     }
 
     if (inputLevel < ToucanFlattened) {

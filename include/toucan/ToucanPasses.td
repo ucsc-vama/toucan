@@ -80,6 +80,12 @@ def LowerCombPreProcess: Pass<"lower-comb-pre-process", "circt::ModuleOp"> {
   let constructor = "toucan::createLowerCombPreProcessPass()";
 }
 
+def LowerCombTo4B_ReplicateOp: Pass<"lower-comb-to-4b-replicateop", "circt::ModuleOp"> {
+  let summary = "Lower comb::ReplicateOp to 4 bits";
+  let description = "Why a seperate pass? Because the canonicalizer may create ReplicateOp.";
+  let constructor = "toucan::createLowerCombTo4B_ReplicateOpPass()";
+}
+
 def LowerCombTo4B_1: Pass<"lower-comb-to-4b-1", "circt::ModuleOp"> {
   let summary = "Lower comb to 4 bits, stage 1";
   let description = summary;

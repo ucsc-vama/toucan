@@ -86,6 +86,7 @@ namespace toucan {
 
   mlir::Value padding_with_0_and_align_4b(mlir::Operation *op, mlir::RewriterBase &rewriter, mlir::Value val);
 
-  // // template<class OpTy>
-  // mlir::Value generate_reduce_tree(mlir::RewriterBase rewritter, llvm::SmallVector<mlir::Value> inputs, mlir::Value fillingVal, std::function<mlir::Value(mlir::RewriterBase&, mlir::Value, mlir::Value)> cb);
+  mlir::Value generate_reduce_tree(mlir::RewriterBase &rewritter, mlir::Location loc, llvm::SmallVector<mlir::Value> &inputs, std::function<mlir::Value(mlir::RewriterBase&, mlir::Location, mlir::Value, mlir::Value)> cb);
+
+  mlir::Value removeHighBits(mlir::RewriterBase &rewriter, mlir::Location loc, mlir::Value val, size_t bitsNeeded);
 };

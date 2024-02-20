@@ -4,6 +4,7 @@
 #include "circt/Dialect/HW/HWTypes.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Value.h"
+#include "toucan/ToucanOps.h"
 #include "toucan/ToucanUtils.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Casting.h"
@@ -27,6 +28,8 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/STLFunctionalExtras.h"
 #include <utility>
+
+#include "toucan/ToucanDialect.h"
 
 using namespace mlir;
 using namespace circt;
@@ -347,23 +350,43 @@ namespace toucan {
     }
   }
 
-    // mlir::Value generate_reduce_tree(mlir::RewriterBase rewritter, llvm::SmallVector<mlir::Value> inputs, mlir::Value fillingVal, std::function<mlir::Value(mlir::RewriterBase&, mlir::Value, mlir::Value)> cb) {
-    //     llvm::SmallVector<mlir::Value> outputs;
-    //     auto levels = llvm::Log2_64_Ceil(inputs.size());
-    //     for (size_t level = 0; level < levels; level++) {
-    //         outputs.clear();
-    //         for (size_t i = 0; i < ((inputs.size() + 1) >> 1); i++) {
-    //             auto val_id = i << 1;
-    //             auto op1 = (val_id <= inputs.size()) ? inputs[val_id] : fillingVal;
-    //             val_id += 1;
-    //             auto op2 = (val_id <= inputs.size()) ? inputs[val_id] : fillingVal;
+  mlir::Value generate_reduce_tree(mlir::RewriterBase &rewritter, Location loc, llvm::SmallVector<mlir::Value> &inputs, std::function<mlir::Value(mlir::RewriterBase&, mlir::Location, mlir::Value, mlir::Value)> cb) {
+      llvm::SmallVector<mlir::Value> outputs;
+      while(inputs.size() > 1) {
+        outputs.clear();
+        for (size_t i = 0; i < inputs.size(); i+= 2) {
+          auto op1 = inputs[i];
+          auto op2_id = i + 1;
+          if (op2_id >= inputs.size()) {
+            // no op2. put op1 in output for next level
+            outputs.push_back(op1);
+          } else {
+            auto op2 = inputs[op2_id];
+            auto resultVal = cb(rewritter, loc, op1, op2);
+            outputs.push_back(resultVal);
+          }
+        }
+        std::swap(inputs, outputs);
+      }
+      return inputs.front();
+  }
 
-    //             auto resultVal = cb(rewritter, op1, op2);
-    //             outputs.push_back(resultVal);
-    //         }
-    //         std::swap(inputs, outputs);
-    //     }
-    //     return inputs.front();
-    // }
+  mlir::Value removeHighBits(mlir::RewriterBase &rewriter, mlir::Location loc, mlir::Value val, size_t bitsNeeded) {
+    size_t valWidth = static_cast<size_t>(hw::getBitWidth(val.getType()));
+    assert(valWidth <= 4);
+    assert(bitsNeeded <= valWidth);
+    if (bitsNeeded == valWidth) return val;
+
+    size_t mask = (1 << bitsNeeded) - 1;
+
+    auto maskConstOp = rewriter.create<hw::ConstantOp>(loc, APInt(valWidth, mask));
+    auto maskConstVal = maskConstOp.getResult();
+
+    // Note: Here we force the width of output to be bitsNeeded
+    auto outputType = rewriter.getIntegerType(bitsNeeded);
+    auto andOp = rewriter.create<toucan::LUTOp>(loc, outputType, LUTOpName::LUT_And, ValueRange({val, maskConstVal}));
+
+    return andOp.getResult();
+  }
 }
 

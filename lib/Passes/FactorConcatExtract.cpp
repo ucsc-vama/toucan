@@ -171,24 +171,6 @@ struct BitsOperations {
     }
     return lastVal;
   }
-
-  static Value removeHighBits(RewriterBase &rewriter, Location loc, Value val, size_t bitsNeeded) {
-    size_t valWidth = static_cast<size_t>(hw::getBitWidth(val.getType()));
-    assert(valWidth <= 4);
-    assert(bitsNeeded <= valWidth);
-    if (bitsNeeded == valWidth) return val;
-
-    size_t mask = (1 << bitsNeeded) - 1;
-
-    auto maskConstOp = rewriter.create<hw::ConstantOp>(loc, APInt(valWidth, mask));
-    auto maskConstVal = maskConstOp.getResult();
-
-    // Note: Here we force the width of output to be bitsNeeded
-    auto outputType = rewriter.getIntegerType(bitsNeeded);
-    auto andOp = rewriter.create<LUTOp>(loc, outputType, LUTOpName::LUT_And, ValueRange({val, maskConstVal}));
-
-    return andOp.getResult();
-  }
 };
 
 

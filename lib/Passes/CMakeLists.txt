@@ -14,6 +14,7 @@ add_circt_dialect_library(
   LowerRegMemTo4B.cpp
   EnsureNoClockOp.cpp
   LowerCombPreProcess.cpp
+  LowerCombTo4B_ReplicateOp.cpp
   LowerCombTo4B_1.cpp
   LowerCombTo4B_2.cpp
   LowerCombTo4B_3.cpp
