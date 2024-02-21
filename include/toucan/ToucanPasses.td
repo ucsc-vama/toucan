@@ -114,16 +114,20 @@ def Flatten: Pass<"flatten", "circt::ModuleOp"> {
   ];
 }
 
-def RemoveSeq: Pass<"toucan-remove-seq", "circt::ModuleOp"> {
-  let summary = "Remove Seq dialect ops. Raise error if it's still used";
-  let description = summary;
-  let constructor = "toucan::createRemoveSeqPass()";
-}
-
 def FactorConcatExtract: Pass<"factor-concat-extract", "circt::ModuleOp"> {
   let summary = "Replace comb::Extract and comb::Concat. This pass should finally remove all of them.";
   let description = summary;
   let constructor = "toucan::createFactorConcatExtractPass()";
+}
+
+def FlatDCE: Pass<"flat-dce", "circt::ModuleOp"> {
+  let summary = "DCE pass on flatten design";
+  let description = summary;
+  let constructor = "toucan::createFlatDCEPass()";
+
+  let statistics = [
+    Statistic<"removedOps", "removedOps", "Operations removed by DCE pass">
+  ];
 }
 
 #endif

@@ -132,14 +132,12 @@ static LogicalResult compileAndEmit(
     if (inputLevel < ToucanFlattened) {
         // Lower to flattened
         pm.addPass(toucan::createFlattenPass());
-        pm.addPass(toucan::createRemoveSeqPass());
-        // pm.addPass(mlir::createCanonicalizerPass());
-    }
-    // pm.addPass(toucan::createRemoveSeqPass());
-    pm.addPass(toucan::createFactorConcatExtractPass());
+        // Dead ops may appear after flatten. This DCE pass should also remove all Seq.Clock
+        pm.addPass(toucan::createFlatDCEPass());
 
-    // Note: Add a canonicalizer here may cut some operations, but it's too slow and has little benefits. Seems not worthy.
-    // pm.addPass(mlir::createCanonicalizerPass());
+        pm.addPass(toucan::createFactorConcatExtractPass());
+    }
+
 
     if(failed(pm.run(mod.get()))) {
         llvm::outs() << "Passes failed!!!!\n";

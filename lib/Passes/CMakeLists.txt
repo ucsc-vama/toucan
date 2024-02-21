@@ -19,8 +19,8 @@ add_circt_dialect_library(
   LowerCombTo4B_2.cpp
   LowerCombTo4B_3.cpp
   Flatten.cpp
-  RemoveSeq.cpp
   FactorConcatExtract.cpp
+  FlatDCE.cpp
 
   DEPENDS
   ToucanPassesIncGen
