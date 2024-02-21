@@ -283,6 +283,8 @@ struct LowerHWArrayTo4B: OpRewritePattern<hw::ArrayCreateOp> {
       array_values.push_back({});
     }
 
+    numHWArrayInModule++;
+
     bool useMux = false;
 
     if (arrayInputs.size() <= 8) {
@@ -343,7 +345,6 @@ struct LowerHWArrayTo4B: OpRewritePattern<hw::ArrayCreateOp> {
       }
     }
 
-    numHWArrayInModule++;
     return success();
   }
 };

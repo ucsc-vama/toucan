@@ -60,6 +60,8 @@ static std::atomic<uint64_t> numCombShrSInModules;
 static std::atomic<uint64_t> numCombICmpInModules;
 static std::atomic<uint64_t> numCombMulInModules;
 static std::atomic<uint64_t> numCombParityInModules;
+static std::atomic<uint64_t> numShiftToArrayInModules;
+static std::atomic<uint64_t> numArrayReadFromShiftInModules;
 
 class DynamicShiftOperations {
   public:
@@ -83,6 +85,8 @@ class DynamicShiftOperations {
         auto vecReadOp = rewriter.create<toucan::VectorReadOp>(op->getLoc(), vecHandle, i, fillingValue, shamt_high_split);
         shiftResult.push_back(vecReadOp.getResult());
       }
+      numShiftToArrayInModules++;
+      numArrayReadFromShiftInModules += shiftResult.size();
       
     } else {
       shiftResult = std::move(intermediateResults);
@@ -779,6 +783,8 @@ struct LowerCombTo4B_1Pass : toucan::impl::LowerCombTo4B_1Base<LowerCombTo4B_1Pa
     numCombICmpInModules = 0;
     numCombMulInModules = 0;
     numCombParityInModules = 0;
+    numShiftToArrayInModules = 0;
+    numArrayReadFromShiftInModules = 0;
 
     RewritePatternSet owningPatterns(context);
     ConversionTarget conversionTarget(*context);
@@ -852,6 +858,8 @@ struct LowerCombTo4B_1Pass : toucan::impl::LowerCombTo4B_1Base<LowerCombTo4B_1Pa
     numCombICmp = numCombICmpInModules;
     numCombMul = numCombMulInModules;
     numCombParity = numCombParityInModules;
+    numShiftToArray = numShiftToArrayInModules;
+    numArrayReadFromShift = numArrayReadFromShiftInModules;
   }
 };
 

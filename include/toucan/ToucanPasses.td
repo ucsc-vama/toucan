@@ -49,7 +49,7 @@ def ExpandMemoryDelay: Pass<"expand-memory-delay", "circt::ModuleOp"> {
   let statistics = [
     Statistic<"nonZeroReadLatencyMems", "Non-zero read latency mem", "Number of memories that has read latency > 0">,
     Statistic<"nonOneWriteLatencyMems", "Non-one write latency mem", "Number of memories that has write latency != 1">,
-    Statistic<"insertedRegs", "InsertedRegisters", "Number of extra registers inserted">,
+    Statistic<"insertedRegs", "InsertedRegisters", "Number of pipelining registers inserted">,
     Statistic<"noNameMems", "AnonymousMems", "Number of memories with no name">
   ];
 }
@@ -59,7 +59,7 @@ def ReplaceAsyncResetRegs: Pass<"replace-async-reset-regs", "circt::ModuleOp"> {
   let description = summary;
   let constructor = "toucan::createReplaceAsyncResetRegsPass()";
   let statistics = [
-    Statistic<"asyncRegs", "AsyncRegs", "Number of async registers">
+    Statistic<"asyncRegs", "AsyncResetRegs", "Number of async reset registers">
   ];
 }
 
@@ -145,6 +145,8 @@ def LowerCombTo4B_1: Pass<"lower-comb-to-4b-1", "circt::ModuleOp"> {
     Statistic<"numCombICmp", "comb::ICmpOp", "Number of comb::ICmpOp">,
     Statistic<"numCombMul", "comb::MulOp", "Number of comb::MulOp">,
     Statistic<"numCombParity", "comb::ParityOp", "Number of comb::ParityOp">,
+    Statistic<"numShiftToArray", "Shift to array", "Num of shifts lowered to array. 1 shift, 1 array, multiple read">,
+    Statistic<"numArrayReadFromShift", "Array read from shift", "Num of array read op lowered from shifts">
   ];
 }
 
@@ -175,10 +177,10 @@ def Flatten: Pass<"flatten", "circt::ModuleOp"> {
   let description = summary;
   let constructor = "toucan::createFlattenPass()";
   let statistics = [
-    Statistic<"numEdgesBeforeFlatten", "num-edges-before-flatten", "number of edges before flatten">,
-    Statistic<"numOpsBeforeFlatten", "num-ops-before-flatten", "number of ops before flatten">,
-    Statistic<"numEdgesAfterFlatten", "num-edges-after-flatten", "number of edges after flatten">,
-    Statistic<"numOpsAfterFlatten", "num-ops-after-flatten", "number of ops after flatten">
+    Statistic<"numEdgesBeforeFlatten", "Before flatten, num of edges", "number of edges before flatten">,
+    Statistic<"numOpsBeforeFlatten", "Before flatten, num of ops", "number of ops before flatten">,
+    Statistic<"numEdgesAfterFlatten", "After flatten, num of edges", "number of edges after flatten">,
+    Statistic<"numOpsAfterFlatten", "After flatten, num of ops", "number of ops after flatten">
   ];
 }
 
