@@ -29,10 +29,8 @@
 #include "circt/Support/LLVM.h"
 
 
-#include <cassert>
-#include <stdint.h>
 #include <memory>
-
+#include <atomic>
 
 
 
@@ -48,7 +46,10 @@ using namespace llvm;
 
 #define DEBUG_TYPE "ExpandMemoryDelayPass"
 
-
+static std::atomic<uint64_t> nonZeroRLMemInModule;
+static std::atomic<uint64_t> nonOneWLMemInModule;
+static std::atomic<uint64_t> insertedRegsInModule;
+static std::atomic<uint64_t> noNameMemsInModule;
 
 static StringRef getMarkerStringRef() {
   return "_isMemPipelineHeadingRegister";
@@ -82,6 +83,9 @@ struct ExpandMemoryDelayPass : toucan::impl::ExpandMemoryDelayBase<ExpandMemoryD
         auto mem = memReadOp.getMemory();
         auto memDefiningOp = cast<seq::FirMemOp>(mem.getDefiningOp());
         auto memReadLatency = memDefiningOp.getReadLatency();
+        if (!memDefiningOp.getName()) {
+          noNameMemsInModule++;
+        }
 
         if (memReadLatency > 0) {
           LLVM_DEBUG(
@@ -95,7 +99,9 @@ struct ExpandMemoryDelayPass : toucan::impl::ExpandMemoryDelayBase<ExpandMemoryD
           OpBuilder builder(memReadOp);
           builder.setInsertionPointAfter(memReadOp);
           IRRewriter rewriter(builder);
-        
+
+          insertedRegsInModule += memReadLatency;
+          nonZeroRLMemInModule++;
 
           auto memName = memDefiningOp.getName().value_or(mlir::StringRef("default_mem_name"));
           seq::FirRegOp *lastReg = nullptr;
@@ -122,6 +128,10 @@ struct ExpandMemoryDelayPass : toucan::impl::ExpandMemoryDelayBase<ExpandMemoryD
         auto mem = memWriteOp.getMemory();
         auto memDefiningOp = cast<seq::FirMemOp>(mem.getDefiningOp());
         auto memWriteLatency = memDefiningOp.getWriteLatency();
+
+        if (memWriteLatency != 1) {
+          nonOneWriteLatencyMems ++;
+        }
 
         assert(memWriteLatency == 1 && "Expect memory write latency always be 1");
       }
@@ -166,6 +176,10 @@ struct ExpandMemoryDelayPass : toucan::impl::ExpandMemoryDelayBase<ExpandMemoryD
 
   void runOnOperation() final {
     auto mod = getOperation();
+    nonZeroReadLatencyMems = 0;
+    nonOneWriteLatencyMems = 0;
+    insertedRegs = 0;
+    noNameMemsInModule = 0;
 
     SmallVector<hw::HWModuleOp> modulesToProcess;
 
@@ -185,6 +199,11 @@ struct ExpandMemoryDelayPass : toucan::impl::ExpandMemoryDelayBase<ExpandMemoryD
       return runOnModule(mod);
     });
     if (failed(result)) return signalPassFailure();
+
+    nonZeroReadLatencyMems = nonZeroRLMemInModule;
+    nonOneWriteLatencyMems = nonOneWLMemInModule;
+    insertedRegs = insertedRegsInModule;
+    noNameMems = noNameMemsInModule;
   }
 };
 

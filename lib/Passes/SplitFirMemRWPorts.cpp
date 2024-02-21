@@ -41,7 +41,7 @@ using namespace llvm;
 
 #define DEBUG_TYPE "SplitFirMemRWPortsPass"
 
-std::atomic<uint64_t> splittedRWPortsInModules;
+static std::atomic<uint64_t> splittedRWPortsInModules;
 
 struct FirMemRWPortRewrite: OpRewritePattern<seq::FirMemReadWriteOp> {
   using OpRewritePattern<seq::FirMemReadWriteOp>::OpRewritePattern;
@@ -81,8 +81,6 @@ struct FirMemRWPortRewrite: OpRewritePattern<seq::FirMemReadWriteOp> {
 };
 
 
-
-
 struct SplitFirMemRWPortsPass : toucan::impl::SplitFirMemRWPortsBase<SplitFirMemRWPortsPass> {
   using SplitFirMemRWPortsBase<SplitFirMemRWPortsPass>::SplitFirMemRWPortsBase;
 
@@ -116,7 +114,6 @@ struct SplitFirMemRWPortsPass : toucan::impl::SplitFirMemRWPortsBase<SplitFirMem
       }
     }
 
-
     auto result = mlir::failableParallelForEach(&getContext(), modulesToProcess.begin(), modulesToProcess.end(), [&](auto mod) {
       return runOnModule(mod);
     });
@@ -124,8 +121,6 @@ struct SplitFirMemRWPortsPass : toucan::impl::SplitFirMemRWPortsBase<SplitFirMem
 
     splittedRWPorts = splittedRWPortsInModules;
   }
-
-
 };
 
 std::unique_ptr<mlir::Pass> toucan::createSplitFirMemRWPortsPass() {

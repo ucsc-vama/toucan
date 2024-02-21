@@ -59,9 +59,6 @@ struct EnsureNoClockOpPass : toucan::impl::EnsureNoClockOpBase<EnsureNoClockOpPa
       }
     }
 
-    
-
-
     return success();
   }
 
@@ -74,17 +71,17 @@ struct EnsureNoClockOpPass : toucan::impl::EnsureNoClockOpBase<EnsureNoClockOpPa
         modulesToProcess.push_back(mod);
       }
     }
-    // Sequential
-    for (auto mod: modulesToProcess) {
-      auto ret = runOnModule(mod);
-      if (failed(ret)) return signalPassFailure();
-    }
+    // // Sequential
+    // for (auto mod: modulesToProcess) {
+    //   auto ret = runOnModule(mod);
+    //   if (failed(ret)) return signalPassFailure();
+    // }
 
-    // // Parallel
-    // auto result = mlir::failableParallelForEach(&getContext(), modulesToProcess.begin(), modulesToProcess.end(), [&](auto mod) {
-    //   return runOnModule(mod);
-    // });
-    // if (failed(result)) return signalPassFailure();
+    // Parallel
+    auto result = mlir::failableParallelForEach(&getContext(), modulesToProcess.begin(), modulesToProcess.end(), [&](auto mod) {
+      return runOnModule(mod);
+    });
+    if (failed(result)) return signalPassFailure();
   }
 
 };

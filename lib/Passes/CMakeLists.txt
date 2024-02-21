@@ -10,11 +10,11 @@ add_circt_dialect_library(
   ReplaceAsyncResetRegs.cpp
   SplitRegisters.cpp
   RemoveMemMask.cpp
-  ParallelCanonicalizer.cpp
+  Canonicalizer.cpp
   LowerRegMemTo4B.cpp
   EnsureNoClockOp.cpp
   LowerCombPreProcess.cpp
-  LowerCombTo4B_ReplicateOp.cpp
+  LowerCombTo4B_ShortReplicateOp.cpp
   LowerCombTo4B_1.cpp
   LowerCombTo4B_2.cpp
   LowerCombTo4B_3.cpp

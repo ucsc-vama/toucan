@@ -28,8 +28,10 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include <_types/_uint64_t.h>
 #include <memory>
 #include <string>
+#include <atomic>
 
 
 #define GEN_PASS_DEF_REMOVEMEMMASK
@@ -44,6 +46,9 @@ using namespace mlir;
 using namespace llvm;
 
 #define DEBUG_TYPE "RemoveMemMaskPass"
+
+static std::atomic<uint64_t> numMemWithMaskInModule;
+static std::atomic<uint64_t> numNewMemInModule;
 
 struct RemoveMemMaskPass : toucan::impl::RemoveMemMaskBase<RemoveMemMaskPass> {
   using RemoveMemMaskBase<RemoveMemMaskPass>::RemoveMemMaskBase;
@@ -85,6 +90,9 @@ struct RemoveMemMaskPass : toucan::impl::RemoveMemMaskBase<RemoveMemMaskPass> {
           // Has mask
           auto maskLaneWidth = memWidth / (*maskWidth);
           auto numSplittedMems = *maskWidth;
+
+          numMemWithMaskInModule++;
+          numNewMemInModule += numSplittedMems;
 
           if (memWidth % (*maskWidth) != 0) {
             memOp.emitError() << "Incorrect mask width, got " << (*maskWidth) << " for a " << memWidth << " width memory";
@@ -230,23 +238,29 @@ struct RemoveMemMaskPass : toucan::impl::RemoveMemMaskBase<RemoveMemMaskPass> {
   void runOnOperation() final {
     auto mod = getOperation();
 
+    numMemWithMaskInModule = 0;
+    numNewMemInModule = 0;
+
     SmallVector<hw::HWModuleOp> modulesToProcess;
     for(auto & inner: mod.getOps()) {
       if(auto mod = dyn_cast<hw::HWModuleOp>(&inner)) {
         modulesToProcess.push_back(mod);
       }
     }
-     // Sequential
-     for (auto mod: modulesToProcess) {
-       auto ret = runOnModule(mod);
-       if (failed(ret)) return signalPassFailure();
-     }
+    //  // Sequential
+    //  for (auto mod: modulesToProcess) {
+    //    auto ret = runOnModule(mod);
+    //    if (failed(ret)) return signalPassFailure();
+    //  }
 
-//    // Parallel
-//    auto result = mlir::failableParallelForEach(&getContext(), modulesToProcess.begin(), modulesToProcess.end(), [&](auto mod) {
-//      return runOnModule(mod);
-//    });
-//    if (failed(result)) return signalPassFailure();
+   // Parallel
+   auto result = mlir::failableParallelForEach(&getContext(), modulesToProcess.begin(), modulesToProcess.end(), [&](auto mod) {
+     return runOnModule(mod);
+   });
+   if (failed(result)) return signalPassFailure();
+
+   numMemWithMask = numMemWithMaskInModule;
+   numNewMem = numNewMemInModule;
   }
 
 };

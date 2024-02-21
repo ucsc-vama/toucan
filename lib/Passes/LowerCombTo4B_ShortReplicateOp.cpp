@@ -37,12 +37,11 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/Format.h"
 
-#include <cstddef>
 #include <memory>
-#include <string>
+#include <atomic>
 
 
-#define GEN_PASS_DEF_LOWERCOMBTO4B_REPLICATEOP
+#define GEN_PASS_DEF_LOWERCOMBTO4B_SHORTREPLICATEOP
 #include "toucan/ToucanPassCommon.h"
 
 #include "toucan/ToucanOps.h"
@@ -53,8 +52,9 @@ using namespace circt;
 using namespace mlir;
 using namespace llvm;
 
-#define DEBUG_TYPE "LowerCombTo4B_ReplicateOpPass"
+#define DEBUG_TYPE "LowerCombTo4B_ShortReplicateOpPass"
 
+static std::atomic<uint64_t> numShortRepInModule;
 
 struct LowerShortCombReplicateOpTo4B: OpRewritePattern<comb::ReplicateOp> {
   using OpRewritePattern<comb::ReplicateOp>::OpRewritePattern;
@@ -65,6 +65,7 @@ struct LowerShortCombReplicateOpTo4B: OpRewritePattern<comb::ReplicateOp> {
       repOp.emitError("ReplicateOp with input width != 1 is not supported");
       return failure();
     }
+    numShortRepInModule++;
 
     auto resultValue = repOp.getResult();
     auto resultValueWidth = hw::getBitWidth(resultValue.getType());
@@ -104,13 +105,14 @@ struct LowerShortCombReplicateOpTo4B: OpRewritePattern<comb::ReplicateOp> {
 
 
 
-struct LowerCombTo4B_ReplicateOpPass : toucan::impl::LowerCombTo4B_ReplicateOpBase<LowerCombTo4B_ReplicateOpPass> {
-  using LowerCombTo4B_ReplicateOpBase<LowerCombTo4B_ReplicateOpPass>::LowerCombTo4B_ReplicateOpBase;
+struct LowerCombTo4B_ShortReplicateOpPass : toucan::impl::LowerCombTo4B_ShortReplicateOpBase<LowerCombTo4B_ShortReplicateOpPass> {
+  using LowerCombTo4B_ShortReplicateOpBase<LowerCombTo4B_ShortReplicateOpPass>::LowerCombTo4B_ShortReplicateOpBase;
 
   std::shared_ptr<FrozenRewritePatternSet> patterns;
   std::shared_ptr<ConversionTarget> target;
 
   LogicalResult initialize(MLIRContext *context) override {
+    numShortRepInModule = 0;
 
     RewritePatternSet owningPatterns(context);
     ConversionTarget conversionTarget(*context);
@@ -156,10 +158,12 @@ struct LowerCombTo4B_ReplicateOpPass : toucan::impl::LowerCombTo4B_ReplicateOpBa
       return runOnModule(mod);
     });
     if (failed(result)) return signalPassFailure();
+
+    numShortRepOp = numShortRepInModule;
   }
 
 };
 
-std::unique_ptr<mlir::Pass> toucan::createLowerCombTo4B_ReplicateOpPass() {
-  return std::make_unique<LowerCombTo4B_ReplicateOpPass>();
+std::unique_ptr<mlir::Pass> toucan::createLowerCombTo4B_ShortReplicateOpPass() {
+  return std::make_unique<LowerCombTo4B_ShortReplicateOpPass>();
 }

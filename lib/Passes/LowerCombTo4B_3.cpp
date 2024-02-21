@@ -38,7 +38,7 @@
 #include "llvm/Support/Format.h"
 
 #include <memory>
-#include <string>
+#include <atomic>
 
 
 #define GEN_PASS_DEF_LOWERCOMBTO4B_3
@@ -54,6 +54,9 @@ using namespace llvm;
 
 #define DEBUG_TYPE "LowerCombTo4B_3Pass"
 
+static std::atomic<uint64_t> numCombAndInModules;
+static std::atomic<uint64_t> numCombOrInModules;
+static std::atomic<uint64_t> numCombXorInModules;
 
 struct LowerCombAndOp: OpRewritePattern<comb::AndOp> {
   using OpRewritePattern<comb::AndOp>::OpRewritePattern;
@@ -63,6 +66,7 @@ struct LowerCombAndOp: OpRewritePattern<comb::AndOp> {
       op.emitError("Supports only 2 operands!");
       return failure();
     }
+    numCombAndInModules++;
 
     auto resultValue = op.getResult();
     auto resultValueWidth = hw::getBitWidth(resultValue.getType());
@@ -105,6 +109,7 @@ struct LowerCombOrOp: OpRewritePattern<comb::OrOp> {
       op.emitError("Supports only 2 operands!");
       return failure();
     }
+    numCombOrInModules++;
 
     auto resultValue = op.getResult();
     auto resultValueWidth = hw::getBitWidth(resultValue.getType());
@@ -147,6 +152,7 @@ struct LowerCombXorOp: OpRewritePattern<comb::XorOp> {
       op.emitError("Supports only 2 operands!");
       return failure();
     }
+    numCombXorInModules++;
 
     auto resultValue = op.getResult();
     auto resultValueWidth = hw::getBitWidth(resultValue.getType());
@@ -181,33 +187,6 @@ struct LowerCombXorOp: OpRewritePattern<comb::XorOp> {
 };
 
 
-// struct LowerHWConstantOp: OpRewritePattern<hw::ConstantOp> {
-//   using OpRewritePattern<hw::ConstantOp>::OpRewritePattern;
-
-//   LogicalResult matchAndRewrite(hw::ConstantOp op, PatternRewriter &rewriter) const final {
-//     SmallVector<Value> results;
-
-//     auto constValueWidth = op.getValue().getBitWidth();
-//     // auto constValueRaw = op.getValue().extractBits(0, 2);
-
-//     if (constValueWidth > 4) {
-//       auto chunks = split_signal_4B(constValueWidth);
-//       for (auto [chunkId, chunkWidth]: chunks) {
-//         auto newValue = op.getValue().extractBits(chunkWidth, chunkId * 4);
-//         auto newConstOp = rewriter.create<hw::ConstantOp>(op->getLoc(), newValue);
-//         results.push_back(newConstOp.getResult());
-//       }
-
-//       auto bitConcatOp = rewriter.create<comb::ConcatOp>(op.getLoc(), results);
-//       copyCustomizedAttrs(op, bitConcatOp);
-//       rewriter.replaceOp(op, bitConcatOp);
-//       return success();
-//     }
-//     return failure();
-//   }
-// };
-
-
 
 
 struct LowerCombTo4B_3Pass : toucan::impl::LowerCombTo4B_3Base<LowerCombTo4B_3Pass> {
@@ -217,6 +196,9 @@ struct LowerCombTo4B_3Pass : toucan::impl::LowerCombTo4B_3Base<LowerCombTo4B_3Pa
   std::shared_ptr<ConversionTarget> target;
 
   LogicalResult initialize(MLIRContext *context) override {
+    numCombAndInModules = 0;
+    numCombOrInModules = 0;
+    numCombXorInModules = 0;
 
     RewritePatternSet owningPatterns(context);
     ConversionTarget conversionTarget(*context);
@@ -284,6 +266,10 @@ struct LowerCombTo4B_3Pass : toucan::impl::LowerCombTo4B_3Base<LowerCombTo4B_3Pa
       return runOnModule(mod);
     });
     if (failed(result)) return signalPassFailure();
+
+    numCombAnd = numCombAndInModules;
+    numCombOr = numCombOrInModules;
+    numCombXor = numCombXorInModules;
   }
 
 };

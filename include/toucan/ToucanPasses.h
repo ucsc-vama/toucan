@@ -21,13 +21,13 @@ std::unique_ptr<mlir::Pass> createReplaceAsyncResetRegsPass();
 std::unique_ptr<mlir::Pass> createSplitRegistersPass();
 std::unique_ptr<mlir::Pass> createRemoveMemMaskPass();
 
-std::unique_ptr<mlir::Pass> createParallelCanonicalizerPass();
-std::unique_ptr<mlir::Pass> createParallelCanonicalizerPass(const mlir::GreedyRewriteConfig &config);
+std::unique_ptr<mlir::Pass> createCanonicalizerPass();
+std::unique_ptr<mlir::Pass> createCanonicalizerPass(const mlir::GreedyRewriteConfig &config);
 
 std::unique_ptr<mlir::Pass> createLowerRegMemTo4BPass();
 std::unique_ptr<mlir::Pass> createEnsureNoClockOpPass();
 std::unique_ptr<mlir::Pass> createLowerCombPreProcessPass();
-std::unique_ptr<mlir::Pass> createLowerCombTo4B_ReplicateOpPass();
+std::unique_ptr<mlir::Pass> createLowerCombTo4B_ShortReplicateOpPass();
 std::unique_ptr<mlir::Pass> createLowerCombTo4B_1Pass();
 std::unique_ptr<mlir::Pass> createLowerCombTo4B_2Pass();
 std::unique_ptr<mlir::Pass> createLowerCombTo4B_3Pass();

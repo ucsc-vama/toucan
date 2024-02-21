@@ -56,7 +56,7 @@ using namespace llvm;
 
 #define DEBUG_TYPE "FactorArrayGetMuxPass"
 
-std::atomic<uint64_t> arrayMuxLoweredInModules;
+static std::atomic<uint64_t> arrayMuxLoweredInModules;
 
 struct LowerArrayGetWithMux: OpRewritePattern<hw::ArrayGetOp> {
   using OpRewritePattern<hw::ArrayGetOp>::OpRewritePattern;

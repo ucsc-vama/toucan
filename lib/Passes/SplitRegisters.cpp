@@ -26,6 +26,7 @@
 #include "llvm/Support/raw_ostream.h"
 
 #include <memory>
+#include <atomic>
 
 
 #define GEN_PASS_DEF_SPLITREGISTERS
@@ -40,6 +41,9 @@ using namespace mlir;
 using namespace llvm;
 
 #define DEBUG_TYPE "SplitRegistersPass"
+
+static std::atomic<uint64_t> numRegsInModule;
+static std::atomic<uint64_t> numResetRegsInModule;
 
 struct SplitRegistersPass : toucan::impl::SplitRegistersBase<SplitRegistersPass> {
   using SplitRegistersBase<SplitRegistersPass>::SplitRegistersBase;
@@ -89,6 +93,7 @@ struct SplitRegistersPass : toucan::impl::SplitRegistersBase<SplitRegistersPass>
           // Reg write op
           auto regWriteOp = rewriter.create<toucan::RegWriteOp>(regOp.getLoc(), resetMux.getResult(), regDefReference);
           setSVNameHintAttr(regWriteOp, nextValueName);
+          numResetRegsInModule++;
         } else {
           // This register don't have reset signal
           // Simply write next
@@ -97,8 +102,8 @@ struct SplitRegistersPass : toucan::impl::SplitRegistersBase<SplitRegistersPass>
           setSVNameHintAttr(regWriteOp, nextValueName);
         }
         toRemove.push_back(regOp);
+        numRegsInModule++;
       }
-
     }
 
     for (auto op: toRemove) op->erase();
@@ -108,6 +113,8 @@ struct SplitRegistersPass : toucan::impl::SplitRegistersBase<SplitRegistersPass>
 
   void runOnOperation() final {
     auto mod = getOperation();
+    numRegsInModule = 0;
+    numResetRegsInModule = 0;
 
     SmallVector<hw::HWModuleOp> modulesToProcess;
     for(auto & inner: mod.getOps()) {
@@ -126,6 +133,9 @@ struct SplitRegistersPass : toucan::impl::SplitRegistersBase<SplitRegistersPass>
       return runOnModule(mod);
     });
     if (failed(result)) return signalPassFailure();
+
+    numRegs = numRegsInModule;
+    numResetRegs = numResetRegsInModule;
   }
 
 };

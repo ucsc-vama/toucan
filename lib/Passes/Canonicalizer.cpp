@@ -32,7 +32,7 @@
 #include <memory>
 
 
-#define GEN_PASS_DEF_PARALLELCANONICALIZER
+#define GEN_PASS_DEF_CANONICALIZER
 #include "toucan/ToucanPassCommon.h"
 
 #include "toucan/ToucanOps.h"
@@ -43,31 +43,13 @@ using namespace circt;
 using namespace mlir;
 using namespace llvm;
 
-#define DEBUG_TYPE "ParallelCanonicalizerPass"
+#define DEBUG_TYPE "CanonicalizerPass"
 
 
 
 
-
- #include "mlir/Transforms/Passes.h"
-  
- #include "mlir/Pass/Pass.h"
- #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-  
- namespace mlir {
- #define GEN_PASS_DEF_CANONICALIZER
- #include "mlir/Transforms/Passes.h.inc"
- } // namespace mlir
-  
- using namespace mlir;
-  
-
-
-
-
-
-struct ParallelCanonicalizerPass : toucan::impl::ParallelCanonicalizerBase<ParallelCanonicalizerPass> {
-  using ParallelCanonicalizerBase<ParallelCanonicalizerPass>::ParallelCanonicalizerBase;
+struct CanonicalizerPass : toucan::impl::CanonicalizerBase<CanonicalizerPass> {
+  using CanonicalizerBase<CanonicalizerPass>::CanonicalizerBase;
 
   GreedyRewriteConfig config;
   std::shared_ptr<const FrozenRewritePatternSet> patterns;
@@ -75,19 +57,17 @@ struct ParallelCanonicalizerPass : toucan::impl::ParallelCanonicalizerBase<Paral
   ArrayRef<std::string> disabledPatterns;
   ArrayRef<std::string> enabledPatterns;
 
-  ParallelCanonicalizerPass() = default;
-  ParallelCanonicalizerPass(const GreedyRewriteConfig &config)
+  CanonicalizerPass() = default;
+  CanonicalizerPass(const GreedyRewriteConfig &config)
       : config(config) { }
 
-  ParallelCanonicalizerPass(const GreedyRewriteConfig &config,
+  CanonicalizerPass(const GreedyRewriteConfig &config,
                 ArrayRef<std::string> disabledPatterns,
                 ArrayRef<std::string> enabledPatterns)
       : config(config) {
     this->disabledPatterns = disabledPatterns;
     this->enabledPatterns = enabledPatterns;
   }
-
-
 
   LogicalResult initialize(MLIRContext *context) override {
 
@@ -153,25 +133,10 @@ struct ParallelCanonicalizerPass : toucan::impl::ParallelCanonicalizerBase<Paral
 
 
 
-//  /// Create a Canonicalizer pass.
-//  std::unique_ptr<Pass> mlir::createCanonicalizerPass() {
-//    return std::make_unique<Canonicalizer>();
-//  }
-  
-//  /// Creates an instance of the Canonicalizer pass with the specified config.
-//  std::unique_ptr<Pass>
-//  mlir::createCanonicalizerPass(const GreedyRewriteConfig &config,
-//                                ArrayRef<std::string> disabledPatterns,
-//                                ArrayRef<std::string> enabledPatterns) {
-//    return std::make_unique<Canonicalizer>(config, disabledPatterns,
-//                                           enabledPatterns);
-//  }
-
-
-std::unique_ptr<mlir::Pass> toucan::createParallelCanonicalizerPass() {
-  return std::make_unique<ParallelCanonicalizerPass>();
+std::unique_ptr<mlir::Pass> toucan::createCanonicalizerPass() {
+  return std::make_unique<CanonicalizerPass>();
 }
 
-std::unique_ptr<mlir::Pass> toucan::createParallelCanonicalizerPass(const GreedyRewriteConfig &config) {
-  return std::make_unique<ParallelCanonicalizerPass>(config);
+std::unique_ptr<mlir::Pass> toucan::createCanonicalizerPass(const GreedyRewriteConfig &config) {
+  return std::make_unique<CanonicalizerPass>(config);
 }

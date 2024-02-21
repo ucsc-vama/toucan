@@ -27,6 +27,7 @@
 
 #include <memory>
 #include <string>
+#include <atomic>
 
 
 #define GEN_PASS_DEF_LOWERREGMEMTO4B
@@ -42,10 +43,13 @@ using namespace llvm;
 
 #define DEBUG_TYPE "LowerRegMemTo4BPass"
 
+static std::atomic<uint64_t> regsBeforeInModule;
+static std::atomic<uint64_t> regsAfterInModule;
+static std::atomic<uint64_t> memsBeforeInModule;
+static std::atomic<uint64_t> memsAfterInModule;
+
 struct LowerRegMemTo4BPass : toucan::impl::LowerRegMemTo4BBase<LowerRegMemTo4BPass> {
   using LowerRegMemTo4BBase<LowerRegMemTo4BPass>::LowerRegMemTo4BBase;
-
-  
 
   LogicalResult runOnModule(hw::HWModuleOp mod) {
     SmallVector<Operation*> toRemove;
@@ -53,10 +57,10 @@ struct LowerRegMemTo4BPass : toucan::impl::LowerRegMemTo4BBase<LowerRegMemTo4BPa
 
     for (auto &stmt: mod.getOps()) {
       if (auto regOp = dyn_cast<toucan::DefRegOp>(stmt)) {
+        regsBeforeInModule++;
+
         auto regHandle = regOp.getHandle();
         auto regBitWidth = regHandle.getType().getElementWidth();
-
-        
 
         OpBuilder builder(regOp);
         IRRewriter rewriter(builder);
@@ -73,6 +77,8 @@ struct LowerRegMemTo4BPass : toucan::impl::LowerRegMemTo4BBase<LowerRegMemTo4BPa
           SmallVector<std::tuple<IntegerAttr, int, mlir::Value, mlir::StringAttr>> newRegInfos;
 
           auto chunks = split_signal_4B(regBitWidth);
+          regsAfterInModule += chunks.size();
+
           for (auto [regId, regWidth]: chunks) {
             auto regDataType = rewriter.getIntegerType(regWidth);
 
@@ -136,15 +142,17 @@ struct LowerRegMemTo4BPass : toucan::impl::LowerRegMemTo4BBase<LowerRegMemTo4BPa
 
         } else {
           // Don't need expand
+          regsAfterInModule++;
           // set name hint
           setSVNameHintAttr(regOp, namehint);
           // Set fragment Id
           auto fragmentId = rewriter.getIntegerAttr(rewriter.getIntegerType(32), 0);
           setSignalFragmentIDAttr(regOp, fragmentId);
-
         }
       } else if (auto memOp = dyn_cast<toucan::DefMemOp>(stmt)) {
         // Memory
+        memsBeforeInModule++;
+
         auto memValue = memOp.getHandle();
         auto memType = memValue.getType();
         auto memDepth = memType.getDepth();
@@ -161,6 +169,8 @@ struct LowerRegMemTo4BPass : toucan::impl::LowerRegMemTo4BBase<LowerRegMemTo4BPa
           SmallVector<std::tuple<IntegerAttr, int, mlir::Value, mlir::StringAttr>> newMemInfos;
 
           auto chunks = split_signal_4B(memWidth);
+          memsAfterInModule += chunks.size();
+
           for (auto [newMemId, newMemWidth]: chunks) {
 
             auto newMemElemType = rewriter.getIntegerType(newMemWidth);
@@ -230,13 +240,13 @@ struct LowerRegMemTo4BPass : toucan::impl::LowerRegMemTo4BBase<LowerRegMemTo4BPa
         } else {
           // memory width less or equal than 4
           // Don't need expand
+          memsAfterInModule++;
           // set name hint
           setSVNameHintAttr(memOp, namehint);
           // Set fragment Id
           auto fragmentId = rewriter.getIntegerAttr(rewriter.getIntegerType(32), 0);
           setSignalFragmentIDAttr(memOp, fragmentId);
         }
-
       }
     }
 
@@ -247,6 +257,11 @@ struct LowerRegMemTo4BPass : toucan::impl::LowerRegMemTo4BBase<LowerRegMemTo4BPa
 
   void runOnOperation() final {
     auto mod = getOperation();
+
+    regsBeforeInModule = 0;
+    regsAfterInModule = 0;
+    memsBeforeInModule = 0;
+    memsAfterInModule = 0;
 
     SmallVector<hw::HWModuleOp> modulesToProcess;
     for(auto & inner: mod.getOps()) {
@@ -265,6 +280,11 @@ struct LowerRegMemTo4BPass : toucan::impl::LowerRegMemTo4BBase<LowerRegMemTo4BPa
       return runOnModule(mod);
     });
     if (failed(result)) return signalPassFailure();
+
+    numRegsBefore = regsBeforeInModule;
+    numRegsAfter = regsAfterInModule;
+    numMemsBefore = memsBeforeInModule;
+    numMemsAfter = memsAfterInModule;
   }
 
 };

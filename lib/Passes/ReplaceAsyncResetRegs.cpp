@@ -24,6 +24,7 @@
 #include "llvm/Support/raw_ostream.h"
 
 #include <memory>
+#include <atomic>
 
 
 #define GEN_PASS_DEF_REPLACEASYNCRESETREGS
@@ -37,6 +38,8 @@ using namespace mlir;
 using namespace llvm;
 
 #define DEBUG_TYPE "ReplaceAsyncResetRegsPass"
+
+static std::atomic<uint64_t> asyncRegsInModule;
 
 struct ReplaceAsyncResetRegsPass : toucan::impl::ReplaceAsyncResetRegsBase<ReplaceAsyncResetRegsPass> {
   using ReplaceAsyncResetRegsBase<ReplaceAsyncResetRegsPass>::ReplaceAsyncResetRegsBase;
@@ -56,6 +59,7 @@ struct ReplaceAsyncResetRegsPass : toucan::impl::ReplaceAsyncResetRegsBase<Repla
           auto outputMux = rewriter.create<comb::MuxOp>(regOp.getLoc(), resetSignal, regResetValue, regOp);
           rewriter.replaceAllUsesExcept(regOp, outputMux, outputMux);
           regOp.removeIsAsyncAttr();
+          asyncRegsInModule++;
         }
       }
     }
@@ -64,6 +68,7 @@ struct ReplaceAsyncResetRegsPass : toucan::impl::ReplaceAsyncResetRegsBase<Repla
 
   void runOnOperation() final {
     auto mod = getOperation();
+    asyncRegsInModule = 0;
 
     SmallVector<hw::HWModuleOp> modulesToProcess;
     for(auto & inner: mod.getOps()) {
@@ -76,8 +81,9 @@ struct ReplaceAsyncResetRegsPass : toucan::impl::ReplaceAsyncResetRegsBase<Repla
       return runOnModule(mod);
     });
     if (failed(result)) return signalPassFailure();
-  }
 
+    asyncRegs = asyncRegsInModule;
+  }
 };
 
 std::unique_ptr<mlir::Pass> toucan::createReplaceAsyncResetRegsPass() {

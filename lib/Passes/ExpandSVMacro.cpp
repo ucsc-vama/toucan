@@ -64,9 +64,9 @@ static StringRef getEmptyStringRef() {
 }
 
 
-std::atomic<uint64_t> removedOpsInModules;
-std::atomic<uint64_t> printOpsInModules;
-std::atomic<uint64_t> stopOpsInModules;
+static std::atomic<uint64_t> removedOpsInModules;
+static std::atomic<uint64_t> printOpsInModules;
+static std::atomic<uint64_t> stopOpsInModules;
 
 struct ExpandSVMacro : toucan::impl::ExpandSVMacroBase<ExpandSVMacro> {
   using ExpandSVMacroBase<ExpandSVMacro>::ExpandSVMacroBase;

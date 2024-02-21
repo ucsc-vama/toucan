@@ -39,7 +39,7 @@
 #include "llvm/Support/Format.h"
 
 #include <memory>
-#include <string>
+#include <atomic>
 
 
 #define GEN_PASS_DEF_LOWERCOMBTO4B_2
@@ -55,6 +55,9 @@ using namespace llvm;
 
 #define DEBUG_TYPE "LowerCombTo4B_2Pass"
 
+static std::atomic<uint64_t> numCombAddInModules;
+static std::atomic<uint64_t> numCombSubInModules;
+static std::atomic<uint64_t> numCombMuxInModules;
 
 struct AddSubCore {
   public:
@@ -102,6 +105,7 @@ struct LowerCombAddOp: OpRewritePattern<comb::AddOp>, AddSubCore {
       op.emitError() << "Expect exactly 2 operands but got " << inputs.size();
       return failure();
     }
+    numCombAddInModules++;
 
     auto lhs = inputs[0];
     auto rhs = inputs[1];
@@ -119,6 +123,8 @@ struct LowerCombSubOp: OpRewritePattern<comb::SubOp>, AddSubCore {
   using OpRewritePattern<comb::SubOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(comb::SubOp op, PatternRewriter &rewriter) const final {
+    numCombSubInModules++;
+
     auto const1BOp = rewriter.create<hw::ConstantOp>(op.getLoc(), rewriter.getI1Type(), 1);
     auto constOne1B = const1BOp.getResult();
 
@@ -144,6 +150,8 @@ struct LowerCombMuxOp: OpRewritePattern<comb::MuxOp> {
   using OpRewritePattern<comb::MuxOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(comb::MuxOp op, PatternRewriter &rewriter) const final {
+    numCombMuxInModules++;
+
     auto condVal = op.getCond();
     auto tValValue = op.getTrueValue();
     auto fValValue = op.getFalseValue();
@@ -190,6 +198,9 @@ struct LowerCombTo4B_2Pass : toucan::impl::LowerCombTo4B_2Base<LowerCombTo4B_2Pa
   std::shared_ptr<ConversionTarget> target;
 
   LogicalResult initialize(MLIRContext *context) override {
+    numCombAddInModules = 0;
+    numCombSubInModules = 0;
+    numCombMuxInModules = 0;
 
     RewritePatternSet owningPatterns(context);
     ConversionTarget conversionTarget(*context);
@@ -254,6 +265,10 @@ struct LowerCombTo4B_2Pass : toucan::impl::LowerCombTo4B_2Base<LowerCombTo4B_2Pa
       return runOnModule(mod);
     });
     if (failed(result)) return signalPassFailure();
+
+    numCombAdd = numCombAddInModules;
+    numCombSub = numCombSubInModules;
+    numCombMux = numCombMuxInModules;
   }
 
 };

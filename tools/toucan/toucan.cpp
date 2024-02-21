@@ -101,7 +101,7 @@ static LogicalResult compileAndEmit(
         // Remove all mem write masks. Split memory if there is any mask
         pm.addPass(toucan::createRemoveMemMaskPass());
 
-        pm.addPass(toucan::createParallelCanonicalizerPass());
+        pm.addPass(toucan::createCanonicalizerPass());
     }
 
     if (inputLevel < Toucan4B) {
@@ -116,14 +116,14 @@ static LogicalResult compileAndEmit(
         // Convert hw array
         pm.addPass(toucan::createLowerCombPreProcessPass());
         // Lower HW to 4B
-        pm.addPass(toucan::createLowerCombTo4B_ReplicateOpPass());
+        pm.addPass(toucan::createLowerCombTo4B_ShortReplicateOpPass());
         pm.addPass(toucan::createLowerCombTo4B_1Pass());
         pm.addPass(toucan::createLowerCombTo4B_2Pass());
         pm.addPass(toucan::createLowerCombTo4B_3Pass());
 
-        pm.addPass(toucan::createParallelCanonicalizerPass());
+        pm.addPass(toucan::createCanonicalizerPass());
         // Canonicalizer may generates ReplicateOp. Revert back.
-        pm.addPass(toucan::createLowerCombTo4B_ReplicateOpPass());
+        pm.addPass(toucan::createLowerCombTo4B_ShortReplicateOpPass());
     }
 
     if (inputLevel < ToucanFlattened) {

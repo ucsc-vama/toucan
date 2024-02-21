@@ -37,9 +37,8 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/Format.h"
 
-#include <cstddef>
 #include <memory>
-#include <string>
+#include <atomic>
 
 
 #define GEN_PASS_DEF_LOWERCOMBTO4B_1
@@ -55,6 +54,12 @@ using namespace llvm;
 
 #define DEBUG_TYPE "LowerCombTo4B_1Pass"
 
+static std::atomic<uint64_t> numCombShlInModules;
+static std::atomic<uint64_t> numCombShrUInModules;
+static std::atomic<uint64_t> numCombShrSInModules;
+static std::atomic<uint64_t> numCombICmpInModules;
+static std::atomic<uint64_t> numCombMulInModules;
+static std::atomic<uint64_t> numCombParityInModules;
 
 class DynamicShiftOperations {
   public:
@@ -217,6 +222,7 @@ struct LowerCombShlOp: OpRewritePattern<comb::ShlOp>, DynamicShiftOperations {
       shlOp.emitError("shl: Shift amount is too large: " + std::to_string(shamtWidth));
       return failure();
     }
+    numCombShlInModules++;
 
     // shamtWidth = limitShamtWidth(inputValue, shamtValue, rewriter, shlOp.getOperation());
     assert(hw::getBitWidth(shamtValue.getType()) == shamtWidth);
@@ -252,6 +258,7 @@ struct LowerCombShrUOp: OpRewritePattern<comb::ShrUOp>, DynamicShiftOperations {
       shruOp.emitError("shru: Shift amount is too large: " + std::to_string(shamtWidth));
       return failure();
     }
+    numCombShrUInModules++;
 
     auto inputValueWithPadding = padding_with_0_and_align_4b(shruOp.getOperation(), rewriter, inputValue);
     auto inputValuesWithPadding_4b = split_value_4B(shruOp.getOperation(), inputValueWithPadding, rewriter);
@@ -290,6 +297,7 @@ struct LowerCombShrSOp: OpRewritePattern<comb::ShrSOp>, DynamicShiftOperations {
       shrsOp.emitError("shrs: Shift amount is too large: " + std::to_string(shamtWidth));
       return failure();
     }
+    numCombShrSInModules++;
 
     auto inputValueWidth = hw::getBitWidth(inputValue.getType());
     assert(inputValueWidth > 1);
@@ -511,9 +519,9 @@ struct LowerCombICmpOp: OpRewritePattern<comb::ICmpOp> {
   }
 
   LogicalResult matchAndRewrite(comb::ICmpOp op, PatternRewriter &rewriter) const final {
+    numCombICmpInModules++;
 
     auto predicate = op.getPredicate();
-
     auto implPredicate = getImplementablePredicate(predicate);
 
     Value result;
@@ -581,6 +589,7 @@ struct LowerCombMulOp: OpRewritePattern<comb::MulOp> {
       op->emitError() << "Multiplication too wide (max limit is " << maxMulWidth << ", got " << inputBitWidth << ")";
       return failure();
     }
+    numCombMulInModules++;
 
     auto lhsPadding = padding_with_0_and_align_4b(op.getOperation(), rewriter, lhsValue);
     auto rhsPadding = padding_with_0_and_align_4b(op.getOperation(), rewriter, rhsValue);
@@ -681,6 +690,8 @@ struct LowerCombParityOp: OpRewritePattern<comb::ParityOp> {
   using OpRewritePattern<comb::ParityOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(comb::ParityOp op, PatternRewriter &rewriter) const final {
+    numCombParityInModules++;
+
     auto inputValue = op.getInput();
     auto inputValueWidth = hw::getBitWidth(inputValue.getType());
 
@@ -762,6 +773,12 @@ struct LowerCombTo4B_1Pass : toucan::impl::LowerCombTo4B_1Base<LowerCombTo4B_1Pa
   std::shared_ptr<ConversionTarget> target;
 
   LogicalResult initialize(MLIRContext *context) override {
+    numCombShlInModules = 0;
+    numCombShrUInModules = 0;
+    numCombShrSInModules = 0;
+    numCombICmpInModules = 0;
+    numCombMulInModules = 0;
+    numCombParityInModules = 0;
 
     RewritePatternSet owningPatterns(context);
     ConversionTarget conversionTarget(*context);
@@ -828,8 +845,14 @@ struct LowerCombTo4B_1Pass : toucan::impl::LowerCombTo4B_1Base<LowerCombTo4B_1Pa
       return runOnModule(mod);
     });
     if (failed(result)) return signalPassFailure();
-  }
 
+    numCombShl = numCombShlInModules;
+    numCombShrU = numCombShrUInModules;
+    numCombShrS = numCombShrSInModules;
+    numCombICmp = numCombICmpInModules;
+    numCombMul = numCombMulInModules;
+    numCombParity = numCombParityInModules;
+  }
 };
 
 std::unique_ptr<mlir::Pass> toucan::createLowerCombTo4B_1Pass() {

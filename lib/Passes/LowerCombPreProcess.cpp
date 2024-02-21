@@ -34,11 +34,9 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/Format.h"
 
-#include <__chrono/duration.h>
 #include <algorithm>
 #include <memory>
-
-#include <chrono>
+#include <atomic>
 
 
 #define GEN_PASS_DEF_LOWERCOMBPREPROCESS
@@ -54,6 +52,13 @@ using namespace llvm;
 
 #define DEBUG_TYPE "LowerCombPreProcessPass"
 
+static std::atomic<uint64_t> numLongRepInModule;
+static std::atomic<uint64_t> numMultiOprandBinOpInModule;
+static std::atomic<uint64_t> num1bShrUInModule;
+static std::atomic<uint64_t> numConstArrayInModule;
+static std::atomic<uint64_t> numHWArrayInModule;
+static std::atomic<uint64_t> numSmallHWArrayInModule;
+
 struct LowerLongCombReplicateOp: OpRewritePattern<comb::ReplicateOp> {
   using OpRewritePattern<comb::ReplicateOp>::OpRewritePattern;
 
@@ -65,15 +70,14 @@ struct LowerLongCombReplicateOp: OpRewritePattern<comb::ReplicateOp> {
       // Do nothing if width is 1
       return failure();
     }
+    numLongRepInModule++;
 
     auto resultValue = op.getResult();
     auto resultValueWidth = hw::getBitWidth(resultValue.getType());
-
     assert(resultValueWidth % inputValueWidth == 0);
     assert(resultValueWidth > inputValueWidth);
 
     auto numOf4B = static_cast<size_t>(resultValueWidth / inputValueWidth);
-
 
     SmallVector<Value> values;
     for (size_t i = 0; i < numOf4B; i++) {
@@ -82,7 +86,6 @@ struct LowerLongCombReplicateOp: OpRewritePattern<comb::ReplicateOp> {
 
     auto newOp = rewriter.create<comb::ConcatOp>(op.getLoc(), values);
     rewriter.replaceOp(op, newOp);
-
 
     return success();
   }
@@ -94,6 +97,8 @@ struct LowerBinaryOpWithMultipleOperandBase {
   LogicalResult lowerOp(OpTy &op, PatternRewriter &rewriter) const {
     auto inputs = op.getInputs();
     if (inputs.size() > 2) {
+      numMultiOprandBinOpInModule++;
+
       auto head = inputs[0];
       for (size_t i = 1; i < inputs.size(); i++) {
         auto currentVal = inputs[i];
@@ -151,6 +156,7 @@ struct Replace1BShruWithMux: OpRewritePattern<comb::ShrUOp>, LowerBinaryOpWithMu
     auto resultWidth = hw::getBitWidth(resultValue.getType());
 
     if (resultWidth == 1) {
+      num1bShrUInModule++;
 
       auto en = op.getRhs();
       auto data = op.getLhs();
@@ -172,7 +178,7 @@ struct Replace1BShruWithMux: OpRewritePattern<comb::ShrUOp>, LowerBinaryOpWithMu
 
 
 
-struct LowerConstArray: OpRewritePattern<hw::AggregateConstantOp>, LowerBinaryOpWithMultipleOperandBase {
+struct LowerConstArrayTo4B: OpRewritePattern<hw::AggregateConstantOp> {
   using OpRewritePattern<hw::AggregateConstantOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(hw::AggregateConstantOp constArrayOp, PatternRewriter &rewriter) const final {
@@ -252,11 +258,13 @@ struct LowerConstArray: OpRewritePattern<hw::AggregateConstantOp>, LowerBinaryOp
         return userOp->emitError() << "Unknow op using const array: " << userOp->getName();
       }
     }
+
+    numConstArrayInModule++;
     return success();
   }
 };
 
-struct LowerHWArray: OpRewritePattern<hw::ArrayCreateOp>, LowerBinaryOpWithMultipleOperandBase {
+struct LowerHWArrayTo4B: OpRewritePattern<hw::ArrayCreateOp> {
   using OpRewritePattern<hw::ArrayCreateOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(hw::ArrayCreateOp arrayCreateOp, PatternRewriter &rewriter) const final {
@@ -279,6 +287,7 @@ struct LowerHWArray: OpRewritePattern<hw::ArrayCreateOp>, LowerBinaryOpWithMulti
 
     if (arrayInputs.size() <= 8) {
       useMux = true;
+      numSmallHWArrayInModule++;
     } else {
       for (const auto &arrayElem: arrayInputs) {
         // auto arrayElemWidth = hw::getBitWidth(arrayElem.getType());
@@ -334,6 +343,7 @@ struct LowerHWArray: OpRewritePattern<hw::ArrayCreateOp>, LowerBinaryOpWithMulti
       }
     }
 
+    numHWArrayInModule++;
     return success();
   }
 };
@@ -345,6 +355,12 @@ struct LowerCombPreProcessPass : toucan::impl::LowerCombPreProcessBase<LowerComb
 
   std::shared_ptr<FrozenRewritePatternSet> patterns;
   LogicalResult initialize(MLIRContext *context) override {
+    numLongRepInModule = 0;
+    numMultiOprandBinOpInModule = 0;
+    num1bShrUInModule = 0;
+    numConstArrayInModule = 0;
+    numHWArrayInModule = 0;
+    numSmallHWArrayInModule = 0;
 
     RewritePatternSet owningPatterns(context);
     
@@ -354,10 +370,8 @@ struct LowerCombPreProcessPass : toucan::impl::LowerCombPreProcessBase<LowerComb
     owningPatterns.add<LowerCombOrWithMultipleOperands>(context);
     owningPatterns.add<LowerCombXorWithMultipleOperands>(context);
     owningPatterns.add<Replace1BShruWithMux>(context);
-    owningPatterns.add<LowerHWArray>(context);
-    owningPatterns.add<LowerConstArray>(context);
-
-
+    owningPatterns.add<LowerHWArrayTo4B>(context);
+    owningPatterns.add<LowerConstArrayTo4B>(context);
 
     patterns = std::make_shared<FrozenRewritePatternSet>(std::move(owningPatterns));
 
@@ -393,8 +407,14 @@ struct LowerCombPreProcessPass : toucan::impl::LowerCombPreProcessBase<LowerComb
       return runOnModule(mod);
     });
     if (failed(result)) return signalPassFailure();
-  }
 
+    numLongRep = numLongRepInModule;
+    numMultiOprandBinaryOp = numMultiOprandBinOpInModule;
+    num1bShru = num1bShrUInModule;
+    numConstArray = numConstArrayInModule;
+    numHWArray = numHWArrayInModule;
+    numSmallHWArray = numSmallHWArrayInModule;
+  }
 };
 
 std::unique_ptr<mlir::Pass> toucan::createLowerCombPreProcessPass() {
