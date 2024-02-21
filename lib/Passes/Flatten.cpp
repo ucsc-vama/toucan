@@ -25,9 +25,12 @@
 #include "llvm/Support/GraphWriter.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/ADT/PostOrderIterator.h"
+#include <__chrono/duration.h>
 
 #define GEN_PASS_DEF_FLATTEN
 #include "toucan/ToucanPassCommon.h"
+
+#include <chrono>
 
 using namespace circt;
 using namespace mlir;
@@ -350,14 +353,20 @@ struct FlattenPass : toucan::impl::FlattenBase<FlattenPass> {
 
   void runOnOperation() final {
     auto modlist = getOperation();
-    hw::HWModuleOp topModule = nullptr;
 
+    modlist->walk([&](Operation *op) {
+        numEdgesBeforeFlatten += op->getNumOperands();
+        numOpsBeforeFlatten += 1;
+    });
+
+    hw::HWModuleOp topModule = nullptr;
     SmallVector<hw::HWModuleExternOp> externModules;
+    SmallVector<hw::HWModuleOp> nodesToDelete;
+
     modlist->walk([&](hw::HWModuleExternOp op) {
       externModules.push_back(op);
     });
 
-    SmallVector<hw::HWModuleOp> nodesToDelete;
     modlist->walk([&](hw::HWModuleOp op) {
       if(op.isPrivate()) {
         nodesToDelete.push_back(op);
@@ -390,12 +399,9 @@ struct FlattenPass : toucan::impl::FlattenBase<FlattenPass> {
 
     if (failed(flattenTopModule(topModule))) return signalPassFailure();
 
-
-
     modlist->walk([&](Operation *op) {
-        numEdges += op->getNumOperands();
-        numOps += 1;
-      
+        numEdgesAfterFlatten += op->getNumOperands();
+        numOpsAfterFlatten += 1;
     });
   }
 };

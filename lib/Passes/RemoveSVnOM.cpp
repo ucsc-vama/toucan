@@ -22,6 +22,7 @@
 #include "llvm/Support/Mutex.h"
 
 #include <memory>
+#include <atomic>
 
 
 
@@ -37,6 +38,8 @@ using namespace llvm;
 
 #define DEBUG_TYPE "RemoveSVnOMPass"
 
+static std::atomic<uint64_t> removedOpsInModules;
+
 struct RemoveSVnOMPass : toucan::impl::RemoveSVnOMBase<RemoveSVnOMPass> {
   using RemoveSVnOMBase<RemoveSVnOMPass>::RemoveSVnOMBase;
 
@@ -47,15 +50,12 @@ struct RemoveSVnOMPass : toucan::impl::RemoveSVnOMBase<RemoveSVnOMPass> {
 
   static void removeOps(SmallVector<Operation*> &toRemove) {
     for(auto op: llvm::reverse(toRemove)) {
-      // will print if -debug, or -debug-only RemoveSVnOMPass
-      LLVM_DEBUG(llvm::dbgs() << "Removing OM Op\n");
-      LLVM_DEBUG(llvm::dbgs() << op->getName());
       op->erase();
     }
   }
 
 
-  static LogicalResult runOnModule(hw::HWModuleOp mod) {
+  LogicalResult runOnModule(hw::HWModuleOp mod) {
     SmallVector<Operation*> toRemove;
 
     for(auto & inner: mod.getOps()) {
@@ -64,6 +64,7 @@ struct RemoveSVnOMPass : toucan::impl::RemoveSVnOMBase<RemoveSVnOMPass> {
       }
     }
     removeOps(toRemove);
+    removedOpsInModules += toRemove.size();
 
     return success();
   }
@@ -84,6 +85,8 @@ struct RemoveSVnOMPass : toucan::impl::RemoveSVnOMBase<RemoveSVnOMPass> {
     }
 
     removeOps(toRemove);
+    removedOps = toRemove.size();
+
 
     LLVM_DEBUG(llvm::dbgs() << "Found " << modulesToProcess.size() << " modules.\n");
     // for_each(modulesToProcess, [=](auto submod) {
@@ -96,6 +99,8 @@ struct RemoveSVnOMPass : toucan::impl::RemoveSVnOMBase<RemoveSVnOMPass> {
     });
     if (failed(result))
         return signalPassFailure();
+    
+    removedOps += removedOpsInModules;
   }
 };
 

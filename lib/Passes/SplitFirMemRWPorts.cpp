@@ -26,7 +26,7 @@
 #include "llvm/Support/Mutex.h"
 
 #include <memory>
-
+#include <atomic>
 
 
 #define GEN_PASS_DEF_SPLITFIRMEMRWPORTS
@@ -41,9 +41,8 @@ using namespace llvm;
 
 #define DEBUG_TYPE "SplitFirMemRWPortsPass"
 
-// Note: I couldn't find a easy way to parallelize pattern match. For now simply use parallel pass instead (1 task per module)
+std::atomic<uint64_t> splittedRWPortsInModules;
 
-/*
 struct FirMemRWPortRewrite: OpRewritePattern<seq::FirMemReadWriteOp> {
   using OpRewritePattern<seq::FirMemReadWriteOp>::OpRewritePattern;
 
@@ -60,8 +59,8 @@ struct FirMemRWPortRewrite: OpRewritePattern<seq::FirMemReadWriteOp> {
     auto opWriteData = op.getWriteData();
     auto opWriteMask = op.getMask();
 
-    // read
-    auto opReadData = op.getReadData();
+    // // read
+    // auto opReadData = op.getReadData();
 
     // read_en
     auto constTrue = rewriter.create<hw::ConstantOp>(op.getLoc(), APInt(1, 1));
@@ -71,66 +70,40 @@ struct FirMemRWPortRewrite: OpRewritePattern<seq::FirMemReadWriteOp> {
     auto readOp = rewriter.create<seq::FirMemReadOp>(op->getLoc(), opMem, opAddr, clock, readEnOp);
     // write op
     auto writeEnOp = rewriter.create<comb::AndOp>(op->getLoc(), opMode, opEn);
-    auto writeOp = rewriter.create<seq::FirMemWriteOp>(op.getLoc(), opMem, opAddr, clock, writeEnOp, opWriteData, opWriteMask);
+    rewriter.create<seq::FirMemWriteOp>(op.getLoc(), opMem, opAddr, clock, writeEnOp, opWriteData, opWriteMask);
 
-    rewriter.replaceAllUsesWith(op, readOp);
-    rewriter.eraseOp(op);
+    rewriter.replaceOp(op, readOp);
+
+    splittedRWPortsInModules++;
 
     return success();
-
   }
 };
-*/
+
 
 
 
 struct SplitFirMemRWPortsPass : toucan::impl::SplitFirMemRWPortsBase<SplitFirMemRWPortsPass> {
   using SplitFirMemRWPortsBase<SplitFirMemRWPortsPass>::SplitFirMemRWPortsBase;
 
+  std::shared_ptr<FrozenRewritePatternSet> patterns;
+
+  LogicalResult initialize(MLIRContext *context) override {
+    splittedRWPortsInModules = 0;
+
+    RewritePatternSet owningPatterns(context);
+    owningPatterns.add<FirMemRWPortRewrite>(context);
+    patterns = std::make_shared<FrozenRewritePatternSet>(std::move(owningPatterns));
+    return success();
+  }
+
+
   LogicalResult runOnModule(hw::HWModuleOp mod) {
     SmallVector<Operation*> toRemove;
 
-    for (auto &stmt: mod.getOps()) {
-      if (auto op = dyn_cast<seq::FirMemReadWriteOp>(stmt)) {
-        // Common info
-        auto opMem = op.getMemory();
-        auto opAddr = op.getAddress();
-        auto opEn = op.getEnable();
-        // mode == 1 => write, mode == 0 => read
-        auto opMode = op.getMode();
-        auto clock = op.getClk();
-
-        // write
-        auto opWriteData = op.getWriteData();
-        auto opWriteMask = op.getMask();
-
-        // read
-        // auto opReadData = op.getReadData();
-
-        OpBuilder builder(op);
-        IRRewriter rewriter(builder);
-
-        // read_en
-        auto constTrue = rewriter.create<hw::ConstantOp>(op.getLoc(), APInt(1, 1));
-        auto isModeReadOp = rewriter.create<comb::XorOp>(op.getLoc(), opMode, constTrue);
-        auto readEnOp = rewriter.create<comb::AndOp>(op->getLoc(), isModeReadOp, opEn);
-        // read op
-        auto readOp = rewriter.create<seq::FirMemReadOp>(op->getLoc(), opMem, opAddr, clock, readEnOp);
-        // write op
-        auto writeEnOp = rewriter.create<comb::AndOp>(op->getLoc(), opMode, opEn);
-        rewriter.create<seq::FirMemWriteOp>(op.getLoc(), opMem, opAddr, clock, writeEnOp, opWriteData, opWriteMask);
-
-        rewriter.replaceAllUsesWith(op, readOp);
-        toRemove.push_back(op);
-      }
-    }
-
-    for (auto op: toRemove) {
-      op->erase();
-    }
-
-    return success();
+    return applyPatternsAndFoldGreedily(mod, *patterns);
   }
+
 
   void runOnOperation() final {
     auto mod = getOperation();
@@ -148,17 +121,11 @@ struct SplitFirMemRWPortsPass : toucan::impl::SplitFirMemRWPortsBase<SplitFirMem
       return runOnModule(mod);
     });
     if (failed(result)) return signalPassFailure();
+
+    splittedRWPorts = splittedRWPortsInModules;
   }
 
 
-  // void runOnOperation() final {
-  //   RewritePatternSet patterns(&getContext());
-  //   patterns.add<FirMemRWPortRewrite>(&getContext());
-
-  //   if(failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
-  //       return signalPassFailure();
-
-  // }
 };
 
 std::unique_ptr<mlir::Pass> toucan::createSplitFirMemRWPortsPass() {

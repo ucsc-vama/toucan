@@ -29,11 +29,13 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/Format.h"
 
+#include <_types/_uint64_t.h>
 #include <memory>
+#include <atomic>
 
 
 
-#define GEN_PASS_DEF_FACTORSV
+#define GEN_PASS_DEF_EXPANDSVMACRO
 #include "toucan/ToucanPassCommon.h"
 
 #include "toucan/ToucanUtils.h"
@@ -43,7 +45,7 @@ using namespace circt;
 using namespace mlir;
 using namespace llvm;
 
-#define DEBUG_TYPE "FactorSVPass"
+#define DEBUG_TYPE "ExpandSVMacroPass"
 
 struct SVMacroContext {
   StringMap<StringRef> macroTable;
@@ -62,27 +64,19 @@ static StringRef getEmptyStringRef() {
 }
 
 
+std::atomic<uint64_t> removedOpsInModules;
+std::atomic<uint64_t> printOpsInModules;
+std::atomic<uint64_t> stopOpsInModules;
 
-
-struct FactorSV : toucan::impl::FactorSVBase<FactorSV> {
-  using FactorSVBase<FactorSV>::FactorSVBase;
+struct ExpandSVMacro : toucan::impl::ExpandSVMacroBase<ExpandSVMacro> {
+  using ExpandSVMacroBase<ExpandSVMacro>::ExpandSVMacroBase;
 
   SVMacroContext globalMC;
 
 
-
-
   static void removeOps(SmallVector<Operation*> &toRemove) {
-    if (!toRemove.empty()) {
-      LLVM_DEBUG(
-        char buffer[128];
-        format("Removing %d SV Ops\n", toRemove.size()).snprint(buffer, 128);
-        llvm::dbgs() << buffer
-        );
-
-      for(auto op: llvm::reverse(toRemove)) {
-        op->erase();
-      }
+    for(auto op: llvm::reverse(toRemove)) {
+      op->erase();
     }
   }
 
@@ -205,11 +199,13 @@ struct FactorSV : toucan::impl::FactorSVBase<FactorSV> {
                                                               enSignal, printOpMsg);
       // builder.insert(printOp);
       ifOp->replaceAllUsesWith(printOp);
+      printOpsInModules ++;
     } else if (auto fatalOp = dyn_cast<sv::FatalOp>(stmt)) {
       // ignore message and verbosity
       auto stopOp = builder.create<toucan::StopOp>(ifOp->getLoc(), enSignal);
       
       ifOp->replaceAllUsesWith(stopOp);
+      stopOpsInModules ++;
     } else {
       stmt->emitError() << "Unsupported Op";
       return failure();
@@ -284,6 +280,7 @@ struct FactorSV : toucan::impl::FactorSVBase<FactorSV> {
       }
     }
     removeOps(mc.toRemove);
+    removedOpsInModules += mc.toRemove.size();
 
     return success();
   }
@@ -292,6 +289,10 @@ struct FactorSV : toucan::impl::FactorSVBase<FactorSV> {
     auto mod = getOperation();
 
     SmallVector<hw::HWModuleOp> modulesToProcess;
+
+    removedOpsInModules = 0;
+    printOpsInModules = 0;
+    stopOpsInModules = 0;
 
     for(auto & inner: mod.getOps()) {
       if(auto mod = dyn_cast<hw::HWModuleOp>(&inner)) {
@@ -320,9 +321,14 @@ struct FactorSV : toucan::impl::FactorSVBase<FactorSV> {
     }
 
     removeOps(globalMC.toRemove);
+    removedOpsInModules += globalMC.toRemove.size();
+
+    removedOps = removedOpsInModules;
+    printOps = printOpsInModules;
+    stopOps = stopOpsInModules;
   }
 };
 
-std::unique_ptr<mlir::Pass> toucan::createFactorSVPass() {
-  return std::make_unique<FactorSV>();
+std::unique_ptr<mlir::Pass> toucan::createExpandSVMacroPass() {
+  return std::make_unique<ExpandSVMacro>();
 }

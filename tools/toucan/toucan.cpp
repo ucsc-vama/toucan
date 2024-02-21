@@ -87,7 +87,7 @@ static LogicalResult compileAndEmit(
         // Lower to ToucanHigh
         
         // Expand SV macros, generates Print and Stop
-        pm.addPass(toucan::createFactorSVPass());
+        pm.addPass(toucan::createExpandSVMacroPass());
         // Remove unsupported Ops (other SV Ops, OM Ops)
         pm.addPass(toucan::createRemoveSVnOMPass());
         // SplitRWPort
@@ -102,22 +102,19 @@ static LogicalResult compileAndEmit(
         pm.addPass(toucan::createRemoveMemMaskPass());
 
         pm.addPass(toucan::createParallelCanonicalizerPass());
-        // Factor array_get. This is introduced by the Canonicalizer
-        pm.addPass(toucan::createFactorArrayGetPass());
     }
 
     if (inputLevel < Toucan4B) {
         // Lower to Toucan4B
-
+        pm.addPass(toucan::createFactorArrayGetMuxPass());
         // Lower registers and memory to 4b
         pm.addPass(toucan::createLowerRegMemTo4BPass());
-
         // Remove clock and AsClock. 
         pm.addPass(toucan::createEnsureNoClockOpPass());
+
         // Fold binary ops with more than 2 operands
         // Convert hw array
         pm.addPass(toucan::createLowerCombPreProcessPass());
-
         // Lower HW to 4B
         pm.addPass(toucan::createLowerCombTo4B_ReplicateOpPass());
         pm.addPass(toucan::createLowerCombTo4B_1Pass());

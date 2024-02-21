@@ -8,24 +8,38 @@ def RemoveSVnOM: Pass<"toucan-remove-sv-om", "circt::ModuleOp"> {
   let summary = "Remove SV and OM dialect ops";
   let description = summary;
   let constructor = "toucan::createRemoveSVnOMPass()";
+  let statistics = [
+    Statistic<"removedOps", "RemovedOps", "Operations removed">
+  ];
 }
 
-def FactorSV: Pass<"toucan-factor-sv", "circt::ModuleOp"> {
-  let summary = "Factor SystemVerilog Ops.";
+def ExpandSVMacro: Pass<"expand-sv-macro", "circt::ModuleOp"> {
+  let summary = "Expand SV macro defs.";
   let description = "Expand SystemVerilog macros; Replace sv.fwrite and sv.fatal with toucan.print and toucan.stop. Note this pass only supports partial of SV dialect that generates by FIRRTL frontend";
-  let constructor = "toucan::createFactorSVPass()";
+  let constructor = "toucan::createExpandSVMacroPass()";
+  let statistics = [
+    Statistic<"removedOps", "RemovedOps", "Operations removed">,
+    Statistic<"printOps", "PrintOps", "SV.FWriteOp encountered (translated to toucan.print)">,
+    Statistic<"stopOps", "StopOps", "SV.FatalOp encountered (translated to toucan.stop)">
+  ];
 }
 
-def FactorArrayGet: Pass<"factor-array-get", "circt::ModuleOp"> {
+def FactorArrayGetMux: Pass<"factor-array-get-mux", "circt::ModuleOp"> {
   let summary = "Remove Mux before array_get";
   let description = summary;
-  let constructor = "toucan::createFactorArrayGetPass()";
+  let constructor = "toucan::createFactorArrayGetMuxPass()";
+  let statistics = [
+    Statistic<"arrayMuxLowered", "ArrayMuxLowered", "Number of muxes that take hw.array as inputs. They are removed at the cost of extra ArrayGetOp">
+  ];
 }
 
 def SplitFirMemRWPorts: Pass<"split-firmem-rw-ports", "circt::ModuleOp"> {
   let summary = "Split FirMem ReadWritePort into ReadPort and WritePort";
   let description = summary;
   let constructor = "toucan::createSplitFirMemRWPortsPass()";
+  let statistics = [
+    Statistic<"splittedRWPorts", "SplittedRWPorts", "Number of seq::FirMemReadWriteOp splitted.">
+  ];
 }
 
 def ExpandMemoryDelay: Pass<"expand-memory-delay", "circt::ModuleOp"> {
@@ -109,8 +123,10 @@ def Flatten: Pass<"flatten", "circt::ModuleOp"> {
   let description = summary;
   let constructor = "toucan::createFlattenPass()";
   let statistics = [
-    Statistic<"numEdges", "num-edges", "number of edges after flatten">,
-    Statistic<"numOps", "num-ops", "number of ops after flatten">
+    Statistic<"numEdgesBeforeFlatten", "num-edges-before-flatten", "number of edges before flatten">,
+    Statistic<"numOpsBeforeFlatten", "num-ops-before-flatten", "number of ops before flatten">,
+    Statistic<"numEdgesAfterFlatten", "num-edges-after-flatten", "number of edges after flatten">,
+    Statistic<"numOpsAfterFlatten", "num-ops-after-flatten", "number of ops after flatten">
   ];
 }
 

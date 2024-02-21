@@ -69,11 +69,16 @@ struct RemoveMemMaskPass : toucan::impl::RemoveMemMaskBase<RemoveMemMaskPass> {
         assert(memOp.getWriteLatency() == 1);
 
         if (memOp.getWuw() != seq::WUW::Undefined) {
-          memOp->emitWarning() << "Memory " << memName << " has a Write-Under-Write behavior of [" << seq::stringifyWUW(memOp.getWuw()) << "], which is not guaranteed. This may lead to incorrect result in simulation.";
+          auto numWriters = count_if(memOp.getMemory().getUsers(), [](Operation *op) {
+            return isa<seq::FirMemReadOp>(op) || isa<seq::FirMemReadWriteOp>(op);
+          });
+          if (numWriters > 1) {
+            memOp->emitWarning() << "Memory %" << memName << " has a Write-Under-Write behavior of [" << seq::stringifyWUW(memOp.getWuw()) << "], which is not guaranteed. This may lead to incorrect result in simulation. (Memory has " << numWriters << " writers)";
+          }
         }
 
         if (memOp.getRuw() != seq::RUW::Undefined) {
-          memOp->emitWarning() << "Memory " << memName << " has a Read-Under-Write behavior of [" << seq::stringifyRUW(memOp.getRuw()) << "], which is not guaranteed. This may lead to incorrect result in simulation.";
+          memOp->emitWarning() << "Memory %" << memName << " has a Read-Under-Write behavior of [" << seq::stringifyRUW(memOp.getRuw()) << "], which is not guaranteed. This may lead to incorrect result in simulation.";
         }
 
         if (auto maskWidth = firMemDataType.getMaskWidth()) {

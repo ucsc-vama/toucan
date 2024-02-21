@@ -40,9 +40,10 @@
 
 #include <memory>
 #include <string>
+#include <atomic>
 
 
-#define GEN_PASS_DEF_FACTORARRAYGET
+#define GEN_PASS_DEF_FACTORARRAYGETMUX
 #include "toucan/ToucanPassCommon.h"
 
 #include "toucan/ToucanOps.h"
@@ -53,8 +54,9 @@ using namespace circt;
 using namespace mlir;
 using namespace llvm;
 
-#define DEBUG_TYPE "FactorArrayGetPass"
+#define DEBUG_TYPE "FactorArrayGetMuxPass"
 
+std::atomic<uint64_t> arrayMuxLoweredInModules;
 
 struct LowerArrayGetWithMux: OpRewritePattern<hw::ArrayGetOp> {
   using OpRewritePattern<hw::ArrayGetOp>::OpRewritePattern;
@@ -97,6 +99,7 @@ struct LowerArrayGetWithMux: OpRewritePattern<hw::ArrayGetOp> {
       auto resultMuxOp = rewriter.create<comb::MuxOp>(op.getLoc(), muxCond, arrayGetVal_tVal, arrayGetVal_fVal);
 
       rewriter.replaceOp(op, resultMuxOp);
+      arrayMuxLoweredInModules++;
       return success();
     } else {
       op.emitError() << "Unknown operation with hw.array as output type: " << op->getName();
@@ -110,19 +113,15 @@ struct LowerArrayGetWithMux: OpRewritePattern<hw::ArrayGetOp> {
 
 
 
-struct FactorArrayGetPass : toucan::impl::FactorArrayGetBase<FactorArrayGetPass> {
-  using FactorArrayGetBase<FactorArrayGetPass>::FactorArrayGetBase;
+struct FactorArrayGetMuxPass : toucan::impl::FactorArrayGetMuxBase<FactorArrayGetMuxPass> {
+  using FactorArrayGetMuxBase<FactorArrayGetMuxPass>::FactorArrayGetMuxBase;
 
   std::shared_ptr<FrozenRewritePatternSet> patterns;
 
   LogicalResult initialize(MLIRContext *context) override {
-
     RewritePatternSet owningPatterns(context);
-    
     owningPatterns.add<LowerArrayGetWithMux>(context);
-
     patterns = std::make_shared<FrozenRewritePatternSet>(std::move(owningPatterns));
-
     return success();
   }
 
@@ -136,6 +135,8 @@ struct FactorArrayGetPass : toucan::impl::FactorArrayGetBase<FactorArrayGetPass>
   void runOnOperation() final {
     auto mod = getOperation();
 
+    arrayMuxLoweredInModules = 0;
+
     SmallVector<hw::HWModuleOp> modulesToProcess;
     for(auto & inner: mod.getOps()) {
       if(auto mod = dyn_cast<hw::HWModuleOp>(&inner)) {
@@ -148,10 +149,12 @@ struct FactorArrayGetPass : toucan::impl::FactorArrayGetBase<FactorArrayGetPass>
       return runOnModule(mod);
     });
     if (failed(result)) return signalPassFailure();
+
+    arrayMuxLowered = arrayMuxLoweredInModules;
   }
 
 };
 
-std::unique_ptr<mlir::Pass> toucan::createFactorArrayGetPass() {
-  return std::make_unique<FactorArrayGetPass>();
+std::unique_ptr<mlir::Pass> toucan::createFactorArrayGetMuxPass() {
+  return std::make_unique<FactorArrayGetMuxPass>();
 }
