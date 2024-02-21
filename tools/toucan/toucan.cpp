@@ -132,10 +132,10 @@ static LogicalResult compileAndEmit(
     if (inputLevel < ToucanFlattened) {
         // Lower to flattened
         pm.addPass(toucan::createFlattenPass());
-        // Dead ops may appear after flatten. This DCE pass should also remove all Seq.Clock
-        pm.addPass(toucan::createFlatDCEPass());
-
         pm.addPass(toucan::createFactorConcatExtractPass());
+        // Dead ops are normally removed by previous pass
+        // pm.addPass(toucan::createFlatDCEPass());
+
     }
 
 
