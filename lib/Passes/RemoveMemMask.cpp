@@ -28,7 +28,6 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
 
-#include <_types/_uint64_t.h>
 #include <memory>
 #include <string>
 #include <atomic>
