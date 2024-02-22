@@ -29,7 +29,6 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/Format.h"
 
-#include <_types/_uint64_t.h>
 #include <memory>
 #include <atomic>
 

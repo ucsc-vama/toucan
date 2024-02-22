@@ -5,6 +5,8 @@
 #include "circt/Dialect/HW/HWTypes.h"
 #include "circt/Dialect/Seq/SeqOps.h"
 #include "circt/Dialect/Seq/SeqTypes.h"
+#include "circt/Support/InstanceGraph.h"
+#include "circt/Support/LLVM.h"
 #include "circt/Support/Namespace.h"
 
 #include "mlir/IR/Builders.h"
@@ -14,6 +16,7 @@
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/Threading.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 #include "toucan/ToucanOps.h"
