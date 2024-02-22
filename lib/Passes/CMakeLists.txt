@@ -21,6 +21,7 @@ add_circt_dialect_library(
   Flatten.cpp
   FactorConcatExtract.cpp
   FlatDCE.cpp
+  EnsureToucanOnly.cpp
 
   DEPENDS
   ToucanPassesIncGen
@@ -29,6 +30,7 @@ add_circt_dialect_library(
 
   Toucan
   ToucanUtils
+  ToucanAnalysis
 
   CIRCTFIRRTL
   CIRCTHW

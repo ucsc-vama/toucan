@@ -133,6 +133,8 @@ static LogicalResult compileAndEmit(
         // Dead ops are normally removed by previous pass
         // pm.addPass(toucan::createFlatDCEPass());
 
+        pm.addPass(toucan::createEnsureToucanOnlyPass());
+
     }
 
 

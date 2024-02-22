@@ -36,6 +36,7 @@ std::unique_ptr<mlir::Pass> createFlattenPass();
 std::unique_ptr<mlir::Pass> createRemoveSeqPass();
 std::unique_ptr<mlir::Pass> createFactorConcatExtractPass();
 std::unique_ptr<mlir::Pass> createFlatDCEPass();
+std::unique_ptr<mlir::Pass> createEnsureToucanOnlyPass();
 
 #define GEN_PASS_REGISTRATION
 #include "toucan/ToucanPasses.h.inc"

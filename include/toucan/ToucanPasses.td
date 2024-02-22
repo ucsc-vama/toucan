@@ -200,4 +200,10 @@ def FlatDCE: Pass<"flat-dce", "circt::ModuleOp"> {
   ];
 }
 
+def EnsureToucanOnly: Pass<"ensure-toucan-only", "circt::ModuleOp"> {
+  let summary = "Ensure output only contains toucan dialect, and all values are within 4B";
+  let description = summary;
+  let constructor = "toucan::createEnsureToucanOnlyPass()";
+}
+
 #endif
