@@ -619,8 +619,9 @@ struct FactorConcatExtractPass : toucan::impl::FactorConcatExtractBase<FactorCon
   void runOnOperation() final {
     auto mod = getOperation();
     auto ret = applyPatternsAndFoldGreedily(mod, *patterns);
-    if (succeeded(ret))
+    if (succeeded(ret)) {
       ;
+    }
   }
 };
 
