@@ -28,7 +28,6 @@
 #include "llvm/Support/GraphWriter.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/ADT/PostOrderIterator.h"
-#include <__chrono/duration.h>
 
 #define GEN_PASS_DEF_FLATTEN
 #include "toucan/ToucanPassCommon.h"

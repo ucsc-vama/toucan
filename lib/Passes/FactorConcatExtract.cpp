@@ -115,7 +115,7 @@ struct BitsOperations {
   static Value bitsShlByNAndFill(RewriterBase &rewriter, Location loc, Value val, Value constZero4B, size_t shamt) {
     if (shamt == 0) return val;
     auto inputValWidth = hw::getBitWidth(val.getType());
-    auto expectedWidth = std::min(4ULL, inputValWidth + shamt);
+    auto expectedWidth = std::min(static_cast<uint64_t>(4), static_cast<uint64_t>(inputValWidth + shamt));
     auto resultType = rewriter.getIntegerType(expectedWidth);
 
     auto shlOp = rewriter.create<LUTOp>(loc, resultType, getShlNameUsingShamt(shamt), ValueRange({val, constZero4B}));
@@ -128,7 +128,7 @@ struct BitsOperations {
     auto lhsValWidth = static_cast<size_t>(hw::getBitWidth(lhs.getType()));
     auto rhsValWidth = static_cast<size_t>(hw::getBitWidth(rhs.getType()));
     assert(rhsValWidth > shamt);
-    auto expectedWidth = std::min(4ul, lhsValWidth + rhsValWidth - shamt);
+    auto expectedWidth = std::min(static_cast<uint64_t>(4), static_cast<uint64_t>(lhsValWidth + rhsValWidth - shamt));
     // Here we know it's filled by 0s, so manually limit output width.
     auto resultType = rewriter.getIntegerType(expectedWidth);
 
