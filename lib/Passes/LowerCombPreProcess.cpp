@@ -383,8 +383,9 @@ struct LowerCombPreProcessPass : toucan::impl::LowerCombPreProcessBase<LowerComb
   LogicalResult runOnModule(hw::HWModuleOp mod) {
     auto ret = applyPatternsAndFoldGreedily(mod, *patterns);
     // This pass won't convert all matched operations. It's fine to fail
-    if (failed(ret))
+    if (failed(ret)) {
       ;
+    }
     return success();
   }
 
