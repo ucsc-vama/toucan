@@ -39,35 +39,36 @@ IsLegalToucan4B::IsLegalToucan4B(Operation *op) {
   isToucanOnly = true;
   is4BOnly = true;
 
-  if (auto modOp = dyn_cast<ModuleOp>(op)) {
-    auto ops = modOp.getOps();
-    auto numOps = std::distance(ops.begin(), ops.end());
-    auto chunkCnt = (numOps + chunkSize - 1) / chunkSize;
-    
-    auto ret = failableParallelForEachN(op->getContext(), 0, chunkCnt, [&](size_t chunkId){
-      auto startIter = std::next(ops.begin(), chunkId * chunkSize);
-      size_t visitCnt = 0;
-      for (auto it = startIter; it != ops.end() && visitCnt <= chunkSize; it++, visitCnt++) {
-        auto opDialect = it->getDialect();
-        if (!isa<toucan::ToucanDialect>(opDialect)) {
-          it->emitError() << "Is not toucan dialect! (got " << it->getName() << ")";
-          isToucanOnly = false;
+  auto modOp = cast<ModuleOp>(op);
+
+  auto ops = modOp.getOps();
+  auto numOps = std::distance(ops.begin(), ops.end());
+  auto chunkCnt = (numOps + chunkSize - 1) / chunkSize;
+  
+  auto ret = failableParallelForEachN(op->getContext(), 0, chunkCnt, [&](size_t chunkId){
+    auto startIter = std::next(ops.begin(), chunkId * chunkSize);
+    size_t visitCnt = 0;
+    for (auto it = startIter; it != ops.end() && visitCnt <= chunkSize; it++, visitCnt++) {
+      auto opDialect = it->getDialect();
+      if (!isa<toucan::ToucanDialect>(opDialect)) {
+        it->emitError() << "Is not toucan dialect! (got " << it->getName() << ")";
+        isToucanOnly = false;
+        return failure();
+      }
+      for (auto result: it->getResults()) {
+        auto resultBits = hw::getBitWidth(result.getType());
+        if (resultBits > 4) {
+          it->emitError() <<"Result wider than 4b! (got " << resultBits << "\n";
+          is4BOnly = false;
           return failure();
         }
-        for (auto result: it->getResults()) {
-          auto resultBits = hw::getBitWidth(result.getType());
-          if (resultBits > 4) {
-            it->emitError() <<"Result wider than 4b! (got " << resultBits << "\n";
-            is4BOnly = false;
-            return failure();
-          }
-        }
       }
-      return success();
-    });
+    }
+    return success();
+  });
 
-    isLegalToucan4B = succeeded(ret);
-  }
+  isLegalToucan4B = succeeded(ret);
+
 }
 
 
