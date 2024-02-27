@@ -22,6 +22,7 @@ add_circt_dialect_library(
   FactorConcatExtract.cpp
   FlatDCE.cpp
   EnsureToucanOnly.cpp
+  CPUSingleThreadCodeGen.cpp
 
   DEPENDS
   ToucanPassesIncGen

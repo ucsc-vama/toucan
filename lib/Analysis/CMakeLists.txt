@@ -3,6 +3,9 @@ add_circt_dialect_library(
   ToucanAnalysis
 
   IsLegalToucan4B.cpp
+  DesignGraph.cpp
+  NaivePartitioner.cpp
+  RepCutPartitioner.cpp
 
 
   DEPENDS

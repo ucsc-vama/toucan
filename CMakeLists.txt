@@ -16,6 +16,9 @@ list(APPEND CMAKE_PREFIX_PATH "./install/")
 find_package(MLIR REQUIRED CONFIG)
 find_package(CIRCT REQUIRED CONFIG)
 
+find_package( Boost REQUIRED COMPONENTS graph )
+include_directories( ${Boost_INCLUDE_DIRS} )
+
 
 set(LLVM_RUNTIME_OUTPUT_INTDIR ${CMAKE_BINARY_DIR}/bin)
 set(LLVM_LIBRARY_OUTPUT_INTDIR ${CMAKE_BINARY_DIR}/lib)

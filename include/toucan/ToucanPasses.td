@@ -206,4 +206,15 @@ def EnsureToucanOnly: Pass<"ensure-toucan-only", "circt::ModuleOp"> {
   let constructor = "toucan::createEnsureToucanOnlyPass()";
 }
 
+def CPUSingleThreadCodeGen: Pass<"cpu-singhe-thread-codegen", "circt::ModuleOp"> {
+  let summary = "Code generation, CPU, single thread";
+  let description = summary;
+  let constructor = "toucan::createCPUSingleThreadCodeGenPass(toucan::CPUSingleThreadCodeGenOptions())";
+  let options = [
+    Option<"outputDirectory", "outputDirectory", "std::string", "", "Directory for output">,
+    Option<"outputFilename", "outputFilename", "std::string", "", "output header file name">,
+    Option<"temporaryDirectory", "temporaryDirectory", "std::string", "", "Directory for temp files">,
+  ];
+}
+
 #endif

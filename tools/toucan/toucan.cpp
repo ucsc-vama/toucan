@@ -137,6 +137,13 @@ static LogicalResult compileAndEmit(
 
     }
 
+    auto cpuCodeGenOptions = toucan::CPUSingleThreadCodeGenOptions();
+    cpuCodeGenOptions.outputDirectory = outputDir.string();
+    cpuCodeGenOptions.outputFilename = "CPUCode.h";
+    cpuCodeGenOptions.temporaryDirectory = outputDir.string();
+
+    pm.addPass(toucan::createCPUSingleThreadCodeGenPass(cpuCodeGenOptions));
+
 
     if(failed(pm.run(mod.get()))) {
         llvm::outs() << "Passes failed!!!!\n";
