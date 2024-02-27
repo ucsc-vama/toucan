@@ -132,6 +132,8 @@ static LogicalResult compileAndEmit(
         pm.addPass(toucan::createFactorConcatExtractPass());
         // Dead ops are normally removed by previous pass
         // pm.addPass(toucan::createFlatDCEPass());
+        // Merge const may not worth compilation overhead
+        // pm.addPass(toucan::createMergeConstPass());
 
         pm.addPass(toucan::createEnsureToucanOnlyPass());
 

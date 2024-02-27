@@ -37,6 +37,7 @@ std::unique_ptr<mlir::Pass> createRemoveSeqPass();
 std::unique_ptr<mlir::Pass> createFactorConcatExtractPass();
 std::unique_ptr<mlir::Pass> createFlatDCEPass();
 std::unique_ptr<mlir::Pass> createEnsureToucanOnlyPass();
+std::unique_ptr<mlir::Pass> createMergeConstPass();
 
 std::unique_ptr<mlir::Pass> createCPUSingleThreadCodeGenPass(CPUSingleThreadCodeGenOptions options);
 

@@ -206,6 +206,17 @@ def EnsureToucanOnly: Pass<"ensure-toucan-only", "circt::ModuleOp"> {
   let constructor = "toucan::createEnsureToucanOnlyPass()";
 }
 
+def MergeConst: Pass<"merge-const", "circt::ModuleOp"> {
+  let summary = "Merge identical constant value and constant vector";
+  let description = summary;
+  let constructor = "toucan::createMergeConstPass()";
+
+  let statistics = [
+    Statistic<"mergedConsts", "MergedConsts", "Merged constants">,
+    Statistic<"mergedVecs", "MergedVecs", "Merged constant vectors">
+  ];
+}
+
 def CPUSingleThreadCodeGen: Pass<"cpu-singhe-thread-codegen", "circt::ModuleOp"> {
   let summary = "Code generation, CPU, single thread";
   let description = summary;

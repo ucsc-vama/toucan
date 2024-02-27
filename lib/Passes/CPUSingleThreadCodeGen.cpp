@@ -47,8 +47,9 @@ struct CPUSingleThreadCodeGenPass : toucan::impl::CPUSingleThreadCodeGenBase<CPU
   void runOnOperation() final {
     // Mark all analyses as preserved. This is a read only pass
     markAllAnalysesPreserved();
+
+    auto partitionResult = getAnalysis<NaivePartitioner>();
     
-    auto partitioningGraph = getAnalysis<DesignGraph>();
 
   }
 
