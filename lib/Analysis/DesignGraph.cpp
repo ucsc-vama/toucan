@@ -63,6 +63,8 @@ DesignGraph::DesignGraph(Operation *op, AnalysisManager &am) {
 
   // TODO: Merge vec def (toucan.vector) and its users
 
+  // TODO: Merge multi-writer mem into 1
+
   // TODO: move rawGraph to g, ensure nodeid is incremental (no 'holes' between ids)
 
   llvm::dbgs() << "Graph has " << boost::num_vertices(g) << " vertices and " << boost::num_edges(g) << " edges\n";
