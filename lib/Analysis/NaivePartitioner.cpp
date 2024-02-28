@@ -5,6 +5,7 @@
 #include "circt/Dialect/Seq/SeqOps.h"
 
 #include "mlir/Pass/AnalysisManager.h"
+#include "mlir/Support/LLVM.h"
 #include "toucan/ToucanAnalysis.h"
 
 #include "llvm/Support/Casting.h"
@@ -20,15 +21,14 @@ using namespace circt;
 NaivePartitioner::NaivePartitioner(mlir::Operation *op, mlir::AnalysisManager &am) {
 
   auto graph = am.getAnalysis<DesignGraph>();
+  auto numVtxes = boost::num_vertices(graph.g);
 
-  // A simple partitioner that put all vtxes into 1 partition
-  partitions.push_back({});
-  partitions[0].reserve(boost::num_vertices(graph.g));
+  // A simple partitioner that put all vtxes into 1 partition (part 0)
+  partitions.push_back(mlir::BitVector(numVtxes, true));
+  vtxIdToPartId.resize(numVtxes, 0);
 
-  for (auto vp = boost::vertices(graph.g); vp.first != vp.second; ++vp.first) {
-    auto vtxId = *vp.first;
-    partitions[0].push_back(vtxId);
-  }
+  levelizePartitions(graph);
+
 }
 
 

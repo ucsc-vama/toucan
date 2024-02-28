@@ -3,6 +3,7 @@ add_circt_dialect_library(
   ToucanUtils
 
   Utils.cpp
+  BoostSetting.cpp
 
 
   DEPENDS

@@ -33,6 +33,10 @@
 #include <iterator>
 #include <functional>
 
+#define BOOST_NO_EXCEPTIONS
+#include <boost/throw_exception.hpp>
+
+
 namespace toucan {
 
   bool value_is_const_zero(mlir::Value &inputVal);

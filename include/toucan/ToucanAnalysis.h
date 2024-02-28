@@ -12,6 +12,7 @@
 #include "mlir/Support/LLVM.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/APSInt.h"
+#include "llvm/Support/Debug.h"
 #include <optional>
 
 #include "toucan/ToucanAttributes.h"
@@ -25,7 +26,9 @@ namespace toucan {
     public:
     // LUTOpName opName;
     mlir::Operation *op;
+    // weight is actually number of ops in this node
     uint32_t weight;
+    bool isConstDecl;
   };
 
   // Note: use boost::vecS (std::vector) to ensure vertex_descriptor is integer and also incremental
@@ -51,9 +54,11 @@ namespace toucan {
     PartitioningGraph g;
     mlir::DenseSet<uint64_t> sinkVtxs;
     mlir::DenseSet<mlir::Operation*> constDeclVtxs;
-    mlir::DenseMap<mlir::Operation*, uint64_t> opTpId;
+    mlir::DenseMap<mlir::Operation*, uint64_t> opToId;
     
     DesignGraph(mlir::Operation *op, mlir::AnalysisManager &am);
+
+    static bool opShouldRemoveInGraph(mlir::Operation *op);
   private:
 
   
@@ -62,7 +67,8 @@ namespace toucan {
 
   class PartitionerBase {
     public:
-    mlir::SmallVector<mlir::SmallVector<uint64_t>> partitions;
+    mlir::SmallVector<mlir::BitVector> partitions;
+    mlir::SmallVector<uint32_t> vtxIdToPartId;
     // partition i -> level j -> elem k
     mlir::SmallVector<mlir::SmallVector<mlir::SmallVector<uint64_t>>> partLevels;
 

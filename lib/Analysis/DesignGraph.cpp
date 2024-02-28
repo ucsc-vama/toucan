@@ -6,10 +6,13 @@
 
 #include "mlir/Pass/AnalysisManager.h"
 #include "toucan/ToucanAnalysis.h"
+#include "toucan/ToucanOps.h"
 
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
 #include <cstdint>
+#include <functional>
+#include <utility>
 
 using namespace toucan;
 
@@ -17,6 +20,36 @@ using namespace mlir;
 using namespace llvm;
 using namespace circt;
 
+
+bool DesignGraph::opShouldRemoveInGraph(mlir::Operation *op) {
+  if (isa<toucan::DefRegOp>(op)
+  || isa<toucan::DefMemOp>(op)) {
+      return true;
+  }
+  return false;
+}
+
+static void mergeVerticies(uint64_t dst, mlir::SmallVector<uint64_t> &toMerge, PartitioningGraph &g) {
+  // Merge!
+  // update edge
+  for (auto vtxToMerge: toMerge) {
+    auto out_edges = boost::out_edges(vtxToMerge, g);
+    for(auto ei = out_edges.first; ei != out_edges.second; ++ei) {
+      auto target = boost::target(*ei, g);
+      assert(target != dst);
+      boost::add_edge(dst, target, g);
+    }
+    auto in_edges = boost::in_edges(vtxToMerge, g);
+    for (auto ei = in_edges.first; ei != in_edges.second; ++ei) {
+      auto source = boost::source(*ei, g);
+      if (source != dst) {
+        boost::add_edge(source, dst, g);
+      }
+    }
+  }
+  // update weight
+  g[dst].weight += toMerge.size();
+}
 
 DesignGraph::DesignGraph(Operation *op, AnalysisManager &am) {
   // build graph
@@ -41,6 +74,11 @@ DesignGraph::DesignGraph(Operation *op, AnalysisManager &am) {
     PartitioningGraphNodeProperty vp;
     vp.op = &stmt;
     vp.weight = 1;
+    if (isa<toucan::ConstantOp>(stmt) || isa<toucan::DefConstVectorOp>(stmt)) {
+      vp.isConstDecl = true;
+    } else {
+      vp.isConstDecl = false;
+    }
     auto newVertex = boost::add_vertex(vp, rawGraph);
 
     rawOpToId[&stmt] = newVertex;
@@ -59,13 +97,93 @@ DesignGraph::DesignGraph(Operation *op, AnalysisManager &am) {
     }
   }
 
-  // TODO: Remove all defmem, defreg, const, const_vector
+  mlir::DenseSet<uint64_t> vtxToRemove;
 
-  // TODO: Merge vec def (toucan.vector) and its users
 
-  // TODO: Merge multi-writer mem into 1
 
-  // TODO: move rawGraph to g, ensure nodeid is incremental (no 'holes' between ids)
+  mlir::SmallVector<uint64_t> vecReaders;
+  mlir::SmallVector<uint64_t> memWriters;
 
-  llvm::dbgs() << "Graph has " << boost::num_vertices(g) << " vertices and " << boost::num_edges(g) << " edges\n";
+  for (uint64_t vtxId = 0; vtxId < boost::num_vertices(rawGraph); vtxId++) {
+    auto rawOp = rawGraph[vtxId].op;
+
+    if (auto vecDeclOp = dyn_cast<toucan::DefVectorOp>(rawOp)) {
+      // vector, merge all readers
+      for (auto userOp: vecDeclOp->getUsers()) {
+        if (auto vecReadOp = dyn_cast<toucan::VectorReadOp>(userOp)) {
+          auto vecReaderVtxId = rawOpToId[vecReadOp];
+          vecReaders.push_back(vecReaderVtxId);
+        } else {
+          assert(false && "Vector used by node other than toucan::VectorReadOp");
+        }
+      }
+
+      mergeVerticies(vtxId, vecReaders, rawGraph);
+      vtxToRemove.insert(vecReaders.begin(), vecReaders.end());
+      vecReaders.clear();
+    }
+    
+    if (auto memDeclOp = dyn_cast<toucan::DefMemOp>(rawOp)) {
+      // multiple readers?
+      for (auto userOp: memDeclOp->getUsers()) {
+        if (auto memWriteOp = dyn_cast<toucan::MemWriteOp>(userOp)) {
+          // a new write port
+          auto writerVtxId = rawOpToId[memWriteOp];
+          memWriters.push_back(writerVtxId);
+        }
+      }
+
+      if (memWriters.size() > 1) {
+        // A memory with multiple writer. Merge.
+        auto topVtxId = memWriters.back();
+        memWriters.pop_back();
+        mergeVerticies(topVtxId, memWriters, rawGraph);
+        vtxToRemove.insert(memWriters.begin(), memWriters.end());
+      }
+
+      memWriters.clear();
+    } else if (opShouldRemoveInGraph(rawOp)) {
+      // Remove all defmem, defreg
+      vtxToRemove.insert(vtxId);
+    }
+
+  }
+
+
+  // Build new graph without removed nodes, since removing them is expensive
+  SmallVector<uint64_t> oldIdToNewId;
+  oldIdToNewId.reserve(rawOpToId.size());
+  for (uint64_t vtxId = 0; vtxId < boost::num_vertices(rawGraph); vtxId++) {
+    if (vtxToRemove.contains(vtxId)) {
+      oldIdToNewId.push_back(UINT64_MAX);
+    } else {
+      // This vtx should copy to new graph
+      auto vp = rawGraph[vtxId];
+      auto newVtxId = boost::add_vertex(vp, g);
+      opToId[vp.op] = newVtxId;
+      oldIdToNewId.push_back(newVtxId);
+    }
+  }
+  assert(oldIdToNewId.size() == boost::num_vertices(rawGraph));
+
+  // copy edges
+
+  auto rawEdges = boost::edges(rawGraph);
+  for (auto ei = rawEdges.first; ei != rawEdges.second; ++ei) {
+    auto edgeSource = boost::source(*ei, rawGraph);
+    auto edgeTarget = boost::target(*ei, rawGraph);
+
+    auto newEdgeSource = oldIdToNewId[edgeSource];
+    auto newEdgeTarget = oldIdToNewId[edgeTarget];
+
+    if ((newEdgeSource != UINT64_MAX) && (newEdgeTarget != UINT64_MAX)) {
+      // Valid
+      boost::add_edge(newEdgeSource, newEdgeTarget, g);
+    }
+  }
+
+
+  llvm::dbgs() << "Raw graph has " << boost::num_vertices(rawGraph) << " vertices and " << boost::num_edges(rawGraph) << " edges\n";
+
+  llvm::dbgs() << "After removing and merging, graph has " << boost::num_vertices(g) << " vertices and " << boost::num_edges(g) << " edges\n";
 }

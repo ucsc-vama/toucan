@@ -11,6 +11,7 @@ llvm_update_compile_flags(toucan)
 target_link_libraries(toucan PRIVATE
   Toucan
   ToucanPasses
+  ToucanUtils
   
   CIRCTHW
   CIRCTComb
