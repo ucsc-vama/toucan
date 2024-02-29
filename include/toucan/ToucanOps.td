@@ -172,6 +172,7 @@ def LUTOp : ToucanOp<"lut", [Pure]> {
     static size_t getResultWidth2(toucan::LUTOpName opName, mlir::ValueRange inputs);
     static size_t getResultWidth3(toucan::LUTOpName opName, mlir::ValueRange inputs);
     static size_t getLegalOperandCount(toucan::LUTOpName opName);
+    static toucan::LUTOpName getMappedOpName(toucan::LUTOpName opName);
   }];
 
   let builders = [
@@ -179,19 +180,22 @@ def LUTOp : ToucanOp<"lut", [Pure]> {
       auto inputs = ValueRange({inputVal});
       auto resultWidth = getResultWidth1(op_enum, inputVal);
       auto resultType = $_builder.getIntegerType(resultWidth);
-      build($_builder, $_state, resultType, op_enum, inputs);
+      auto realOpName = getMappedOpName(op_enum);
+      build($_builder, $_state, resultType, realOpName, inputs);
     }]>,
     OpBuilder<(ins "toucan::LUTOpName":$op_enum, "mlir::Value":$lhs, "mlir::Value":$rhs), [{
       auto inputs = ValueRange({lhs, rhs});
       auto resultWidth = getResultWidth2(op_enum, inputs);
       auto resultType = $_builder.getIntegerType(resultWidth);
-      build($_builder, $_state, resultType, op_enum, inputs);
+      auto realOpName = getMappedOpName(op_enum);
+      build($_builder, $_state, resultType, realOpName, inputs);
     }]>,
     OpBuilder<(ins "toucan::LUTOpName":$op_enum, "mlir::Value":$op1, "mlir::Value":$op2, "mlir::Value":$op3), [{
       auto inputs = ValueRange({op1, op2, op3});
       auto resultWidth = getResultWidth3(op_enum, inputs);
       auto resultType = $_builder.getIntegerType(resultWidth);
-      build($_builder, $_state, resultType, op_enum, inputs);
+      auto realOpName = getMappedOpName(op_enum);
+      build($_builder, $_state, resultType, realOpName, inputs);
     }]>
   ];
 

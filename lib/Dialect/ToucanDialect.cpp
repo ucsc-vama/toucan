@@ -324,6 +324,16 @@ LogicalResult LUTOp::canonicalize(LUTOp op, PatternRewriter &rewriter) {
   return failure();
 }
 
+// Note: Some op has exact same truth table with others.
+toucan::LUTOpName LUTOp::getMappedOpName(toucan::LUTOpName opName) {
+  switch (opName) {
+    case LUTOpName::LUT_Shr1: return LUTOpName::LUT_Shl3;
+    case LUTOpName::LUT_Shr2: return LUTOpName::LUT_Shl2;
+    case LUTOpName::LUT_Shr3: return LUTOpName::LUT_Shl1;
+    default: return opName;
+  }
+}
+
 /// Build a ConstantOp from an APInt, infering the result type from the
 /// width of the APInt.
 void ConstantOp::build(OpBuilder &builder, OperationState &result,

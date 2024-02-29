@@ -92,11 +92,13 @@ struct BitsOperations {
     }
   }
 
+  // Note: Since we bypass builder, we need to maintain opName map manually.
+  // shr3 has same truth table with shl1. Shr opNames are just symbol and should not appear in output.
   static LUTOpName getShrNameUsingShamt(size_t shamt) {
     switch (shamt) {
-      case 1: return LUTOpName::LUT_Shr1;
-      case 2: return LUTOpName::LUT_Shr2;
-      case 3: return LUTOpName::LUT_Shr3;
+      case 1: return LUTOpName::LUT_Shl3;
+      case 2: return LUTOpName::LUT_Shl2;
+      case 3: return LUTOpName::LUT_Shl1;
       default: llvm_unreachable("shr shamt out of range");
     }
   }
