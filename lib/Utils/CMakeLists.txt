@@ -4,6 +4,7 @@ add_circt_dialect_library(
 
   Utils.cpp
   BoostSetting.cpp
+  CodeGenHelper.cpp
 
 
   DEPENDS

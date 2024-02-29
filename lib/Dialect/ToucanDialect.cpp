@@ -113,8 +113,6 @@ LogicalResult RegWriteOp::verify() {
 
 size_t LUTOp::getLegalOperandCount(toucan::LUTOpName opName) {
   switch (opName) {
-    case LUTOpName::LUT_Nop:
-      return 0;
     case LUTOpName::LUT_Rep1b:
     case LUTOpName::LUT_XorR:
       return 1;
@@ -236,10 +234,6 @@ LogicalResult LUTOp::canonicalize(LUTOp op, PatternRewriter &rewriter) {
   // }
 
   switch(opName) {
-    case LUTOpName::LUT_Nop: {
-      // Nop should not appear
-      return failure();
-    }
     case LUTOpName::LUT_And: {
       assert(inputs.size() == 2);
       for (size_t i = 0; i < 2; i++) {

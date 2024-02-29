@@ -31,7 +31,7 @@
 #define GEN_PASS_DEF_CPUSINGLETHREADCODEGEN
 #include "toucan/ToucanPassCommon.h"
 
-#include "toucan/ToucanUtils.h"
+#include "toucan/CodeGenCommon.h"
 
 using namespace toucan;
 using namespace circt;
@@ -40,7 +40,7 @@ using namespace llvm;
 
 #define DEBUG_TYPE "CPUSingleThreadCodeGenPass"
 
-struct CPUSingleThreadCodeGenPass : toucan::impl::CPUSingleThreadCodeGenBase<CPUSingleThreadCodeGenPass> {
+struct CPUSingleThreadCodeGenPass : toucan::impl::CPUSingleThreadCodeGenBase<CPUSingleThreadCodeGenPass>, CodeGenHelper {
   using CPUSingleThreadCodeGenBase<CPUSingleThreadCodeGenPass>::CPUSingleThreadCodeGenBase;
 
 
@@ -49,6 +49,7 @@ struct CPUSingleThreadCodeGenPass : toucan::impl::CPUSingleThreadCodeGenBase<CPU
     markAllAnalysesPreserved();
 
     auto partitionResult = getAnalysis<NaivePartitioner>();
+    populateLUT();
     
 
   }
