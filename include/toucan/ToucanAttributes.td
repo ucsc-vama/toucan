@@ -23,6 +23,7 @@ let cppNamespace = "toucan" in {
         I32EnumAttrCase<"LUT_Shl1",   13, "shl1">,
         I32EnumAttrCase<"LUT_Shl2",   14, "shl2">,
         I32EnumAttrCase<"LUT_Shl3",   15, "shl3">,
+        // Shr ops are just placeholder. They have same truth table as shl ops
         I32EnumAttrCase<"LUT_Shr1",   16, "shr1">,
         I32EnumAttrCase<"LUT_Shr2",   17, "shr2">,
         I32EnumAttrCase<"LUT_Shr3",   18, "shr3">,

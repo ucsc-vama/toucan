@@ -25,7 +25,8 @@
 #include "llvm/Support/Mutex.h"
 
 #include <memory>
-
+#include <filesystem>
+#include <fstream>
 
 
 #define GEN_PASS_DEF_CPUSINGLETHREADCODEGEN
@@ -44,12 +45,39 @@ struct CPUSingleThreadCodeGenPass : toucan::impl::CPUSingleThreadCodeGenBase<CPU
   using CPUSingleThreadCodeGenBase<CPUSingleThreadCodeGenPass>::CPUSingleThreadCodeGenBase;
 
 
+  // std::ofstream ofs;
+  std::string indent = "  ";
+  std::string className = "SimDesign";
+
+
   void runOnOperation() final {
     // Mark all analyses as preserved. This is a read only pass
     markAllAnalysesPreserved();
 
+    auto outputFullFileName = std::filesystem::path(outputDirectory.getValue()) / outputFilename.getValue();
+    std::ofstream ofs(outputFullFileName);
+
     auto partitionResult = getAnalysis<NaivePartitioner>();
     populateLUT();
+
+
+
+    ofs << "#pragma once\n\n";
+    ofs << "class " << className << " {\n";
+
+    // 1. write lut
+
+    // 2. declare data
+
+    // 3. write netlist
+
+    // 4. write signal name
+
+
+    // 5. write eval
+
+
+    ofs << "};\n\n";
     
 
   }

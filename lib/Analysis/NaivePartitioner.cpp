@@ -27,6 +27,8 @@ NaivePartitioner::NaivePartitioner(mlir::Operation *op, mlir::AnalysisManager &a
   partitions.push_back(mlir::BitVector(numVtxes, true));
   vtxIdToPartId.resize(numVtxes, 0);
 
+  // TODO: extract vec reads and put into 1 level to reduce divergence and control width
+
   levelizePartitions(graph);
 
 }

@@ -10,6 +10,7 @@
 
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/ErrorHandling.h"
 #include <cstdint>
 #include <functional>
 #include <utility>
@@ -29,7 +30,7 @@ bool DesignGraph::opShouldRemoveInGraph(mlir::Operation *op) {
   return false;
 }
 
-static void mergeVerticies(uint64_t dst, mlir::SmallVector<uint64_t> &toMerge, PartitioningGraph &g) {
+static void mergeVerticies(uint32_t dst, mlir::SmallVector<uint32_t> &toMerge, PartitioningGraph &g) {
   // Merge!
   // update edge
   for (auto vtxToMerge: toMerge) {
@@ -51,6 +52,19 @@ static void mergeVerticies(uint64_t dst, mlir::SmallVector<uint64_t> &toMerge, P
   g[dst].weight += toMerge.size();
 }
 
+static CGToucanOPName getOpName(Operation* op) {
+  if (isa<toucan::ConstantOp>(op) || isa<toucan::DefConstVectorOp>(op)) return CGToucanOPName::ConstDecl;
+  if (isa<toucan::LUTOp>(op)) return CGToucanOPName::LUT;
+  if (isa<toucan::DefVectorOp>(op)) return CGToucanOPName::VecRead;
+  if (isa<toucan::PrintOp>(op)) return CGToucanOPName::Print;
+  if (isa<toucan::StopOp>(op)) return CGToucanOPName::Stop;
+  if (isa<toucan::RegReadOp>(op)) return CGToucanOPName::RegRead;
+  if (isa<toucan::RegWriteOp>(op)) return CGToucanOPName::RegWrite;
+  if (isa<toucan::MemReadOp>(op)) return CGToucanOPName::MemRead;
+  if (isa<toucan::MemWriteOp>(op)) return CGToucanOPName::MemWrite;
+  llvm_unreachable("?");
+}
+
 DesignGraph::DesignGraph(Operation *op, AnalysisManager &am) {
   // build graph
   auto isToucan4B = am.getAnalysis<IsLegalToucan4B>();
@@ -63,7 +77,7 @@ DesignGraph::DesignGraph(Operation *op, AnalysisManager &am) {
 
   PartitioningGraph rawGraph;
 
-  mlir::DenseMap<Operation*, uint64_t> rawOpToId;
+  mlir::DenseMap<Operation*, uint32_t> rawOpToId;
   rawOpToId.reserve(numOps);
 
   uint32_t vertexIdCounter = 0;
@@ -74,11 +88,7 @@ DesignGraph::DesignGraph(Operation *op, AnalysisManager &am) {
     PartitioningGraphNodeProperty vp;
     vp.op = &stmt;
     vp.weight = 1;
-    if (isa<toucan::ConstantOp>(stmt) || isa<toucan::DefConstVectorOp>(stmt)) {
-      vp.isConstDecl = true;
-    } else {
-      vp.isConstDecl = false;
-    }
+    vp.toucanOpName = getOpName(&stmt);
     auto newVertex = boost::add_vertex(vp, rawGraph);
 
     rawOpToId[&stmt] = newVertex;
@@ -97,18 +107,18 @@ DesignGraph::DesignGraph(Operation *op, AnalysisManager &am) {
     }
   }
 
-  mlir::DenseSet<uint64_t> vtxToRemove;
+  mlir::DenseSet<uint32_t> vtxToRemove;
 
 
 
-  mlir::SmallVector<uint64_t> vecReaders;
-  mlir::SmallVector<uint64_t> memWriters;
+  mlir::SmallVector<uint32_t> vecReaders;
+  mlir::SmallVector<uint32_t> memWriters;
 
-  for (uint64_t vtxId = 0; vtxId < boost::num_vertices(rawGraph); vtxId++) {
+  for (uint32_t vtxId = 0; vtxId < boost::num_vertices(rawGraph); vtxId++) {
     auto rawOp = rawGraph[vtxId].op;
 
     if (auto vecDeclOp = dyn_cast<toucan::DefVectorOp>(rawOp)) {
-      // vector, merge all readers
+      // Merge all vector readers with vector decl. Const vecs are not affected
       for (auto userOp: vecDeclOp->getUsers()) {
         if (auto vecReadOp = dyn_cast<toucan::VectorReadOp>(userOp)) {
           auto vecReaderVtxId = rawOpToId[vecReadOp];
@@ -121,10 +131,8 @@ DesignGraph::DesignGraph(Operation *op, AnalysisManager &am) {
       mergeVerticies(vtxId, vecReaders, rawGraph);
       vtxToRemove.insert(vecReaders.begin(), vecReaders.end());
       vecReaders.clear();
-    }
-    
-    if (auto memDeclOp = dyn_cast<toucan::DefMemOp>(rawOp)) {
-      // multiple readers?
+    } else if (auto memDeclOp = dyn_cast<toucan::DefMemOp>(rawOp)) {
+      // Merge multiple writers of a same memory into 1
       for (auto userOp: memDeclOp->getUsers()) {
         if (auto memWriteOp = dyn_cast<toucan::MemWriteOp>(userOp)) {
           // a new write port
@@ -142,8 +150,17 @@ DesignGraph::DesignGraph(Operation *op, AnalysisManager &am) {
       }
 
       memWriters.clear();
-    } else if (opShouldRemoveInGraph(rawOp)) {
-      // Remove all defmem, defreg
+    } 
+    // else if (auto constOp = dyn_cast<toucan::ConstantOp>(rawOp)) {
+    //   // save
+    //   constOps.push_back(&constOp);
+    // } else if (auto constVecOp = dyn_cast<toucan::DefConstVectorOp>(rawOp)) {
+    //   // save
+    //   constVecOps.push_back(&constVecOp);
+    // }
+    
+    if (opShouldRemoveInGraph(rawOp)) {
+      // Remove all defmem, defreg, const, const vec
       vtxToRemove.insert(vtxId);
     }
 
@@ -151,11 +168,11 @@ DesignGraph::DesignGraph(Operation *op, AnalysisManager &am) {
 
 
   // Build new graph without removed nodes, since removing them is expensive
-  SmallVector<uint64_t> oldIdToNewId;
+  SmallVector<uint32_t> oldIdToNewId;
   oldIdToNewId.reserve(rawOpToId.size());
-  for (uint64_t vtxId = 0; vtxId < boost::num_vertices(rawGraph); vtxId++) {
+  for (uint32_t vtxId = 0; vtxId < boost::num_vertices(rawGraph); vtxId++) {
     if (vtxToRemove.contains(vtxId)) {
-      oldIdToNewId.push_back(UINT64_MAX);
+      oldIdToNewId.push_back(UINT32_MAX);
     } else {
       // This vtx should copy to new graph
       auto vp = rawGraph[vtxId];
@@ -176,7 +193,7 @@ DesignGraph::DesignGraph(Operation *op, AnalysisManager &am) {
     auto newEdgeSource = oldIdToNewId[edgeSource];
     auto newEdgeTarget = oldIdToNewId[edgeTarget];
 
-    if ((newEdgeSource != UINT64_MAX) && (newEdgeTarget != UINT64_MAX)) {
+    if ((newEdgeSource != UINT32_MAX) && (newEdgeTarget != UINT32_MAX)) {
       // Valid
       boost::add_edge(newEdgeSource, newEdgeTarget, g);
     }
