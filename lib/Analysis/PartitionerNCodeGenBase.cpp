@@ -85,6 +85,8 @@ void PartitionerNCodeGenBase::levelizePartitions(DesignGraph &graph) {
   }
   for (auto sinkVtx: sinkVtxes) {
     auto partId = vtxIdToPartId[sinkVtx];
+    auto numParts = partLevels.size();
+    assert(partId < numParts);
     partLevels[partId].end()->push_back(sinkVtx);
   }
   
@@ -121,7 +123,6 @@ void PartitionerNCodeGenBase::levelizePartitions(DesignGraph &graph) {
 
 void PartitionerNCodeGenBase::generateRegMemLayout(DesignGraph &graph, uint32_t partitionRegPaddingSpace, uint32_t memPaddingSpace) {
   // collect all reg and memory, generate layout
-  uint64_t memBaseAddr = 0;
   for (size_t partId = 0; partId < partitions.size(); partId++) {
     auto &lastLevel = *partLevels[partId].end();
     for (auto vtxId: lastLevel) {
@@ -131,8 +132,6 @@ void PartitionerNCodeGenBase::generateRegMemLayout(DesignGraph &graph, uint32_t 
         auto regWriteOp = cast<toucan::RegWriteOp>(graph.g[vtxId].op);
         auto regVal = regWriteOp.getReg();
         auto regDefiningOp = regVal.getDefiningOp();
-
-        auto regId = codeGenInfo.regPool.size();
 
         CGRegMetaInfo regMeta;
 
@@ -146,40 +145,11 @@ void PartitionerNCodeGenBase::generateRegMemLayout(DesignGraph &graph, uint32_t 
         regMeta.bitWidth = regVal.getType().getElementWidth();
         regMeta.isPadding = false;
 
+        auto regId = codeGenInfo.regPool.size();
         codeGenInfo.regPool.push_back(regMeta);
         codeGenInfo.toucanRegToId[regVal] = regId;
         // TODO: fill reg debug info
-      } else if (vtxOpName == CGToucanOPName::MemWrite) {
-        // Note: For now, mems with multiple write ports are still merged, so at this time, each memory will only have 1 writer.
-        auto memWriteOp = cast<toucan::MemWriteOp>(graph.g[vtxId].op);
-        auto memVal = memWriteOp.getMem();
-        auto memDefiningOp = memVal.getDefiningOp();
-
-        CGMemMetaInfo memMeta;
-
-        memMeta.namehint = getSVNameHintAttr(memDefiningOp);
-        auto fragmentIdAttr = getSignalFragmentIDAttr(memDefiningOp);
-        if (fragmentIdAttr) {
-          memMeta.fragment_id = fragmentIdAttr->getInt();
-        } else {
-          memMeta.fragment_id = UINT32_MAX;
-        }
-        memMeta.bitWidth = memVal.getType().getElementWidth();
-        memMeta.memDepth = memVal.getType().getDepth();
-        memMeta.hasMultipleWriter = (graph.g[vtxId].weight > 1);
-
-        // 
-        assert(memMeta.bitWidth <= 4);
-        uint64_t memCapacity = (memMeta.hasMultipleWriter) ? memMeta.memDepth * 4 : memMeta.memDepth;
-        memMeta.memBase = memBaseAddr;
-        memBaseAddr += (memCapacity + memPaddingSpace);
-
-        auto memId = codeGenInfo.memPool.size();
-        codeGenInfo.memPool.push_back(memMeta);
-        codeGenInfo.toucanMemToId[memVal] = memId; 
-        // TODO: fill reg debug info
       }
-
     }
     // Add extra padding
     for (size_t i = 0; i < partitionRegPaddingSpace; i++) {
@@ -191,6 +161,44 @@ void PartitionerNCodeGenBase::generateRegMemLayout(DesignGraph &graph, uint32_t 
 
       // auto regId = codeGenInfo.regPool.size();
       codeGenInfo.regPool.push_back(paddingRegMeta);
+    }
+  }
+
+  // collect all reg and memory, generate layout
+  uint64_t memBaseAddr = 0;
+  for (size_t vtxId = 0; vtxId < boost::num_vertices(graph.g); vtxId++) {
+    // TODO: if this is too slow (unlikely), consider find all DefMem nodes
+    // for each mem write
+    auto vtxOpName = graph.g[vtxId].toucanOpName;
+    if (vtxOpName == CGToucanOPName::MemWrite) {
+      // Note: For now, mems with multiple write ports are still merged, so at this time, each memory will only have 1 writer.
+      auto memWriteOp = cast<toucan::MemWriteOp>(graph.g[vtxId].op);
+      auto memVal = memWriteOp.getMem();
+      auto memDefiningOp = memVal.getDefiningOp();
+
+      CGMemMetaInfo memMeta;
+
+      memMeta.namehint = getSVNameHintAttr(memDefiningOp);
+      auto fragmentIdAttr = getSignalFragmentIDAttr(memDefiningOp);
+      if (fragmentIdAttr) {
+        memMeta.fragment_id = fragmentIdAttr->getInt();
+      } else {
+        memMeta.fragment_id = UINT32_MAX;
+      }
+      memMeta.bitWidth = memVal.getType().getElementWidth();
+      memMeta.memDepth = memVal.getType().getDepth();
+      memMeta.hasMultipleWriter = (graph.g[vtxId].weight > 1);
+
+      // 
+      assert(memMeta.bitWidth <= 4);
+      uint64_t memCapacity = (memMeta.hasMultipleWriter) ? memMeta.memDepth * 4 : memMeta.memDepth;
+      memMeta.memBase = memBaseAddr;
+      memBaseAddr += (memCapacity + memPaddingSpace);
+
+      auto memId = codeGenInfo.memPool.size();
+      codeGenInfo.memPool.push_back(memMeta);
+      codeGenInfo.toucanMemToId[memVal] = memId; 
+      // TODO: fill mem debug info
     }
   }
   codeGenInfo.totalMemSize = memBaseAddr;
@@ -252,14 +260,10 @@ void PartitionerNCodeGenBase::generateMemoryLayout(DesignGraph &graph, uint32_t 
     auto &firstLevel = partLevels[partId][0];
     auto &lastLevel = *partLevels[partId].end();
 
-
-    // TODO: First level: reorder by regs
-    mlir::SmallVector<CGOpMetaInfo> regReadOps;
-    mlir::SmallVector<CGOpMetaInfo> memReadOps;
-
+    // First level. should only contains regread or const decl, the later will be pushed into const pool
+    mlir::SmallVector<CGOpMetaInfo> firstLevelOps;
     for (auto vtxId: firstLevel) {
       auto tOpName = graph.g[vtxId].toucanOpName;
-      // Top level should only contains regread and memread
       assert(tOpName == CGToucanOPName::RegRead || tOpName == CGToucanOPName::MemRead);
 
       auto op = graph.g[vtxId].op;
@@ -273,23 +277,12 @@ void PartitionerNCodeGenBase::generateMemoryLayout(DesignGraph &graph, uint32_t 
         auto regValId = codeGenInfo.toucanRegToId[regVal];
 
         opMeta.regRead.reg = regValId;
-        regReadOps.push_back(opMeta);
-      } else if (tOpName == CGToucanOPName::MemRead) {
-        // a memread
-        auto memReadOp = cast<toucan::MemReadOp>(op);
-        auto memVal = memReadOp.getMem();
-        auto memValId = codeGenInfo.toucanMemToId[memVal];
-
-        opMeta.memRead.hasMultipleWriter = codeGenInfo.memPool[memValId].hasMultipleWriter;
-        opMeta.memRead.memBase = codeGenInfo.memPool[memValId].memBase;
-
-        // TODO: collect addr
+        firstLevelOps.push_back(opMeta);
       } else if (tOpName == CGToucanOPName::ConstDecl) {
         // A constant decl. Do nothing.
       } else {
         assert(false && "Should not reach here");
       }
-
     }
     // TODO: Allocate result storage
 
@@ -299,8 +292,27 @@ void PartitionerNCodeGenBase::generateMemoryLayout(DesignGraph &graph, uint32_t 
     for (size_t layerId = 1; layerId < partLevels[partId].size() - 1; layerId++) {
       auto &currentLevel = partLevels[partId][layerId];
 
-      // lut 
-      // vec, expand
+      for (auto vtxId: currentLevel) {
+        auto tOpName = graph.g[vtxId].toucanOpName;
+        auto op = graph.g[vtxId].op;
+        auto vtxWeight = graph.g[vtxId].weight;
+        // lut 
+        // vec, expand
+
+        // mem read
+        if (tOpName == CGToucanOPName::MemRead) {
+          CGOpMetaInfo opMeta;
+          // a memread
+          auto memReadOp = cast<toucan::MemReadOp>(op);
+          auto memVal = memReadOp.getMem();
+          auto memValId = codeGenInfo.toucanMemToId[memVal];
+
+          opMeta.memRead.hasMultipleWriter = codeGenInfo.memPool[memValId].hasMultipleWriter;
+          opMeta.memRead.memBase = codeGenInfo.memPool[memValId].memBase;
+
+          // TODO: collect addr
+        }
+      }
     }
 
     // TODO: last level
