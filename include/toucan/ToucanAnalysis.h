@@ -40,6 +40,7 @@ namespace toucan {
     RegWrite,
     MemRead,
     MemWrite,
+    ShouldNotAppear
     // Constant,
     // ConstVec
   };

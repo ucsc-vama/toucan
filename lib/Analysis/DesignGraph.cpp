@@ -62,7 +62,7 @@ static CGToucanOPName getOpName(Operation* op) {
   if (isa<toucan::RegWriteOp>(op)) return CGToucanOPName::RegWrite;
   if (isa<toucan::MemReadOp>(op)) return CGToucanOPName::MemRead;
   if (isa<toucan::MemWriteOp>(op)) return CGToucanOPName::MemWrite;
-  llvm_unreachable("?");
+  return CGToucanOPName::ShouldNotAppear;
 }
 
 DesignGraph::DesignGraph(Operation *op, AnalysisManager &am) {

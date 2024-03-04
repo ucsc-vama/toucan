@@ -24,7 +24,9 @@ NaivePartitioner::NaivePartitioner(mlir::Operation *op, mlir::AnalysisManager &a
   auto numVtxes = boost::num_vertices(graph.g);
 
   // A simple partitioner that put all vtxes into 1 partition (part 0)
-  partitions.push_back(mlir::BitVector(numVtxes, true));
+  partitions.push_back({});
+  partitions[0].clear();
+  partitions[0].resize(numVtxes, 1);
   vtxIdToPartId.resize(numVtxes, 0);
 
   // TODO: extract vec reads and put into 1 level to reduce divergence and control width
