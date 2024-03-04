@@ -109,6 +109,8 @@ namespace toucan {
   };
   struct CGMemReadOpMetaInfo {
     bool hasMultipleWriter;
+    // Should do boundary check
+    uint32_t memDepth;
     
     uint64_t memBase;
 
@@ -122,12 +124,12 @@ namespace toucan {
     uint32_t addr7;
     uint32_t addr8;
 
-    uint32_t en;
-
     uint32_t result;
   };
   struct CGMemWriteOpMetaInfo {
     bool hasMultipleWriter;
+    // should do boundary check
+    uint32_t memDepth;
 
     uint64_t memBase;
 
@@ -141,7 +143,6 @@ namespace toucan {
     uint32_t addr7;
     uint32_t addr8;
 
-    uint32_t en;
     uint32_t dat;
   };
 

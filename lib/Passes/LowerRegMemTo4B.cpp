@@ -197,12 +197,11 @@ struct LowerRegMemTo4BPass : toucan::impl::LowerRegMemTo4BBase<LowerRegMemTo4BPa
             if (auto memReadOp = dyn_cast<toucan::MemReadOp>(op)) {
               //
               SmallVector<mlir::Value> memReadValues_4B;
-              auto memReadEn = memReadOp.getEn();
               auto memReadAddrs = SmallVector<Value>(memReadOp.getAddrs());
 
               for (auto [memId_4b, memWidth_4b, memHandle_4b, memNameHint_4b]: newMemInfos) {
 
-                auto memReadOp_4b = rewriter.create<toucan::MemReadOp>(memReadOp->getLoc(), memHandle_4b, memReadAddrs, memReadEn);
+                auto memReadOp_4b = rewriter.create<toucan::MemReadOp>(memReadOp->getLoc(), memHandle_4b, memReadAddrs);
 
                 setSVNameHintAttr(memReadOp_4b, memNameHint_4b);
                 setSignalFragmentIDAttr(memReadOp_4b, memId_4b);

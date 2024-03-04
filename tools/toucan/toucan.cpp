@@ -94,12 +94,15 @@ static LogicalResult compileAndEmit(
         pm.addPass(toucan::createSplitFirMemRWPortsPass());
         // Expand memory delays
         pm.addPass(toucan::createExpandMemoryDelayPass());
+        // Remove mem read en signal
+        pm.addPass(toucan::createRemoveMemReadEnPass());
+        // Remove all mem write masks. Split memory if there is any mask
+        pm.addPass(toucan::createRemoveMemMaskPass());
+
         // Replace async reset regs
         pm.addPass(toucan::createReplaceAsyncResetRegsPass());
         // Split registers into def, read and write nodes
         pm.addPass(toucan::createSplitRegistersPass());
-        // Remove all mem write masks. Split memory if there is any mask
-        pm.addPass(toucan::createRemoveMemMaskPass());
 
         pm.addPass(toucan::createCanonicalizerPass());
     }

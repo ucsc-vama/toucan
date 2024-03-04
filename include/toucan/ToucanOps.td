@@ -81,25 +81,23 @@ def RegWriteOp: ToucanOp<"reg_write"> {
 def MemReadOp: ToucanOp<"mem_read", [Pure]> {
   let summary = "memory read";
   let description = summary;
-  let hasCanonicalizeMethod = 1;
 
   let arguments = (ins
     MemType: $mem,
     // HWIntegerType: $addr,
-    Variadic<HWIntegerType>: $addrs,
-    I1: $en
+    Variadic<HWIntegerType>: $addrs
   );
 
   let results = (outs AnySignlessInteger: $result);
 
   let builders = [
-    OpBuilder<(ins "mlir::Value":$mem, "mlir::ArrayRef<mlir::Value>":$addrs, "mlir::Value":$en), [{
+    OpBuilder<(ins "mlir::Value":$mem, "mlir::ArrayRef<mlir::Value>":$addrs), [{
       auto dataType = mem.getType().cast<toucan::MemType>().getElementType();
-      build($_builder, $_state, dataType, mem, addrs, en);
+      build($_builder, $_state, dataType, mem, addrs);
     }]>
   ];
 
-  let assemblyFormat = "$mem `[` type($addrs) $addrs `]` `en` $en attr-dict `:` type($mem) `->` type($result)";
+  let assemblyFormat = "$mem `[` type($addrs) $addrs `]` attr-dict `:` type($mem) `->` type($result)";
 
 }
 

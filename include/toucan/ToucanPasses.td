@@ -54,6 +54,16 @@ def ExpandMemoryDelay: Pass<"expand-memory-delay", "circt::ModuleOp"> {
   ];
 }
 
+def RemoveMemReadEn: Pass<"remove-memread-en", "circt::ModuleOp"> {
+  let summary = "Remove enable signals from all seq::FirMemReadOp. (Replace them with const true)";
+  let description = summary;
+  let constructor = "toucan::createRemoveMemReadEnPass()";
+  let statistics = [
+    Statistic<"memsWithEn", "Memory with en signal", "Memory with en signal (for now simply remove the enable signal)">,
+    Statistic<"memsWithoutEn", "Memory without an en signal", "Memory without an en signal">,
+  ];
+}
+
 def ReplaceAsyncResetRegs: Pass<"replace-async-reset-regs", "circt::ModuleOp"> {
   let summary = "Replace async reset registers with sync reset";
   let description = summary;

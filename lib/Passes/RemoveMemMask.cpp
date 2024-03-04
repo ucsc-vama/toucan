@@ -138,19 +138,15 @@ struct RemoveMemMaskPass : toucan::impl::RemoveMemMaskBase<RemoveMemMaskPass> {
             auto memAddr = memReadOp.getAddress();
             auto memAddrs = split_value_4B(op, memAddr, rewriter);
             auto memEn = memReadOp.getEnable();
-
-            auto trueVal = rewriter.getIntegerAttr(rewriter.getI1Type(), 1);
-            auto enSignalOp = rewriter.create<hw::ConstantOp>(op->getLoc(), trueVal);
-            auto constTrue = cast<TypedValue<IntegerType>>(enSignalOp.getResult());
-
-            auto memEnSignal = (memEn) ? memEn : constTrue;
-
+            if (memEn) {
+              assert(false && "Memory should not have en signal here");
+            }
 
             if (newMemValues.size() == 1) {
               // only 1, no mask
               auto newMem = newMemValues.front();
 
-              auto readOp = rewriter.create<toucan::MemReadOp>(op->getLoc(), newMem, memAddrs, memEnSignal);
+              auto readOp = rewriter.create<toucan::MemReadOp>(op->getLoc(), newMem, memAddrs);
 
               auto namehint = getSVNameHintAttr(newMem.getDefiningOp()).value();
               setSVNameHintAttr(readOp, namehint);
@@ -161,7 +157,7 @@ struct RemoveMemMaskPass : toucan::impl::RemoveMemMaskBase<RemoveMemMaskPass> {
               SmallVector<mlir::Value> memReadResults;
               
               for (auto &newMem: newMemValues) {
-                auto readOp = rewriter.create<toucan::MemReadOp>(op->getLoc(), newMem, memAddrs, memEnSignal);
+                auto readOp = rewriter.create<toucan::MemReadOp>(op->getLoc(), newMem, memAddrs);
                 memReadResults.push_back(readOp.getResult());
 
                 auto namehint = getSVNameHintAttr(newMem.getDefiningOp()).value();

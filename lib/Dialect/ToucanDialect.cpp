@@ -60,20 +60,6 @@ LogicalResult PrintOp::canonicalize(PrintOp op, PatternRewriter &rewriter) {
   return failure();
 }
 
-
-LogicalResult MemReadOp::canonicalize(MemReadOp op, PatternRewriter &rewriter) {
-  auto enSignal = op.getEn();
-  if (auto constOp = enSignal.getDefiningOp<hw::ConstantOp>()) {
-    auto constVal = constOp.getValue();
-    if (!constVal.getBoolValue()) {
-      // Erase current PrintOp if printOp.En == false (constant)
-      rewriter.eraseOp(op);
-      return success();
-    }
-  }
-  return failure();
-}
-
 LogicalResult MemWriteOp::canonicalize(MemWriteOp op, PatternRewriter &rewriter) {
   auto enSignal = op.getEn();
   if (auto constOp = enSignal.getDefiningOp<hw::ConstantOp>()) {
