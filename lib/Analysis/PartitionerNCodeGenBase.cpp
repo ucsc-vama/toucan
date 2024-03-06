@@ -8,17 +8,24 @@
 #include "mlir/Pass/AnalysisManager.h"
 #include "mlir/Support/LLVM.h"
 #include "toucan/ToucanAnalysis.h"
+#include "toucan/ToucanAttributes.h"
 #include "toucan/ToucanOps.h"
 #include "toucan/ToucanTypes.h"
 #include "toucan/ToucanUtils.h"
 
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/ErrorHandling.h"
+#include <_types/_uint8_t.h>
 #include <cstddef>
 #include <cstdint>
 
 #include <boost/graph/topological_sort.hpp>
+#include <cstring>
 #include <iterator>
+#include <array>
+#include <vector>
+
 
 using namespace toucan;
 
@@ -204,6 +211,24 @@ void PartitionerNCodeGenBase::generateRegMemLayout(DesignGraph &graph, uint32_t 
   codeGenInfo.totalMemSize = memBaseAddr;
 }
 
+void PartitionerNCodeGenBase::collectPrintString(DesignGraph &graph) {
+  uint32_t stringId = 0;
+
+  for (uint32_t vtxId = 0; vtxId < boost::num_vertices(graph.g); vtxId++) {
+    auto vtxOpName = graph.g[vtxId].toucanOpName;
+    if (vtxOpName == CGToucanOPName::Print) {
+      auto printOp = cast<toucan::PrintOp>(graph.g[vtxId].op);
+
+      auto printStr = printOp.getMsg();
+      if (!codeGenInfo.printStrings.contains(printStr)) {
+        // a new string
+        codeGenInfo.printStrings[printStr] = stringId;
+        stringId++;
+      }
+    }
+  }
+}
+
 void PartitionerNCodeGenBase::collectConstant(DesignGraph &graph, CGPartitionMetaInfo &partInfo, uint32_t partId) {
   // Collect all consts, populate value pool
   for (uint32_t vtxId = 0; vtxId < boost::num_vertices(graph.g); vtxId++) {
@@ -212,22 +237,33 @@ void PartitionerNCodeGenBase::collectConstant(DesignGraph &graph, CGPartitionMet
       auto vtxOpName = graph.g[vtxId].toucanOpName;
       if (vtxOpName == CGToucanOPName::ConstDecl) {
         auto op = graph.g[vtxId].op;
-        partInfo.opToResultValueId[op] = partInfo.valuePool.size();
+        
+        // partInfo.opToResultValueId[op] = partInfo.valuePool.size();
+        partInfo.valueToValId[op->getResult(0)] = partInfo.valuePool.size();
 
         if (auto constOp = dyn_cast<toucan::ConstantOp>(op)) {
           // regular const
           auto constVal = constOp.getValue();
           assert(constVal.getBitWidth() <= 4);
           auto rawVal = static_cast<uint8_t>(constVal.getZExtValue());
-          partInfo.valuePool.push_back({true, rawVal, op});
+          // save op result value
+          auto valId = partInfo.valuePool.size();
+          partInfo.valueToValId[constOp.getResult()] = valId;
+
+          partInfo.valuePool.push_back({true, false, rawVal, op});
         } else {
           // it must be a vector const
           auto defConstVecOp = cast<toucan::DefConstVectorOp>(op);
+          // save op result value
+          // Vec result map to first vec element
+          auto valId = partInfo.valuePool.size();
+          partInfo.valueToValId[defConstVecOp.getHandle()] = valId;
+
           for (auto &vecValElem: defConstVecOp.getValues().getValue()) {
             auto elemVal = cast<mlir::IntegerAttr>(vecValElem).getValue();
             assert(elemVal.getBitWidth() <= 4);
             auto rawVal = static_cast<uint8_t>(elemVal.getZExtValue());
-            partInfo.valuePool.push_back({true, rawVal, op});
+            partInfo.valuePool.push_back({true, false, rawVal, op});
           }
         }
       }
@@ -235,19 +271,37 @@ void PartitionerNCodeGenBase::collectConstant(DesignGraph &graph, CGPartitionMet
   }
 }
 
+static void populateOpMetaDebugInfo(CGOpMetaInfo &opMeta, Operation *op) {
+  opMeta.namehint = getSVNameHintAttr(op);
+
+  auto fragmentIdAttr = getSignalFragmentIDAttr(op);
+  if (fragmentIdAttr) {
+    opMeta.fragment_id = fragmentIdAttr->getInt();
+  } else {
+    opMeta.fragment_id = UINT32_MAX;
+  }
+}
+
 void PartitionerNCodeGenBase::generateMemoryLayout(DesignGraph &graph, uint32_t partitionRegPaddingSpace, uint32_t memPaddingSpace) {
+  // TODO: parallelize for each partition
 
   // Collect information for code gen
   // This function also determines register layout
   generateRegMemLayout(graph, partitionRegPaddingSpace, memPaddingSpace);
 
+  // dedup strings
+  collectPrintString(graph);
 
+
+  // Temporary storage for operations inside current level
+  mlir::SmallVector<CGOpMetaInfo> currentLevelOps;
 
   for (size_t partId = 0; partId < partitions.size(); partId++) {
     CGPartitionMetaInfo partInfo;
+    std::memset(&partInfo.opStatistics, 0, sizeof(CGOpStatistics));
 
     // A const zero for all luts
-    CGValueMetaInfo zeroConst = {true, 0, nullptr};
+    CGValueMetaInfo zeroConst = {true, false, 0, nullptr, UINT32_MAX};
     partInfo.valuePool.push_back(zeroConst);
 
     // Collect all constants
@@ -260,64 +314,501 @@ void PartitionerNCodeGenBase::generateMemoryLayout(DesignGraph &graph, uint32_t 
     auto &firstLevel = partLevels[partId][0];
     auto &lastLevel = *partLevels[partId].end();
 
-    // First level. should only contains regread or const decl, the later will be pushed into const pool
-    mlir::SmallVector<CGOpMetaInfo> firstLevelOps;
-    for (auto vtxId: firstLevel) {
-      auto tOpName = graph.g[vtxId].toucanOpName;
-      assert(tOpName == CGToucanOPName::RegRead || tOpName == CGToucanOPName::MemRead);
+    {
+      // First level. should only contains regread or const decl, the later will be pushed into const pool
+      currentLevelOps.clear();
+      currentLevelOps.reserve(firstLevel.size());
+      for (auto vtxId: firstLevel) {
+        auto tOpName = graph.g[vtxId].toucanOpName;
+        assert(tOpName == CGToucanOPName::RegRead);
 
-      auto op = graph.g[vtxId].op;
-      CGOpMetaInfo opMeta;
-      opMeta.opName = tOpName;
+        auto op = graph.g[vtxId].op;
+        CGOpMetaInfo opMeta;
+        opMeta.opName = tOpName;
+        opMeta.op = op;
+        opMeta.vtxId = vtxId;
+        populateOpMetaDebugInfo(opMeta, op);
 
-      if (tOpName == CGToucanOPName::RegRead) {
-        // a regread
-        auto regReadOp = cast<toucan::RegReadOp>(op);
-        auto regVal = regReadOp.getReg();
-        auto regValId = codeGenInfo.toucanRegToId[regVal];
+        if (tOpName == CGToucanOPName::RegRead) {
+          // a regread
+          auto regReadOp = cast<toucan::RegReadOp>(op);
+          auto regVal = regReadOp.getReg();
+          auto regValId = codeGenInfo.toucanRegToId[regVal];
 
-        opMeta.regRead.reg = regValId;
-        firstLevelOps.push_back(opMeta);
-      } else if (tOpName == CGToucanOPName::ConstDecl) {
-        // A constant decl. Do nothing.
-      } else {
-        assert(false && "Should not reach here");
+          opMeta.regRead.reg = regValId;
+          currentLevelOps.push_back(opMeta);
+        } else if (tOpName == CGToucanOPName::ConstDecl) {
+          // A constant decl. Do nothing.
+        } else {
+          assert(false && "Should not reach here");
+        }
       }
+      // Allocate result storage
+      auto nextOpId = partInfo.opPool.size();
+      for (auto &opMeta: currentLevelOps) {
+        assert(opMeta.opName == CGToucanOPName::RegRead);
+        auto valId = partInfo.valuePool.size();
+
+        // new val
+        CGValueMetaInfo valMeta;
+        valMeta.isConst = false;
+        valMeta.isPlaceholder = false;
+        valMeta.value = 0;
+        valMeta.definingOp = opMeta.op;
+        valMeta.definingOpId = nextOpId;
+
+        partInfo.valuePool.push_back(valMeta);
+        partInfo.valueToValId[opMeta.op->getResult(0)] = valId;
+        opMeta.setResult(valId);
+        nextOpId++;
+      }
+
+      // Save statistics
+      CGLayerValueStatistics stats;
+      std::memset(&stats, 0, sizeof(CGLayerValueStatistics));
+      stats.numRegReads = currentLevelOps.size();
+      partInfo.opStatisticsPerLevel.push_back(stats);
+
+      partInfo.opStatistics.numRegReads = currentLevelOps.size();
+      // Save ops
+      partInfo.opPool.push_back(std::move(currentLevelOps));
     }
-    // TODO: Allocate result storage
+
+
 
     // Codegen for middle layers
     // At least 3 layers: 1 for input, 1 for lut, the last 1 for output
     assert(partLevels[partId].size() > 2);
+
+    // lut ops. May be reordered for performance reason
+    mlir::SmallVector<CGOpMetaInfo> lutOps;
+    // vec produced by nops. ** Don't reorder **
+    // each defvector is converted to a list of LUT_Nop
+    mlir::SmallVector<mlir::SmallVector<CGOpMetaInfo>> vecDecls;
+    mlir::SmallVector<mlir::Value> vecDeclVals;
+    // vec produced by nops. ** Don't reorder **
+    mlir::SmallVector<mlir::SmallVector<CGOpMetaInfo>> vecReadOps;
+    mlir::SmallVector<mlir::Value> vecReadHandleVals;
+    // mem reads. reorder is not necessary
+    mlir::SmallVector<CGOpMetaInfo> memReadOps;
+
+    mlir::SmallVector<CGOpMetaInfo> currentVecReadOps;
+    mlir::SmallVector<CGOpMetaInfo> currentVecDeclOps;
+    std::array<uint32_t, 3> lutOpValueIds;
+    std::array<uint32_t, 4> vecReadOpIndexIds;
+    std::array<uint32_t, 8> memReadOpIndexIds;
+
     for (size_t layerId = 1; layerId < partLevels[partId].size() - 1; layerId++) {
       auto &currentLevel = partLevels[partId][layerId];
 
+      currentLevelOps.clear();
+
+      lutOps.clear();
+      vecReadOps.clear();
+      memReadOps.clear();
+
       for (auto vtxId: currentLevel) {
         auto tOpName = graph.g[vtxId].toucanOpName;
-        auto op = graph.g[vtxId].op;
-        auto vtxWeight = graph.g[vtxId].weight;
-        // lut 
-        // vec, expand
+        auto rawOp = graph.g[vtxId].op;
+        // auto vtxWeight = graph.g[vtxId].weight;
 
-        // mem read
-        if (tOpName == CGToucanOPName::MemRead) {
-          CGOpMetaInfo opMeta;
+        CGOpMetaInfo opMeta;
+        opMeta.opName = tOpName;
+        opMeta.op = rawOp;
+        opMeta.vtxId = vtxId;
+        populateOpMetaDebugInfo(opMeta, rawOp);
+
+        if (tOpName == CGToucanOPName::LUT) {
+          // lut
+          auto lutOp = cast<toucan::LUTOp>(rawOp);
+
+          // fill input oprands
+          auto lutInputs = lutOp.getInputs();
+          auto numLutOprands = lutInputs.size();
+          assert(numLutOprands <= 3);
+          size_t pos = 0;
+          for (; pos < 3 - numLutOprands; pos++) {
+            // Note: the first elem in value pool is const 0
+            lutOpValueIds[pos] = 0;
+          }
+          for (auto val: lutOp.getInputs()) {
+            auto valId = partInfo.valueToValId[val];
+            lutOpValueIds[pos] = valId;
+            pos++;
+          }
+
+          auto rawOpName = static_cast<uint32_t>(lutOp.getOpName());
+          assert(rawOpName < 128);
+          opMeta.lut.lutId = static_cast<uint8_t>(rawOpName);
+          opMeta.lut.op0 = lutOpValueIds[0];
+          opMeta.lut.op1 = lutOpValueIds[1];
+          opMeta.lut.op2 = lutOpValueIds[2];
+          opMeta.lut.numOprands = numLutOprands;
+
+          populateOpMetaDebugInfo(opMeta, rawOp);
+
+          lutOps.push_back(opMeta);
+        } else if (tOpName == CGToucanOPName::VecDecl) {
+          // vec decl, expand to list of nops
+          currentVecDeclOps.clear();
+          auto vecDeclOp = cast<toucan::DefVectorOp>(rawOp);
+          for (auto elemVal: vecDeclOp.getInputs()) {
+            // Create a NOP
+            CGOpMetaInfo opMeta;
+            opMeta.opName = CGToucanOPName::LUT;
+            opMeta.op = rawOp;
+            opMeta.vtxId = vtxId;
+            // nop, the op code should be 0
+            opMeta.lut.lutId = static_cast<uint8_t>(LUTOpName::LUT_Nop);
+            opMeta.lut.op0 = 0;
+            opMeta.lut.op1 = 0;
+            opMeta.lut.op2 = partInfo.valueToValId[elemVal];
+            opMeta.lut.numOprands = 1;
+
+            // No namehint
+
+            currentVecDeclOps.push_back(opMeta);
+          }
+          // Nops are ordered.
+          vecDecls.push_back(std::move(currentVecDeclOps));
+          vecDeclVals.push_back(vecDeclOp.getHandle());
+        } else if (tOpName == CGToucanOPName::VecRead) {
+          currentVecReadOps.clear();
+
+          auto vecReadOp = cast<toucan::VectorReadOp>(rawOp);
+          auto vecHandle = vecReadOp.getHandle();
+          auto vecHandleId = partInfo.valueToValId[vecHandle];
+          auto vecLength = vecHandle.getType().getLength();
+
+          for (auto userOp: vecHandle.getUsers()) {
+            auto userReadOp = cast<toucan::VectorReadOp>(userOp);
+
+            // offset: i16
+            auto offset = userReadOp.getOffset().getZExtValue();
+            auto outRangeValue = userReadOp.getOutRangeValue();
+
+
+            // collect index vecReadOpIndexIds
+            auto indexValues = userReadOp.getIndicies();
+            auto numIndexValues = indexValues.size();
+            assert(numIndexValues <= 4 && "Index is too long");
+
+            size_t pos = 0;
+            for (; pos < 4 - numIndexValues; pos++) {
+              // Note: the first elem in value pool is const 0
+              vecReadOpIndexIds[pos] = 0;
+            }
+            for (auto val: indexValues) {
+              auto valId = partInfo.valueToValId[val];
+              vecReadOpIndexIds[pos] = valId;
+              pos++;
+            }
+
+
+            CGOpMetaInfo opMeta;
+            opMeta.opName = CGToucanOPName::VecRead;
+            opMeta.op = rawOp;
+            opMeta.vtxId = vtxId;
+            // nop, the op code should be 0
+            opMeta.vec.vecBase = vecHandleId;
+            opMeta.vec.vecLength = vecLength;
+            opMeta.vec.index0 = vecReadOpIndexIds[0];
+            opMeta.vec.index1 = vecReadOpIndexIds[1];
+            opMeta.vec.index2 = vecReadOpIndexIds[2];
+            opMeta.vec.index3 = vecReadOpIndexIds[3];
+
+            opMeta.vec.outRangeValue = partInfo.valueToValId[outRangeValue];
+            opMeta.vec.offset = static_cast<uint16_t>(offset);
+
+            currentVecReadOps.push_back(opMeta);
+          }
+
+          // Sort by offset for performance reason
+          std::sort(currentVecReadOps.begin(), currentVecReadOps.end(), 
+            [](const CGOpMetaInfo& a, const CGOpMetaInfo& b) {return a.vec.offset < b.vec.offset;});
+
+          // No namhint
+
+          vecReadOps.push_back(std::move(currentVecReadOps));
+          vecReadHandleVals.push_back(vecHandle);
+
+        } else if (tOpName == CGToucanOPName::MemRead) {
           // a memread
-          auto memReadOp = cast<toucan::MemReadOp>(op);
+          auto memReadOp = cast<toucan::MemReadOp>(rawOp);
           auto memVal = memReadOp.getMem();
           auto memValId = codeGenInfo.toucanMemToId[memVal];
 
+          auto memAddrs = memReadOp.getAddrs();
+          auto numMemAddrs = memAddrs.size();
+          assert(numMemAddrs <= 8 && "Memory address is too long");
+
+          size_t pos = 0;
+          for (; pos < 8 - numMemAddrs; pos++) {
+            // Note: the first elem in value pool is const 0
+            memReadOpIndexIds[pos] = 0;
+          }
+          for (auto val: memAddrs) {
+            auto valId = partInfo.valueToValId[val];
+            memReadOpIndexIds[pos] = valId;
+            pos++;
+          }
+
           opMeta.memRead.hasMultipleWriter = codeGenInfo.memPool[memValId].hasMultipleWriter;
           opMeta.memRead.memBase = codeGenInfo.memPool[memValId].memBase;
+          opMeta.memRead.memDepth = codeGenInfo.memPool[memValId].memDepth;
 
-          // TODO: collect addr
+          opMeta.memRead.addr0 = memReadOpIndexIds[0];
+          opMeta.memRead.addr1 = memReadOpIndexIds[1];
+          opMeta.memRead.addr2 = memReadOpIndexIds[2];
+          opMeta.memRead.addr3 = memReadOpIndexIds[3];
+          opMeta.memRead.addr4 = memReadOpIndexIds[4];
+          opMeta.memRead.addr5 = memReadOpIndexIds[5];
+          opMeta.memRead.addr6 = memReadOpIndexIds[6];
+          opMeta.memRead.addr7 = memReadOpIndexIds[7];
+
+          populateOpMetaDebugInfo(opMeta, rawOp);
+          
+          memReadOps.push_back(opMeta);
+        } else {
+          assert(false && "other type of op should not appear in middle levels");
         }
       }
+
+      // reorder luts for this layer
+      auto findFirstOpValId = [](const CGOpMetaInfo &opMeta) {
+        switch (opMeta.lut.numOprands) {
+          case 1: return opMeta.lut.op2;
+          case 2: return std::min(opMeta.lut.op1, opMeta.lut.op2);
+          case 3: return std::min(std::min(opMeta.lut.op0, opMeta.lut.op1), opMeta.lut.op2);
+          default:
+            assert(false && "numOprands could only be 1, 2, or 3");
+        }
+      };
+      // order by smallest input value id
+      std::sort(lutOps.begin(), lutOps.end(), [&](const CGOpMetaInfo &a, const CGOpMetaInfo &b) {
+        return findFirstOpValId(a) < findFirstOpValId(b);
+      });
+
+
+      // Record number of luts/memreads/vecreads for later performance tuning
+      CGLayerValueStatistics stats;
+      std::memset(&stats, 0, sizeof(CGLayerValueStatistics));
+      stats.numMemReads = memReadOps.size();
+      stats.numVecReads = vecReadOps.size();
+      stats.numLuts = lutOps.size();
+      // Note: vecDecl ops are lowered to Nops, which is also lut type
+      for (auto &eachVecDeclOps: vecDecls) {
+        stats.numLuts += eachVecDeclOps.size();
+        partInfo.opStatistics.numLutNops += eachVecDeclOps.size();
+      }
+      partInfo.opStatisticsPerLevel.push_back(stats);
+
+      partInfo.opStatistics.numMemReads += stats.numMemReads;
+      partInfo.opStatistics.numVecReads += stats.numVecReads;
+      partInfo.opStatistics.numLuts += stats.numLuts;
+
+      // Within each layer, place memReads first, then vecReads, luts are the last
+      // Allocate storage for this layer
+      currentLevelOps.reserve(stats.numMemReads + stats.numVecReads + stats.numLuts);
+      auto nextOpId = partInfo.opPool.size();
+      // save op, allocate result storage
+      auto allocateResultForMiddleLayer = [&](CGOpMetaInfo &opMeta) {
+        auto valId = partInfo.valuePool.size();
+        auto resultVal = opMeta.op->getResult(0);
+
+        CGValueMetaInfo valMeta;
+        valMeta.isConst = false;
+        valMeta.isPlaceholder = false;
+        valMeta.value = 0;
+        valMeta.definingOp = opMeta.op;
+        valMeta.definingOpId = nextOpId;
+
+        partInfo.valueToValId[resultVal] = valId;
+        partInfo.valuePool.push_back(valMeta);
+
+        opMeta.setResult(valId);
+        currentLevelOps.push_back(opMeta);
+        nextOpId++;
+      };
+
+      // place mem reads
+      for (auto &opMeta: memReadOps) {
+        assert(opMeta.opName == CGToucanOPName::MemRead);
+        allocateResultForMiddleLayer(opMeta);
+      }
+
+      // place vecReads
+      for (auto [singleVecReadOps, vecHandle]: llvm::zip(vecReadOps, vecReadHandleVals)) {
+        // each elem inside singleVecReadOps reads vector vecHandle
+        for (auto &opMeta: singleVecReadOps) {
+          assert(opMeta.opName == CGToucanOPName::VecRead);
+          allocateResultForMiddleLayer(opMeta);
+        }
+      }
+
+      // place luts
+      for (auto &opMeta: lutOps) {
+        assert(opMeta.opName == CGToucanOPName::LUT);
+        allocateResultForMiddleLayer(opMeta);
+      }
+
+      // place vecdefs
+      for (auto [singleVecDefOps, vecHandle]: llvm::zip(vecDecls, vecDeclVals)) {
+        for (size_t i = 0; i < singleVecDefOps.size(); ++i) {
+          auto &opMeta = singleVecDefOps[i];
+          assert(opMeta.opName == CGToucanOPName::LUT);
+          assert(opMeta.lut.lutId == static_cast<uint8_t>(toucan::LUTOpName::LUT_Nop));
+
+          auto valId = partInfo.valuePool.size();
+
+          CGValueMetaInfo valMeta;
+          valMeta.isConst = false;
+          valMeta.value = 0;
+          valMeta.definingOp = opMeta.op;
+          valMeta.definingOpId = nextOpId;
+          // First op produces the vecHandle. 
+          // Other ops produces an invisible placeholder value
+          valMeta.isPlaceholder = (i != 0);
+          if (i == 0) {
+            partInfo.valueToValId[vecHandle] = valId;
+          } 
+          partInfo.valuePool.push_back(valMeta);
+
+          opMeta.setResult(valId);
+          currentLevelOps.push_back(opMeta);
+          nextOpId++;
+        }
+      }
+
+      // Save ops
+      partInfo.opPool.push_back(std::move(currentLevelOps));
     }
 
-    // TODO: last level
-    for (auto vtxId: lastLevel) {
-      //
+    // Code gen for last level
+    {
+      mlir::SmallVector<CGOpMetaInfo> regWriteOps;
+      mlir::SmallVector<CGOpMetaInfo> memWriteOps;
+      mlir::SmallVector<CGOpMetaInfo> printOps;
+      mlir::SmallVector<CGOpMetaInfo> stopOps;
+
+      std::array<uint32_t, 8> memReadOpIndexIds;
+
+      currentLevelOps.clear();
+      currentLevelOps.reserve(lastLevel.size());
+
+      for (auto vtxId: lastLevel) {
+        auto vtxOpName = graph.g[vtxId].toucanOpName;
+        auto rawOp = graph.g[vtxId].op;
+
+        CGOpMetaInfo opMeta;
+        opMeta.op = rawOp;
+        opMeta.opName = vtxOpName;
+        opMeta.vtxId = vtxId;
+
+        if (vtxOpName == CGToucanOPName::RegWrite) {
+          // regwrite
+          auto regWriteOp = cast<toucan::RegWriteOp>(rawOp);
+
+          auto regValId = partInfo.valueToValId[regWriteOp.getReg()];
+          auto dataValId = partInfo.valueToValId[regWriteOp.getData()];
+
+          opMeta.regWrite.reg = regValId;
+          opMeta.regWrite.dat = dataValId;
+
+          // Namehint not needed for last level ops
+          regWriteOps.push_back(opMeta);
+
+        } else if (vtxOpName == CGToucanOPName::MemWrite) {
+          // memWrite
+          auto memWriteOp = cast<toucan::MemWriteOp>(rawOp);
+          auto memValId = codeGenInfo.toucanMemToId[memWriteOp.getMem()];
+          auto dataValId = partInfo.valueToValId[memWriteOp.getData()];
+          auto enValId = partInfo.valueToValId[memWriteOp.getEn()];
+
+          auto memAddrs = memWriteOp.getAddrs();
+          auto numMemAddrs = memAddrs.size();
+          assert(numMemAddrs <= 8 && "Memory address is too long");
+
+          size_t pos = 0;
+          for (; pos < 8 - numMemAddrs; pos++) {
+            // Note: the first elem in value pool is const 0
+            memReadOpIndexIds[pos] = 0;
+          }
+          for (auto val: memAddrs) {
+            auto valId = partInfo.valueToValId[val];
+            memReadOpIndexIds[pos] = valId;
+            pos++;
+          }
+
+          opMeta.memWrite.hasMultipleWriter = codeGenInfo.memPool[memValId].hasMultipleWriter;
+          opMeta.memWrite.memBase = codeGenInfo.memPool[memValId].memBase;
+          opMeta.memWrite.memDepth = codeGenInfo.memPool[memValId].memDepth;
+
+          opMeta.memWrite.addr0 = memReadOpIndexIds[0];
+          opMeta.memWrite.addr1 = memReadOpIndexIds[1];
+          opMeta.memWrite.addr2 = memReadOpIndexIds[2];
+          opMeta.memWrite.addr3 = memReadOpIndexIds[3];
+          opMeta.memWrite.addr4 = memReadOpIndexIds[4];
+          opMeta.memWrite.addr5 = memReadOpIndexIds[5];
+          opMeta.memWrite.addr6 = memReadOpIndexIds[6];
+          opMeta.memWrite.addr7 = memReadOpIndexIds[7];
+
+          opMeta.memWrite.dat = dataValId;
+          opMeta.memWrite.en = enValId;
+
+          // Namehint not needed for last level ops
+          memWriteOps.push_back(opMeta);
+
+        } else if (vtxOpName == CGToucanOPName::Print) {
+          // print
+          auto printOp = cast<toucan::PrintOp>(rawOp);
+          auto printStr = printOp.getMsg();
+          auto enValId = partInfo.valueToValId[printOp.getEn()];
+          
+          auto printStrId = codeGenInfo.printStrings[printStr];
+
+          opMeta.print.en = enValId;
+          opMeta.print.msg = printStrId;
+
+          // Namehint not needed for last level ops
+          printOps.push_back(opMeta);
+
+        } else if (vtxOpName == CGToucanOPName::Stop) {
+          // stop
+          auto stopOp = cast<toucan::StopOp>(rawOp);
+          auto enValId = partInfo.valueToValId[stopOp.getEn()];
+
+          opMeta.stop.en = enValId;
+
+          // Namehint not needed for last level ops
+          stopOps.push_back(opMeta);
+
+        } else {
+          llvm_unreachable("Other type of ops should not appear in last level");
+        }
+      }
+
+      // Since non of last level ops produces any output, we don't need allocate storage.
+      // Simply push back
+      currentLevelOps.append(regWriteOps.begin(), regWriteOps.end());
+      currentLevelOps.append(memWriteOps.begin(), memWriteOps.end());
+      currentLevelOps.append(printOps.begin(), printOps.end());
+      currentLevelOps.append(stopOps.begin(), stopOps.end());
+
+      partInfo.opPool.push_back(std::move(currentLevelOps));
+
+      CGLayerValueStatistics stats;
+      std::memset(&stats, 0, sizeof(CGLayerValueStatistics));
+      stats.numRegWrites = regWriteOps.size();
+      stats.numMemWrites = memWriteOps.size();
+      stats.numPrints = printOps.size();
+      stats.numStops = stopOps.size();
+
+      partInfo.opStatisticsPerLevel.push_back(stats);
+      partInfo.opStatistics.numRegWrites = stats.numRegWrites;
+      partInfo.opStatistics.numMemWrites = stats.numMemWrites;
+      partInfo.opStatistics.numPrints = stats.numPrints;
+      partInfo.opStatistics.numStops = stats.numStops;
     }
 
 

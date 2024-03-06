@@ -241,6 +241,7 @@ void CodeGenHelper::populateLUT_DShr() {
 }
 
 void CodeGenHelper::populateLUT() {
+  // TODO: generate Nop. This operation only takes 1 oprand and copy the value
   populateLUT_Rep1b();
   populateLUT_XorR();
 

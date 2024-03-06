@@ -4,6 +4,7 @@
 #include "circt/Dialect/Comb/CombOps.h"
 #include "circt/Dialect/Seq/SeqOps.h"
 
+#include "mlir/IR/Value.h"
 #include "mlir/Pass/AnalysisManager.h"
 #include "toucan/ToucanAnalysis.h"
 #include "toucan/ToucanOps.h"
@@ -55,7 +56,8 @@ static void mergeVerticies(uint32_t dst, mlir::SmallVector<uint32_t> &toMerge, P
 static CGToucanOPName getOpName(Operation* op) {
   if (isa<toucan::ConstantOp>(op) || isa<toucan::DefConstVectorOp>(op)) return CGToucanOPName::ConstDecl;
   if (isa<toucan::LUTOp>(op)) return CGToucanOPName::LUT;
-  if (isa<toucan::DefVectorOp>(op)) return CGToucanOPName::VecRead;
+  if (isa<toucan::DefVectorOp>(op)) return CGToucanOPName::VecDecl;
+  if (isa<toucan::VectorReadOp>(op)) return CGToucanOPName::VecRead;
   if (isa<toucan::PrintOp>(op)) return CGToucanOPName::Print;
   if (isa<toucan::StopOp>(op)) return CGToucanOPName::Stop;
   if (isa<toucan::RegReadOp>(op)) return CGToucanOPName::RegRead;
@@ -87,7 +89,12 @@ DesignGraph::DesignGraph(Operation *op, AnalysisManager &am) {
 
     PartitioningGraphNodeProperty vp;
     vp.op = &stmt;
-    vp.weight = 1;
+    if (auto vecDefOp = dyn_cast<toucan::DefVectorOp>(stmt)) {
+      auto vecSize = vecDefOp.getHandle().getType().getLength();
+      vp.weight = vecSize;
+    } else {
+      vp.weight = 1;
+    }
     vp.toucanOpName = getOpName(&stmt);
     auto newVertex = boost::add_vertex(vp, rawGraph);
 
@@ -114,25 +121,35 @@ DesignGraph::DesignGraph(Operation *op, AnalysisManager &am) {
   mlir::SmallVector<uint32_t> vecReaders;
   mlir::SmallVector<uint32_t> memWriters;
 
+  mlir::DenseSet<mlir::Value> vecHandled;
   for (uint32_t vtxId = 0; vtxId < boost::num_vertices(rawGraph); vtxId++) {
     auto rawOp = rawGraph[vtxId].op;
 
-    if (auto vecDeclOp = dyn_cast<toucan::DefVectorOp>(rawOp)) {
-      // Merge all vector readers with vector decl. Const vecs are not affected
-      for (auto userOp: vecDeclOp->getUsers()) {
-        if (auto vecReadOp = dyn_cast<toucan::VectorReadOp>(userOp)) {
-          auto vecReaderVtxId = rawOpToId[vecReadOp];
+    if (auto vecReadOp = dyn_cast<toucan::VectorReadOp>(rawOp)) {
+      // vector read. merge all into 1
+      auto vecHandle = vecReadOp.getHandle();
+      if (!vecHandled.contains(vecHandle)) {
+        // a New vector
+        vecReaders.clear();
+        for (auto userOp: vecHandle.getUsers()) {
+          assert(isa<toucan::VectorReadOp>(userOp));
+          auto vecReaderVtxId = rawOpToId[userOp];
           vecReaders.push_back(vecReaderVtxId);
-        } else {
-          assert(false && "Vector used by node other than toucan::VectorReadOp");
         }
-      }
 
-      mergeVerticies(vtxId, vecReaders, rawGraph);
-      vtxToRemove.insert(vecReaders.begin(), vecReaders.end());
-      vecReaders.clear();
+        if (vecReaders.size() > 1) {
+          // Merge readers
+          auto topVtxId = vecReaders.back();
+          vecReaders.pop_back();
+          mergeVerticies(topVtxId, vecReaders, rawGraph);
+          vtxToRemove.insert(vecReaders.begin(), vecReaders.end());
+        }
+
+        vecHandled.insert(vecHandle);
+      }
     } else if (auto memDeclOp = dyn_cast<toucan::DefMemOp>(rawOp)) {
       // Merge multiple writers of a same memory into 1
+      memWriters.clear();
       for (auto userOp: memDeclOp->getUsers()) {
         if (auto memWriteOp = dyn_cast<toucan::MemWriteOp>(userOp)) {
           // a new write port
@@ -148,8 +165,6 @@ DesignGraph::DesignGraph(Operation *op, AnalysisManager &am) {
         mergeVerticies(topVtxId, memWriters, rawGraph);
         vtxToRemove.insert(memWriters.begin(), memWriters.end());
       }
-
-      memWriters.clear();
     } 
     // else if (auto constOp = dyn_cast<toucan::ConstantOp>(rawOp)) {
     //   // save

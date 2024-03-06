@@ -121,6 +121,9 @@ size_t LUTOp::getLegalOperandCount(toucan::LUTOpName opName) {
     case LUTOpName::LUT_DShl:
     case LUTOpName::LUT_DShr:
       return 3;
+    
+    case LUTOpName::LUT_Nop:
+      assert(false && "LUT_Nop is used solely by backend codegen and should not manually create.");
   }
   llvm_unreachable("Unknow op name");
 }
@@ -306,6 +309,8 @@ LogicalResult LUTOp::canonicalize(LUTOp op, PatternRewriter &rewriter) {
     case LUTOpName::LUT_DShr:
     case LUTOpName::LUT_XorR:
     break;
+    case LUTOpName::LUT_Nop:
+      assert(false && "LUT_Nop is used solely by backend codegen and should not manually create.");
   }
   return failure();
 }
