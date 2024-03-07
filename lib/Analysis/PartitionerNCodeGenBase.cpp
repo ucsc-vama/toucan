@@ -61,10 +61,11 @@ void PartitionerNCodeGenBase::levelizePartitions(DesignGraph &graph) {
     }
   }
 
+  assert(!sinkVtxes.empty());
+
   // init
   for (size_t partId = 0; partId < partitions.size(); ++partId) {
-    partLevels.push_back({});
-    partLevels[partId].push_back({});
+    partLevels.emplace_back();
   }
 
   // save level in partition
@@ -75,7 +76,7 @@ void PartitionerNCodeGenBase::levelizePartitions(DesignGraph &graph) {
     auto vtxPartition = vtxIdToPartId[vtx];
     // grow container if needed
     for (size_t levelId = partLevels[vtxPartition].size(); levelId <= vtxLevel; levelId++) {
-      partLevels[vtxPartition].push_back({});
+      partLevels[vtxPartition].emplace_back();
     }
     partLevels[vtxPartition][vtxLevel].push_back(vtx);
   }
@@ -86,15 +87,16 @@ void PartitionerNCodeGenBase::levelizePartitions(DesignGraph &graph) {
   }), partLevels.end());
 
   // push all sink vtx to last level
-  for (size_t partId = 0; partId < partitions.size(); ++partId) {
-    // An empty level to hold all sink vtx
-    partLevels[partId].push_back({});
+  for (auto &eachPart: partLevels) {
+    eachPart.emplace_back();
   }
+
+  assert(!sinkVtxes.empty());
   for (auto sinkVtx: sinkVtxes) {
     auto partId = vtxIdToPartId[sinkVtx];
     auto numParts = partLevels.size();
     assert(partId < numParts);
-    partLevels[partId].end()->push_back(sinkVtx);
+    partLevels[partId].back().push_back(sinkVtx);
   }
   
   // debug
@@ -116,22 +118,11 @@ void PartitionerNCodeGenBase::levelizePartitions(DesignGraph &graph) {
   return;
 }
 
-// void PartitionerNCodeGenBase::collectPrintMsgs(DesignGraph &graph) {
-//   mlir::DenseMap<mlir::StringRef, uint32_t> stringToId;
-
-//   for (uint32_t vtxId = 0; vtxId < boost::num_vertices(graph.g); vtxId++) {
-//     auto vtxOpName = graph.g[vtxId].toucanOpName;
-//     if (vtxOpName == CGToucanOPName::Print) {
-//       auto printOp = cast<toucan::PrintOp>(graph.g[vtxId].op);
-//       auto printMsgRef = printOp.getMsg();
-//     }
-//   }
-// }
 
 void PartitionerNCodeGenBase::generateRegMemLayout(DesignGraph &graph, uint32_t partitionRegPaddingSpace, uint32_t memPaddingSpace) {
   // collect all reg and memory, generate layout
   for (size_t partId = 0; partId < partitions.size(); partId++) {
-    auto &lastLevel = *partLevels[partId].end();
+    auto &lastLevel = partLevels[partId].back();
     for (auto vtxId: lastLevel) {
       // for each vtx in current partition
       auto vtxOpName = graph.g[vtxId].toucanOpName;
@@ -155,7 +146,6 @@ void PartitionerNCodeGenBase::generateRegMemLayout(DesignGraph &graph, uint32_t 
         auto regId = codeGenInfo.regPool.size();
         codeGenInfo.regPool.push_back(regMeta);
         codeGenInfo.toucanRegToId[regVal] = regId;
-        // TODO: fill reg debug info
       }
     }
     // Add extra padding
@@ -174,7 +164,6 @@ void PartitionerNCodeGenBase::generateRegMemLayout(DesignGraph &graph, uint32_t 
   // collect all reg and memory, generate layout
   uint64_t memBaseAddr = 0;
   for (size_t vtxId = 0; vtxId < boost::num_vertices(graph.g); vtxId++) {
-    // TODO: if this is too slow (unlikely), consider find all DefMem nodes
     // for each mem write
     auto vtxOpName = graph.g[vtxId].toucanOpName;
     if (vtxOpName == CGToucanOPName::MemWrite) {
@@ -205,7 +194,6 @@ void PartitionerNCodeGenBase::generateRegMemLayout(DesignGraph &graph, uint32_t 
       auto memId = codeGenInfo.memPool.size();
       codeGenInfo.memPool.push_back(memMeta);
       codeGenInfo.toucanMemToId[memVal] = memId; 
-      // TODO: fill mem debug info
     }
   }
   codeGenInfo.totalMemSize = memBaseAddr;
@@ -301,7 +289,7 @@ void PartitionerNCodeGenBase::generateMemoryLayout(DesignGraph &graph, uint32_t 
     std::memset(&partInfo.opStatistics, 0, sizeof(CGOpStatistics));
 
     // A const zero for all luts
-    CGValueMetaInfo zeroConst = {true, false, 0, nullptr, UINT32_MAX};
+    CGValueMetaInfo zeroConst = {true, false, 0, nullptr};
     partInfo.valuePool.push_back(zeroConst);
 
     // Collect all constants
@@ -312,7 +300,7 @@ void PartitionerNCodeGenBase::generateMemoryLayout(DesignGraph &graph, uint32_t 
     // middle levels should contain lut or vecread
     // last level should contains print, stop, regwrite, memwrite
     auto &firstLevel = partLevels[partId][0];
-    auto &lastLevel = *partLevels[partId].end();
+    auto &lastLevel = partLevels[partId].back();
 
     {
       // First level. should only contains regread or const decl, the later will be pushed into const pool
@@ -320,7 +308,6 @@ void PartitionerNCodeGenBase::generateMemoryLayout(DesignGraph &graph, uint32_t 
       currentLevelOps.reserve(firstLevel.size());
       for (auto vtxId: firstLevel) {
         auto tOpName = graph.g[vtxId].toucanOpName;
-        assert(tOpName == CGToucanOPName::RegRead);
 
         auto op = graph.g[vtxId].op;
         CGOpMetaInfo opMeta;
@@ -344,7 +331,6 @@ void PartitionerNCodeGenBase::generateMemoryLayout(DesignGraph &graph, uint32_t 
         }
       }
       // Allocate result storage
-      auto nextOpId = partInfo.opPool.size();
       for (auto &opMeta: currentLevelOps) {
         assert(opMeta.opName == CGToucanOPName::RegRead);
         auto valId = partInfo.valuePool.size();
@@ -355,12 +341,10 @@ void PartitionerNCodeGenBase::generateMemoryLayout(DesignGraph &graph, uint32_t 
         valMeta.isPlaceholder = false;
         valMeta.value = 0;
         valMeta.definingOp = opMeta.op;
-        valMeta.definingOpId = nextOpId;
 
         partInfo.valuePool.push_back(valMeta);
         partInfo.valueToValId[opMeta.op->getResult(0)] = valId;
         opMeta.setResult(valId);
-        nextOpId++;
       }
 
       // Save statistics
@@ -610,7 +594,6 @@ void PartitionerNCodeGenBase::generateMemoryLayout(DesignGraph &graph, uint32_t 
       // Within each layer, place memReads first, then vecReads, luts are the last
       // Allocate storage for this layer
       currentLevelOps.reserve(stats.numMemReads + stats.numVecReads + stats.numLuts);
-      auto nextOpId = partInfo.opPool.size();
       // save op, allocate result storage
       auto allocateResultForMiddleLayer = [&](CGOpMetaInfo &opMeta) {
         auto valId = partInfo.valuePool.size();
@@ -621,14 +604,12 @@ void PartitionerNCodeGenBase::generateMemoryLayout(DesignGraph &graph, uint32_t 
         valMeta.isPlaceholder = false;
         valMeta.value = 0;
         valMeta.definingOp = opMeta.op;
-        valMeta.definingOpId = nextOpId;
 
         partInfo.valueToValId[resultVal] = valId;
         partInfo.valuePool.push_back(valMeta);
 
         opMeta.setResult(valId);
         currentLevelOps.push_back(opMeta);
-        nextOpId++;
       };
 
       // place mem reads
@@ -665,7 +646,6 @@ void PartitionerNCodeGenBase::generateMemoryLayout(DesignGraph &graph, uint32_t 
           valMeta.isConst = false;
           valMeta.value = 0;
           valMeta.definingOp = opMeta.op;
-          valMeta.definingOpId = nextOpId;
           // First op produces the vecHandle. 
           // Other ops produces an invisible placeholder value
           valMeta.isPlaceholder = (i != 0);
@@ -676,7 +656,6 @@ void PartitionerNCodeGenBase::generateMemoryLayout(DesignGraph &graph, uint32_t 
 
           opMeta.setResult(valId);
           currentLevelOps.push_back(opMeta);
-          nextOpId++;
         }
       }
 
@@ -815,4 +794,9 @@ void PartitionerNCodeGenBase::generateMemoryLayout(DesignGraph &graph, uint32_t 
 
     codeGenInfo.partitionInfo.push_back(std::move(partInfo));
   }
+}
+
+void PartitionerNCodeGenBase::fillDebugInfo() {
+  // TODO: fill codeGenInfo.regDebugInfo, signalDebugInfo, memDebugInfo
+  // Consider parallel
 }

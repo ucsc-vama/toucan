@@ -69,7 +69,6 @@ namespace toucan {
     // value is valid if isConst
     uint8_t value;
     mlir::Operation *definingOp;
-    uint32_t definingOpId;
   };
 
 
@@ -286,10 +285,10 @@ namespace toucan {
 
     // debug info
     // name -> (start pos, bit width)
-    std::unordered_map<std::string, std::tuple<uint32_t, uint32_t>> regDebugInfo;
-    std::unordered_map<std::string, std::tuple<uint32_t, uint32_t>> signalDebugInfo;
+    mlir::DenseMap<mlir::StringRef, std::tuple<uint32_t, uint32_t>> regDebugInfo;
+    mlir::DenseMap<mlir::StringRef, std::tuple<uint32_t, uint32_t>> signalDebugInfo;
     // name -> (start pos, bit width, length)
-    std::unordered_map<std::string, std::tuple<uint32_t, uint32_t, uint32_t>> memDebugInfo;
+    mlir::DenseMap<mlir::StringRef, std::tuple<uint32_t, uint32_t, uint32_t>> memDebugInfo;
 
     // For developing purpose
     mlir::DenseMap<mlir::TypedValue<toucan::RegType>, uint32_t> toucanRegToId;
@@ -342,6 +341,8 @@ namespace toucan {
     void levelizePartitions(DesignGraph &graph);
 
     void generateMemoryLayout(DesignGraph &graph, uint32_t partitionRegPaddingSpace = 32, uint32_t memPaddingSpace = 32);
+
+    void fillDebugInfo();
 
   private:
 
