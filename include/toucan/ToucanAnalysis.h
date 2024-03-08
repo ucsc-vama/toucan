@@ -69,6 +69,12 @@ namespace toucan {
     // value is valid if isConst
     uint8_t value;
     mlir::Operation *definingOp;
+
+    uint32_t levelId;
+    uint32_t opId;
+
+    std::optional<mlir::StringRef> namehint;
+    uint32_t fragment_id;
   };
 
 
@@ -216,6 +222,38 @@ namespace toucan {
       }
       llvm_unreachable("Should not reach here");
     }
+    uint32_t getResult() {
+      switch (opName) {
+        case CGToucanOPName::LUT: return lut.result;
+        case CGToucanOPName::VecRead: return vec.result;
+        case CGToucanOPName::RegRead: return regRead.result;
+        case CGToucanOPName::MemRead: return memRead.result;
+
+        // ConstDecl & VecDecl: Should not have any op with such type
+        case CGToucanOPName::ConstDecl:
+        case CGToucanOPName::VecDecl:
+
+        case CGToucanOPName::ShouldNotAppear:
+        case CGToucanOPName::Print:
+        case CGToucanOPName::Stop:
+        case CGToucanOPName::RegWrite:
+        case CGToucanOPName::MemWrite: {
+          llvm::dbgs() << "Error: should not have result\n";
+          assert(false);
+        }
+      }
+      llvm_unreachable("Should not reach here");
+    }
+    bool hasResult() {
+      switch (opName) {
+        case CGToucanOPName::LUT:
+        case CGToucanOPName::VecRead:
+        case CGToucanOPName::RegRead:
+        case CGToucanOPName::MemRead: return true;
+
+        default: return false;
+      }
+    }
   };
 
   struct CGRegMetaInfo {
@@ -284,11 +322,12 @@ namespace toucan {
     mlir::DenseMap<mlir::StringRef, uint32_t> printStrings;
 
     // debug info
-    // name -> (start pos, bit width)
-    mlir::DenseMap<mlir::StringRef, std::tuple<uint32_t, uint32_t>> regDebugInfo;
-    mlir::DenseMap<mlir::StringRef, std::tuple<uint32_t, uint32_t>> signalDebugInfo;
+    // name -> (fragment 0, 1, 2, ...)
+    mlir::DenseMap<mlir::StringRef, mlir::SmallVector<uint32_t>> regDebugInfo;
+    // name -> ((part, valId), (part, valId), ..)
+    mlir::DenseMap<mlir::StringRef, mlir::SmallVector<std::tuple<uint32_t, uint32_t>>> signalDebugInfo;
     // name -> (start pos, bit width, length)
-    mlir::DenseMap<mlir::StringRef, std::tuple<uint32_t, uint32_t, uint32_t>> memDebugInfo;
+    mlir::DenseMap<mlir::StringRef, mlir::SmallVector<uint32_t>> memDebugInfo;
 
     // For developing purpose
     mlir::DenseMap<mlir::TypedValue<toucan::RegType>, uint32_t> toucanRegToId;

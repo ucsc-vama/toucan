@@ -8,6 +8,7 @@
 #include "circt/Dialect/Seq/SeqOps.h"
 
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -101,15 +102,26 @@ struct RemoveMemMaskPass : toucan::impl::RemoveMemMaskBase<RemoveMemMaskPass> {
           auto splitMemElemType = rewriter.getIntegerType(maskLaneWidth);
           // auto splitMemType = rewriter.getType<toucan::MemType>(memDepth, splitMemElemType);
           auto splitMemTypeAttr = rewriter.getAttr<toucan::MemType>(memDepth, splitMemElemType);
+          size_t accumulated_mem_width = 0;
           for (uint32_t i = 0; i < numSplittedMems; i++) {
             // Create i'th memory
-            auto splitMemName = rewriter.getStringAttr(memName + "_" + std::to_string(i));
+            // auto splitMemName = rewriter.getStringAttr(memName + "_" + std::to_string(i));
 
             auto newMemOp = rewriter.create<toucan::DefMemOp>(memOp.getLoc(), splitMemTypeAttr);
             auto newMem = newMemOp.getHandle();
 
             newMemValues.push_back(newMem);
-            setSVNameHintAttr(newMemOp, splitMemName);
+            if (memName.size() != 0) {
+              auto namehint = rewriter.getStringAttr(memName);
+              setSVNameHintAttr(newMemOp, namehint);
+            }
+
+            auto accumulateMemWidthAttr = rewriter.getI32IntegerAttr(accumulated_mem_width);
+            setAccumulatedMemWidthAttr(newMemOp, accumulateMemWidthAttr);
+            // auto memMaskFragmentIdAttr = rewriter.getI32IntegerAttr(i);
+            // setMemMaskFragmentIDAttr(newMemOp, memMaskFragmentIdAttr);
+            
+            accumulated_mem_width += newMem.getType().getElementWidth();
           }
 
         } else {
@@ -123,8 +135,10 @@ struct RemoveMemMaskPass : toucan::impl::RemoveMemMaskBase<RemoveMemMaskPass> {
 
           newMemValues.push_back(newMem);
 
-          auto namehint = rewriter.getStringAttr(memName);
-          setSVNameHintAttr(newMemOp, namehint);
+          if (memName.size() != 0) {
+            auto namehint = rewriter.getStringAttr(memName);
+            setSVNameHintAttr(newMemOp, namehint);
+          }
         }
 
         toRemove.push_back(memOp);

@@ -70,6 +70,15 @@ namespace toucan {
   void removeIOSignalMarker(mlir::Operation *op);
 
 
+  // mlir::StringRef getMemMaskFragmentIDAttr();
+  // void setMemMaskFragmentIDAttr(mlir::Operation *op, mlir::IntegerAttr &id);
+  // std::optional<mlir::IntegerAttr> getMemMaskFragmentIDAttr(mlir::Operation *op);
+
+  mlir::StringRef getAccumulatedMemWidthAttr();
+  void setAccumulatedMemWidthAttr(mlir::Operation *op, mlir::IntegerAttr &id);
+  std::optional<mlir::IntegerAttr> getAccumulatedMemWidthAttr(mlir::Operation *op);
+
+
 
 
   std::vector<std::tuple<int, int>> split_signal_4B(int bit_width);

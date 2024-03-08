@@ -95,6 +95,36 @@ namespace toucan {
     return std::optional<IntegerAttr>();
   }
 
+  StringRef getAccumulatedMemWidthAttr() {
+    return "accumulated_mem_width";
+  }
+
+  void setAccumulatedMemWidthAttr(Operation *op, IntegerAttr &id) {
+    op->setAttr(getAccumulatedMemWidthAttr(), id);
+  }
+
+  std::optional<IntegerAttr> getAccumulatedMemWidthAttr(Operation *op) {
+    if (op->hasAttr(getAccumulatedMemWidthAttr())) {
+        return op->getAttrOfType<IntegerAttr>(getAccumulatedMemWidthAttr());
+    }
+    return std::optional<IntegerAttr>();
+  }
+
+  // StringRef getMemMaskFragmentIDAttr() {
+  //   return "mem_mask_fragment_id";
+  // }
+
+  // void setMemMaskFragmentIDAttr(Operation *op, IntegerAttr &id) {
+  //   op->setAttr(getMemMaskFragmentIDAttr(), id);
+  // }
+
+  // std::optional<IntegerAttr> getMemMaskFragmentIDAttr(Operation *op) {
+  //   if (op->hasAttr(getMemMaskFragmentIDAttr())) {
+  //       return op->getAttrOfType<IntegerAttr>(getMemMaskFragmentIDAttr());
+  //   }
+  //   return std::optional<IntegerAttr>();
+  // }
+
   mlir::StringRef getIOSignalMarkerAttrName() {
     return "resultIsIO";
   }

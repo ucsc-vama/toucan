@@ -166,7 +166,7 @@ struct LowerRegMemTo4BPass : toucan::impl::LowerRegMemTo4BBase<LowerRegMemTo4BPa
         // auto namehint = rewriter.getStringAttr(memName);
 
         if (memWidth > 4) {
-          SmallVector<std::tuple<IntegerAttr, int, mlir::Value, mlir::StringAttr>> newMemInfos;
+          SmallVector<std::tuple<IntegerAttr, uint32_t, int, mlir::Value, mlir::StringAttr>> newMemInfos;
 
           auto chunks = split_signal_4B(memWidth);
           memsAfterInModule += chunks.size();
@@ -183,10 +183,24 @@ struct LowerRegMemTo4BPass : toucan::impl::LowerRegMemTo4BBase<LowerRegMemTo4BPa
             // set name hint
             setSVNameHintAttr(newMemOp_4B, namehint);
             // Set fragment Id
-            auto fragmentId = rewriter.getIntegerAttr(rewriter.getIntegerType(32), newMemId);
+
+            uint64_t fragmentId_raw = 0;
+            auto originalMemPosAttr = getAccumulatedMemWidthAttr(memOp);
+            if (originalMemPosAttr) {
+              auto originalMemPos = originalMemPosAttr->getValue().getZExtValue();
+              // auto maskFragmentId = getMemMaskFragmentIDAttr(memOp)->getValue().getZExtValue();
+
+              auto fragmentsInEachMask = (memWidth + 3) / 4;
+              fragmentId_raw = (originalMemPos / memWidth) * (fragmentsInEachMask) + newMemId;
+            } else {
+              fragmentId_raw = newMemId;
+            }
+
+            auto fragmentId = rewriter.getIntegerAttr(rewriter.getIntegerType(32), fragmentId_raw);
             setSignalFragmentIDAttr(newMemOp_4B, fragmentId);
 
-            newMemInfos.push_back({fragmentId, newMemWidth, newMemHandle, namehint});
+
+            newMemInfos.push_back({fragmentId, newMemId, newMemWidth, newMemHandle, namehint});
           } 
           toRemove.push_back(memOp);
 
@@ -199,12 +213,12 @@ struct LowerRegMemTo4BPass : toucan::impl::LowerRegMemTo4BBase<LowerRegMemTo4BPa
               SmallVector<mlir::Value> memReadValues_4B;
               auto memReadAddrs = SmallVector<Value>(memReadOp.getAddrs());
 
-              for (auto [memId_4b, memWidth_4b, memHandle_4b, memNameHint_4b]: newMemInfos) {
+              for (auto [fragmentId, memId_4b, memWidth_4b, memHandle_4b, memNameHint_4b]: newMemInfos) {
 
                 auto memReadOp_4b = rewriter.create<toucan::MemReadOp>(memReadOp->getLoc(), memHandle_4b, memReadAddrs);
 
                 setSVNameHintAttr(memReadOp_4b, memNameHint_4b);
-                setSignalFragmentIDAttr(memReadOp_4b, memId_4b);
+                setSignalFragmentIDAttr(memReadOp_4b, fragmentId);
 
                 memReadValues_4B.push_back(memReadOp_4b.getResult());
               }
@@ -220,9 +234,9 @@ struct LowerRegMemTo4BPass : toucan::impl::LowerRegMemTo4BBase<LowerRegMemTo4BPa
               auto memWriteAddrs = memWriteOp.getAddrs();
               auto memWriteEn = memWriteOp.getEn();
 
-              for (auto [memId_4b, memWidth_4b, memHandle_4b, memNameHint_4b]: newMemInfos) {
+              for (auto [fragmentId, memId_4b, memWidth_4b, memHandle_4b, memNameHint_4b]: newMemInfos) {
 
-                auto signalExtractOp = rewriter.create<comb::ExtractOp>(memWriteOp.getLoc(), memWriteData, memId_4b.getInt() * 4, memWidth_4b);
+                auto signalExtractOp = rewriter.create<comb::ExtractOp>(memWriteOp.getLoc(), memWriteData, memId_4b * 4, memWidth_4b);
                 auto writeData_4b = signalExtractOp.getResult();
 
                 rewriter.create<toucan::MemWriteOp>(memWriteOp->getLoc(), memHandle_4b, memWriteAddrs, writeData_4b, memWriteEn);
