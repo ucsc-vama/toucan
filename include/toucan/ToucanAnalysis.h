@@ -392,12 +392,12 @@ namespace toucan {
   };
 
 
-  class NaivePartitioner: PartitionerNCodeGenBase {
+  class NaivePartitioner: public PartitionerNCodeGenBase {
     public:
     NaivePartitioner(mlir::Operation *op, mlir::AnalysisManager &am);
   };
 
-  class RepCutPartitioner: PartitionerNCodeGenBase {
+  class RepCutPartitioner: public PartitionerNCodeGenBase {
     public:
     RepCutPartitioner(mlir::Operation *op, mlir::AnalysisManager &am);
   };

@@ -296,7 +296,8 @@ void PartitionerNCodeGenBase::generateMemoryLayout(DesignGraph &graph, uint32_t 
 
     // Collect all constants
     collectConstant(graph, partInfo, partId);
-    partInfo.numConstsInValuePool = partInfo.valuePool.size() + 1;
+    // Utill now, all elements inside valuePool are constant
+    partInfo.numConstsInValuePool = partInfo.valuePool.size();
 
     // Note: first level should contains regread and memread
     // middle levels should contain lut or vecread
