@@ -20,7 +20,8 @@ namespace toucanSim {
 
 
   struct CGLUTMetaInfo {
-    uint8_t lutOpName;
+    // lut size: 4898
+    uint16_t lutIndex;
 
     uint32_t op0;
     uint32_t op1;
@@ -31,8 +32,8 @@ namespace toucanSim {
 
   struct CGVecReadMetaInfo {
     uint32_t vecBase;
-    // Note: vecLength is statc
-    uint32_t vecLength;
+    // Note: vecLength is static
+    uint16_t vecLength;
     
     // max addr width: 16
     uint32_t index0;
@@ -157,7 +158,7 @@ namespace toucanSim {
   };
 
   struct SimDebugInfo {
-  std::unordered_map<std::string, std::vector<uint32_t> > regDebugInfo;
+    std::unordered_map<std::string, std::vector<uint32_t> > regDebugInfo;
     // name -> ((part, valId), (part, valId), ..)
     std::unordered_map<std::string, std::vector<std::tuple<uint32_t, uint32_t> > > signalDebugInfo;
     // name -> (start pos, bit width, length)

@@ -27,6 +27,7 @@
 #include "llvm/Support/raw_ostream.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <filesystem>
 #include <fstream>
@@ -79,12 +80,14 @@ struct CPUSingleThreadCodeGenPass : toucan::impl::CPUSingleThreadCodeGenBase<CPU
     auto outputFullFileName = std::filesystem::path(outputDirectory.getValue()) / outputFilename.getValue();
 
     auto partitionResult = getAnalysis<NaivePartitioner>();
-    populateLUT();
 
     toucanSim::SimDesignInfo designInfo;
     toucanSim::SimDebugInfo debugInfo;
 
-    // TODO: fill lut
+    // fill lut
+    populateLUT();
+    designInfo.lut.assign(lutContent.begin(), lutContent.end());
+
     designInfo.regPoolSize = partitionResult.codeGenInfo.regPool.size();
     designInfo.memPoolSize = partitionResult.codeGenInfo.totalMemSize;
 
@@ -120,7 +123,8 @@ struct CPUSingleThreadCodeGenPass : toucan::impl::CPUSingleThreadCodeGenBase<CPU
           partInfo.ops_exec[execOpsIdx][i].opType = static_cast<uint8_t>(opMeta.opName);
           switch (opMeta.opName) {
           case CGToucanOPName::LUT: {
-            partInfo.ops_exec[execOpsIdx][i].lut.lutOpName = static_cast<uint32_t>(opMeta.lut.lutId);
+            auto lutIndex = lutPos[static_cast<uint32_t>(opMeta.lut.lutId)];
+            partInfo.ops_exec[execOpsIdx][i].lut.lutIndex = lutIndex;
             partInfo.ops_exec[execOpsIdx][i].lut.op0 = opMeta.lut.op0;
             partInfo.ops_exec[execOpsIdx][i].lut.op1 = opMeta.lut.op1;
             partInfo.ops_exec[execOpsIdx][i].lut.op2 = opMeta.lut.op2;
@@ -130,6 +134,7 @@ struct CPUSingleThreadCodeGenPass : toucan::impl::CPUSingleThreadCodeGenBase<CPU
           }
           case CGToucanOPName::VecRead: {
             partInfo.ops_exec[execOpsIdx][i].vec.vecBase = opMeta.vec.vecBase;
+            assert(opMeta.vec.vecLength < UINT16_MAX && "Vector is too long");
             partInfo.ops_exec[execOpsIdx][i].vec.vecLength = opMeta.vec.vecLength;
             partInfo.ops_exec[execOpsIdx][i].vec.index0 = opMeta.vec.index0;
             partInfo.ops_exec[execOpsIdx][i].vec.index1 = opMeta.vec.index1;

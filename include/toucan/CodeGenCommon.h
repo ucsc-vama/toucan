@@ -39,12 +39,14 @@
 namespace toucan {
   class CodeGenHelper {
     public:
-    mlir::DenseMap<LUTOpName, mlir::SmallVector<uint8_t>> lutContent;
+    std::vector<uint8_t> lutContent;
+    std::vector<uint32_t> lutPos;
 
     void populateLUT();
 
     private:
     // 1 input gates
+    void populateLUT_Nop();
     void populateLUT_Rep1b();
     void populateLUT_XorR();
 
@@ -52,9 +54,9 @@ namespace toucan {
     void populateLUT_And();
     void populateLUT_Or();
     void populateLUT_Xor();
-    void populateLUT_Shl1();
-    void populateLUT_Shl2();
-    void populateLUT_Shl3();
+    // void populateLUT_Shl1();
+    // void populateLUT_Shl2();
+    // void populateLUT_Shl3();
     // void populateLUT_Shr1();
     // void populateLUT_Shr2();
     // void populateLUT_Shr3();
@@ -66,7 +68,7 @@ namespace toucan {
     // 3 inputs
     void populateLUT_Add();
     void populateLUT_Mux();
-    void populateLUT_DShl();
+    void populateLUT_Shl();
     void populateLUT_DShr();
 
   };

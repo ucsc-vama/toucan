@@ -7,10 +7,22 @@
 #include "toucan/ToucanAttributes.h"
 #include "toucan/ToucanUtils.h"
 #include "toucan/ToucanOps.h"
+#include "llvm/Support/Debug.h"
 
 
 using namespace mlir;
 using namespace toucan;
+
+void CodeGenHelper::populateLUT_Nop() {
+  SmallVector<uint8_t> lut;
+
+  for (uint8_t i = 0; i <= 0xF; i++) {
+    lut.push_back(i);
+  }
+
+  lutPos[static_cast<uint8_t>(LUTOpName::LUT_Nop)] = lutContent.size();
+  lutContent.insert(lutContent.end(), lut.begin(), lut.end());
+}
 
 
 void CodeGenHelper::populateLUT_Rep1b() {
@@ -18,98 +30,105 @@ void CodeGenHelper::populateLUT_Rep1b() {
   SmallVector<uint8_t> lut;
   lut.push_back(0);
   lut.push_back(0xF);
-  lutContent[LUTOpName::LUT_Rep1b] = std::move(lut);
+  
+  lutPos[static_cast<uint8_t>(LUTOpName::LUT_Rep1b)] = lutContent.size();
+  lutContent.insert(lutContent.end(), lut.begin(), lut.end());
 }
 
 void CodeGenHelper::populateLUT_XorR() {
   SmallVector<uint8_t> lut;
 
-  for (uint8_t i = 0; i < 0xF; i++) {
+  for (uint8_t i = 0; i <= 0xF; i++) {
     uint8_t output = std::popcount(i) & 1;
     lut.push_back(output);
   }
 
-  lutContent[LUTOpName::LUT_XorR] = std::move(lut);
+  lutPos[static_cast<uint8_t>(LUTOpName::LUT_XorR)] = lutContent.size();
+  lutContent.insert(lutContent.end(), lut.begin(), lut.end());
 }
 
 // 2 inputs
 void CodeGenHelper::populateLUT_And() {
   SmallVector<uint8_t> lut;
 
-  for (uint8_t i = 0; i < 0xF; i++) {
-    for (uint8_t j = 0; j < 0xF; j++) {
+  for (uint8_t i = 0; i <= 0xF; i++) {
+    for (uint8_t j = 0; j <= 0xF; j++) {
       uint8_t result = i & j;
       lut.push_back(result);
     }
   }
 
-  lutContent[LUTOpName::LUT_And] = std::move(lut);
+  lutPos[static_cast<uint8_t>(LUTOpName::LUT_And)] = lutContent.size();
+  lutContent.insert(lutContent.end(), lut.begin(), lut.end());
 }
 
 void CodeGenHelper::populateLUT_Or() {
   SmallVector<uint8_t> lut;
 
-  for (uint8_t i = 0; i < 0xF; i++) {
-    for (uint8_t j = 0; j < 0xF; j++) {
+  for (uint8_t i = 0; i <= 0xF; i++) {
+    for (uint8_t j = 0; j <= 0xF; j++) {
       uint8_t result = i | j;
       lut.push_back(result);
     }
   }
 
-  lutContent[LUTOpName::LUT_Or] = std::move(lut);
+  lutPos[static_cast<uint8_t>(LUTOpName::LUT_Or)] = lutContent.size();
+  lutContent.insert(lutContent.end(), lut.begin(), lut.end());
 }
 
 void CodeGenHelper::populateLUT_Xor() {
   SmallVector<uint8_t> lut;
 
-  for (uint8_t i = 0; i < 0xF; i++) {
-    for (uint8_t j = 0; j < 0xF; j++) {
+  for (uint8_t i = 0; i <= 0xF; i++) {
+    for (uint8_t j = 0; j <= 0xF; j++) {
       uint8_t result = i ^ j;
       lut.push_back(result);
     }
   }
 
-  lutContent[LUTOpName::LUT_Xor] = std::move(lut);
+  lutPos[static_cast<uint8_t>(LUTOpName::LUT_Xor)] = lutContent.size();
+  lutContent.insert(lutContent.end(), lut.begin(), lut.end());
 }
 
-void CodeGenHelper::populateLUT_Shl1() {
-  SmallVector<uint8_t> lut;
+// void CodeGenHelper::populateLUT_Shl1() {
+//   SmallVector<uint8_t> lut;
 
-  for (uint8_t i = 0; i < 0xF; i++) {
-    for (uint8_t j = 0; j < 0xF; j++) {
-      uint8_t result = ((i << 1) | (j >> 3)) & 0xF;
-      lut.push_back(result);
-    }
-  }
+//   for (uint8_t i = 0; i <= 0xF; i++) {
+//     for (uint8_t j = 0; j <= 0xF; j++) {
+//       uint8_t result = ((i << 1) | (j >> 3)) & 0xF;
+//       lut.push_back(result);
+//     }
+//   }
 
-  lutContent[LUTOpName::LUT_Shl1] = std::move(lut);
-}
+//   lutPos[static_cast<uint8_t>(LUTOpName::LUT_Shl1)] = lutContent.size();
+//   lutContent.insert(lutContent.end(), lut.begin(), lut.end());
+// }
 
-void CodeGenHelper::populateLUT_Shl2() {
-  SmallVector<uint8_t> lut;
+// void CodeGenHelper::populateLUT_Shl2() {
+//   SmallVector<uint8_t> lut;
 
-  for (uint8_t i = 0; i < 0xF; i++) {
-    for (uint8_t j = 0; j < 0xF; j++) {
-      uint8_t result = ((i << 2) | (j >> 2)) & 0xF;
-      lut.push_back(result);
-    }
-  }
+//   for (uint8_t i = 0; i <= 0xF; i++) {
+//     for (uint8_t j = 0; j <= 0xF; j++) {
+//       uint8_t result = ((i << 2) | (j >> 2)) & 0xF;
+//       lut.push_back(result);
+//     }
+//   }
 
-  lutContent[LUTOpName::LUT_Shl2] = std::move(lut);
-}
+//   lutContent[LUTOpName::LUT_Shl2] = std::move(lut);
+// }
 
-void CodeGenHelper::populateLUT_Shl3() {
-  SmallVector<uint8_t> lut;
+// void CodeGenHelper::populateLUT_Shl3() {
+//   SmallVector<uint8_t> lut;
 
-  for (uint8_t i = 0; i < 0xF; i++) {
-    for (uint8_t j = 0; j < 0xF; j++) {
-      uint8_t result = ((i << 3) | (j >> 1)) & 0xF;
-      lut.push_back(result);
-    }
-  }
+//   for (uint8_t i = 0; i <= 0xF; i++) {
+//     for (uint8_t j = 0; j <= 0xF; j++) {
+//       uint8_t result = ((i << 3) | (j >> 1)) & 0xF;
+//       lut.push_back(result);
+//     }
+//   }
 
-  lutContent[LUTOpName::LUT_Shl3] = std::move(lut);
-}
+//   lutContent[LUTOpName::LUT_Shl3] = std::move(lut);
+// }
 
 // void CodeGenHelper::populateLUT_Shr1() {
 //   // Note: Shr1 and Shl3 has same truth table
@@ -126,53 +145,57 @@ void CodeGenHelper::populateLUT_Shl3() {
 void CodeGenHelper::populateLUT_Cmp_Eq() {
   SmallVector<uint8_t> lut;
 
-  for (uint8_t i = 0; i < 0xF; i++) {
-    for (uint8_t j = 0; j < 0xF; j++) {
+  for (uint8_t i = 0; i <= 0xF; i++) {
+    for (uint8_t j = 0; j <= 0xF; j++) {
       uint8_t result = i == j;
       lut.push_back(result);
     }
   }
 
-  lutContent[LUTOpName::LUT_Cmp_Eq] = std::move(lut);
+  lutPos[static_cast<uint8_t>(LUTOpName::LUT_Cmp_Eq)] = lutContent.size();
+  lutContent.insert(lutContent.end(), lut.begin(), lut.end());
 }
 
 void CodeGenHelper::populateLUT_Mul_Hi() {
   SmallVector<uint8_t> lut;
 
-  for (uint8_t i = 0; i < 0xF; i++) {
-    for (uint8_t j = 0; j < 0xF; j++) {
+  for (uint8_t i = 0; i <= 0xF; i++) {
+    for (uint8_t j = 0; j <= 0xF; j++) {
       uint8_t result = (i * j) >> 4;
       lut.push_back(result);
     }
   }
 
-  lutContent[LUTOpName::LUT_Mul_Hi] = std::move(lut);
+  lutPos[static_cast<uint8_t>(LUTOpName::LUT_Mul_Hi)] = lutContent.size();
+  lutContent.insert(lutContent.end(), lut.begin(), lut.end());
 }
 
 void CodeGenHelper::populateLUT_Mul_Lo() {
   SmallVector<uint8_t> lut;
 
-  for (uint8_t i = 0; i < 0xF; i++) {
-    for (uint8_t j = 0; j < 0xF; j++) {
+  for (uint8_t i = 0; i <= 0xF; i++) {
+    for (uint8_t j = 0; j <= 0xF; j++) {
       uint8_t result = (i * j) & 0xF;
       lut.push_back(result);
     }
   }
 
-  lutContent[LUTOpName::LUT_Mul_Lo] = std::move(lut);
+  lutPos[static_cast<uint8_t>(LUTOpName::LUT_Mul_Lo)] = lutContent.size();
+  lutContent.insert(lutContent.end(), lut.begin(), lut.end());
 }
 
 void CodeGenHelper::populateLUT_Carry() {
   SmallVector<uint8_t> lut;
 
-  for (uint8_t i = 0; i < 0xF; i++) {
-    for (uint8_t j = 0; j < 0xF; j++) {
+  for (uint8_t i = 0; i <= 0xF; i++) {
+    for (uint8_t j = 0; j <= 0xF; j++) {
       uint8_t result = (i + j) >> 4;
       lut.push_back(result);
     }
   }
 
-  lutContent[LUTOpName::LUT_Carry] = std::move(lut);
+  lutPos[static_cast<uint8_t>(LUTOpName::LUT_Carry)] = lutContent.size();
+  lutContent.insert(lutContent.end(), lut.begin(), lut.end());
 }
 
 // 3 inputs
@@ -181,15 +204,16 @@ void CodeGenHelper::populateLUT_Add() {
   SmallVector<uint8_t> lut;
 
   for (uint8_t i = 0; i < 0x2; i++) {
-    for (uint8_t j = 0; j < 0xF; j++) {
-      for (uint8_t k = 0; k < 0xF; k++) {
+    for (uint8_t j = 0; j <= 0xF; j++) {
+      for (uint8_t k = 0; k <= 0xF; k++) {
         uint8_t result = (i + j + k) & 0xF;
         lut.push_back(result);
       }
     }
   }
 
-  lutContent[LUTOpName::LUT_Add] = std::move(lut);
+  lutPos[static_cast<uint8_t>(LUTOpName::LUT_Add)] = lutContent.size();
+  lutContent.insert(lutContent.end(), lut.begin(), lut.end());
 }
 
 void CodeGenHelper::populateLUT_Mux() {
@@ -197,31 +221,36 @@ void CodeGenHelper::populateLUT_Mux() {
   SmallVector<uint8_t> lut;
 
   for (uint8_t i = 0; i < 0x2; i++) {
-    for (uint8_t j = 0; j < 0xF; j++) {
-      for (uint8_t k = 0; k < 0xF; k++) {
+    for (uint8_t j = 0; j <= 0xF; j++) {
+      for (uint8_t k = 0; k <= 0xF; k++) {
         uint8_t result = (i == 1) ? j : k;
         lut.push_back(result);
       }
     }
   }
 
-  lutContent[LUTOpName::LUT_Mux] = std::move(lut);
+  lutPos[static_cast<uint8_t>(LUTOpName::LUT_Mux)] = lutContent.size();
+  lutContent.insert(lutContent.end(), lut.begin(), lut.end());
 }
 
-void CodeGenHelper::populateLUT_DShl() {
+void CodeGenHelper::populateLUT_Shl() {
   // dshl: shamt, op1, filling
   SmallVector<uint8_t> lut;
 
   for (uint8_t i = 0; i < 0x4; i++) {
-    for (uint8_t j = 0; j < 0xF; j++) {
-      for (uint8_t k = 0; k < 0xF; k++) {
+    for (uint8_t j = 0; j <= 0xF; j++) {
+      for (uint8_t k = 0; k <= 0xF; k++) {
         uint8_t result = ((j << 4) | k) >> (4 - i);
         lut.push_back(result);
       }
     }
   }
 
-  lutContent[LUTOpName::LUT_Mux] = std::move(lut);
+  lutPos[static_cast<uint8_t>(LUTOpName::LUT_DShl)] = lutContent.size();
+  lutPos[static_cast<uint8_t>(LUTOpName::LUT_Shl1)] = lutContent.size() + 16;
+  lutPos[static_cast<uint8_t>(LUTOpName::LUT_Shl2)] = lutContent.size() + 32;
+  lutPos[static_cast<uint8_t>(LUTOpName::LUT_Shl3)] = lutContent.size() + 48;
+  lutContent.insert(lutContent.end(), lut.begin(), lut.end());
 }
 
 void CodeGenHelper::populateLUT_DShr() {
@@ -229,19 +258,23 @@ void CodeGenHelper::populateLUT_DShr() {
   SmallVector<uint8_t> lut;
 
   for (uint8_t i = 0; i < 0x4; i++) {
-    for (uint8_t j = 0; j < 0xF; j++) {
-      for (uint8_t k = 0; k < 0xF; k++) {
+    for (uint8_t j = 0; j <= 0xF; j++) {
+      for (uint8_t k = 0; k <= 0xF; k++) {
         uint8_t result = ((j << 4) | k) >> i;
         lut.push_back(result);
       }
     }
   }
 
-  lutContent[LUTOpName::LUT_Mux] = std::move(lut);
+  lutPos[static_cast<uint8_t>(LUTOpName::LUT_DShr)] = lutContent.size();
+  lutContent.insert(lutContent.end(), lut.begin(), lut.end());
 }
 
 void CodeGenHelper::populateLUT() {
-  // TODO: generate Nop. This operation only takes 1 oprand and copy the value
+  assert(lutContent.empty());
+  lutPos.resize(toucan::getMaxEnumValForLUTOpName());
+
+  populateLUT_Nop();
   populateLUT_Rep1b();
   populateLUT_XorR();
 
@@ -249,14 +282,6 @@ void CodeGenHelper::populateLUT() {
   populateLUT_And();
   populateLUT_Or();
   populateLUT_Xor();
-  // TODO: point shlN lut to DShl
-  populateLUT_Shl1();
-  populateLUT_Shl2();
-  populateLUT_Shl3();
-  // TODO: Replace shr op with shl op
-  // populateLUT_Shr1();
-  // populateLUT_Shr2();
-  // populateLUT_Shr3();
   populateLUT_Cmp_Eq();
   populateLUT_Mul_Hi();
   populateLUT_Mul_Lo();
@@ -265,6 +290,9 @@ void CodeGenHelper::populateLUT() {
   // 3 inputs
   populateLUT_Add();
   populateLUT_Mux();
-  populateLUT_DShl();
+
+  // point shlN lut to DShl
+  // Replace shr op with shl op
+  populateLUT_Shl();
   populateLUT_DShr();
 }
