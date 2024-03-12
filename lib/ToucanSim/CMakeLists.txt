@@ -2,7 +2,7 @@
 add_circt_dialect_library(
   ToucanSim
 
-  Serdes.cpp
+  Serializer.cpp
   SimInit.cpp
 
 )

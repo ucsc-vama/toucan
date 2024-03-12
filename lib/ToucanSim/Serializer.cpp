@@ -112,17 +112,13 @@ void serializeSimPartitionInfo(std::ostream& out, const toucanSim::SimPartitionI
   serializeVector(out, info.valuePool);
   out.write(reinterpret_cast<const char*>(&info.valuePoolSize), sizeof(info.valuePoolSize));
 
-  std::cout << "serialize valuePool 0: " << info.ops_l0.size() * sizeof(CGRegReadMetaInfo) << "B\n";
   serializeVector(out, info.ops_l0);
   size_t execSize = info.ops_exec.size();
   out.write(reinterpret_cast<const char*>(&execSize), sizeof(execSize));
   for (const auto& execVec : info.ops_exec) {
-
-    std::cout << "serialize valuePool : " << execVec.size() * sizeof(CGExecLevelMetaInfo) << "B\n";
     serializeVector(out, execVec);
   }
 
-  std::cout << "serialize last level: " << info.ops_last.size() * sizeof(CGLastLevelMetaInfo) << "B\n";
   serializeVector(out, info.ops_last);
 }
 
@@ -145,10 +141,7 @@ void deserializeSimPartitionInfo(std::istream& in, toucanSim::SimPartitionInfo& 
 
 void toucanSim::serializeSimDesignInfo(std::ostream& out, const toucanSim::SimDesignInfo& info) {
   // Serialize lut and lutIndex vectors
-  std::cout << "serialize lut: " << info.lut.size() << "B\n";
   serializeVector(out, info.lut);
-  std::cout << "serialize lutIndex: " << info.lutIndex.size() << "B\n";
-  serializeVector(out, info.lutIndex);
 
   // regPool and memPool vectors need randomization.
 
@@ -174,7 +167,6 @@ void toucanSim::serializeSimDesignInfo(std::ostream& out, const toucanSim::SimDe
 void toucanSim::deserializeSimDesignInfo(std::istream& in, toucanSim::SimDesignInfo& info) {
   // Deserialize lut and lutIndex vectors
   deserializeVector(in, info.lut);
-  deserializeVector(in, info.lutIndex);
 
   // regPool and memPool vectors need randomization.
 

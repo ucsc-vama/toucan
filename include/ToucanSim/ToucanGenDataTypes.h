@@ -136,7 +136,6 @@ namespace toucanSim {
   };
   struct SimDesignInfo {
     std::vector<uint8_t> lut;
-    std::vector<uint32_t> lutIndex;
 
     // Note: regPool and memPool are empty.
     // Leave randomization to simulator.

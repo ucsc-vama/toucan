@@ -133,8 +133,9 @@ struct CPUSingleThreadCodeGenPass : toucan::impl::CPUSingleThreadCodeGenBase<CPU
             break;
           }
           case CGToucanOPName::VecRead: {
-            partInfo.ops_exec[execOpsIdx][i].vec.vecBase = opMeta.vec.vecBase;
             assert(opMeta.vec.vecLength < UINT16_MAX && "Vector is too long");
+
+            partInfo.ops_exec[execOpsIdx][i].vec.vecBase = opMeta.vec.vecBase;
             partInfo.ops_exec[execOpsIdx][i].vec.vecLength = opMeta.vec.vecLength;
             partInfo.ops_exec[execOpsIdx][i].vec.index0 = opMeta.vec.index0;
             partInfo.ops_exec[execOpsIdx][i].vec.index1 = opMeta.vec.index1;
