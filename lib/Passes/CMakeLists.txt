@@ -32,6 +32,7 @@ add_circt_dialect_library(
   LINK_LIBS PUBLIC
 
   Toucan
+  ToucanSim
   ToucanUtils
   ToucanAnalysis
 

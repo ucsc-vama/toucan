@@ -10,6 +10,7 @@ add_executable(
 llvm_update_compile_flags(toucan)
 target_link_libraries(toucan PRIVATE
   Toucan
+  ToucanSim
   ToucanPasses
   ToucanUtils
   

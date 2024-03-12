@@ -114,6 +114,7 @@ void PartitionerNCodeGenBase::levelizePartitions(DesignGraph &graph) {
       //   auto vtxId = currentLevel.front();
       //   auto op = graph.g[vtxId].op;
       //   op->print(llvm::dbgs());
+      //   llvm::dbgs() << "\n";
       // }
     }
   }
@@ -399,6 +400,8 @@ void PartitionerNCodeGenBase::generateMemoryLayout(DesignGraph &graph, uint32_t 
       lutOps.clear();
       vecReadOps.clear();
       memReadOps.clear();
+      vecDecls.clear();
+      vecDeclVals.clear();
 
       for (auto vtxId: currentLevel) {
         auto tOpName = graph.g[vtxId].toucanOpName;
@@ -602,7 +605,10 @@ void PartitionerNCodeGenBase::generateMemoryLayout(DesignGraph &graph, uint32_t 
 
       // Within each layer, place memReads first, then vecReads, luts are the last
       // Allocate storage for this layer
-      currentLevelOps.reserve(stats.numMemReads + stats.numVecReads + stats.numLuts);
+      auto expectedOpCount = stats.numMemReads + stats.numVecReads + stats.numLuts;
+      currentLevelOps.reserve(expectedOpCount);
+
+      assert(currentLevelOps.size() == 0);
       // save op, allocate result storage
       auto allocateResultForMiddleLayer = [&](CGOpMetaInfo &opMeta) {
         auto valId = partInfo.valuePool.size();
@@ -806,6 +812,8 @@ void PartitionerNCodeGenBase::generateMemoryLayout(DesignGraph &graph, uint32_t 
       partInfo.opStatistics.numPrints = stats.numPrints;
       partInfo.opStatistics.numStops = stats.numStops;
     }
+
+    // TODO: check correctness
 
 
 

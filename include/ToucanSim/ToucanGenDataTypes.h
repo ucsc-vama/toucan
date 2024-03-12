@@ -1,10 +1,13 @@
 #pragma once
 
+#include <_types/_uint8_t.h>
 #include <cstdint>
 #include <string>
 #include <unordered_map>
 #include <vector>
 #include <tuple>
+
+#include <fstream>
 
 
 namespace toucanSim {
@@ -122,9 +125,7 @@ namespace toucanSim {
 
 
   struct SimPartitionInfo {
-    std::vector<uint8_t> constValues;
-    // Note: valuePool is empty. 
-    // First values are consts, fill using constValues
+    // valuePool is filled with consts
     std::vector<uint8_t> valuePool;
     uint32_t valuePoolSize;
 
@@ -150,13 +151,24 @@ namespace toucanSim {
     std::vector<std::string> printMsgs;
     // debug info
     // name -> (fragment 0, 1, 2, ...)
-    std::unordered_map<std::string, std::vector<uint32_t> > regDebugInfo;
+
+    void Init();
+    void Randomize(uint32_t seed);
+  };
+
+  struct SimDebugInfo {
+  std::unordered_map<std::string, std::vector<uint32_t> > regDebugInfo;
     // name -> ((part, valId), (part, valId), ..)
     std::unordered_map<std::string, std::vector<std::tuple<uint32_t, uint32_t> > > signalDebugInfo;
     // name -> (start pos, bit width, length)
     std::unordered_map<std::string, std::vector<uint32_t> > memDebugInfo;
-
   };
+
+
+  // Why write my own serialize/deserialize?
+  // Because I cannot find any serialize lib that don't require RTTI and exception, which are disabled by llvm
+  void serializeSimDesignInfo(std::ostream& out, const SimDesignInfo& info);
+  void deserializeSimDesignInfo(std::istream& in, SimDesignInfo& info);
 
 
 };

@@ -1,0 +1,253 @@
+#include "ToucanSim/ToucanGenDataTypes.h"
+#include <fstream>
+
+#include <iostream>
+
+using namespace toucanSim;
+
+
+// // Endianness representation
+// enum class Endianness : uint8_t {
+//     LittleEndian = 0,
+//     BigEndian = 1
+// };
+
+// // Detect host endianness
+// static Endianness getHostEndianness() {
+//     const uint32_t one = 1;
+//     return (*(reinterpret_cast<const uint8_t*>(&one)) == 1) ? Endianness::LittleEndian : Endianness::BigEndian;
+// }
+
+
+
+// Primitive type serialization
+template<typename T>
+void serializePrimitive(std::ostream& out, const T& value) {
+  out.write(reinterpret_cast<const char*>(&value), sizeof(value));
+}
+
+template<typename T>
+void deserializePrimitive(std::istream& in, T& value) {
+  in.read(reinterpret_cast<char*>(&value), sizeof(value));
+}
+
+// Vector serialization
+template<typename T>
+void serializeVector(std::ostream& out, const std::vector<T>& vec) {
+  serializePrimitive(out, vec.size());
+  for (const auto& item : vec) {
+    serializePrimitive(out, item);
+  }
+}
+
+template<typename T>
+void deserializeVector(std::istream& in, std::vector<T>& vec) {
+  size_t size;
+  deserializePrimitive(in, size);
+  vec.resize(size);
+  for (size_t i = 0; i < size; ++i) {
+    deserializePrimitive(in, vec[i]);
+  }
+}
+
+// String serialization
+void serializeString(std::ostream& out, const std::string& str) {
+  serializeVector(out, std::vector<char>(str.begin(), str.end()));
+}
+
+void deserializeString(std::istream& in, std::string& str) {
+  std::vector<char> vec;
+  deserializeVector(in, vec);
+  str.assign(vec.begin(), vec.end());
+}
+
+
+
+template<typename T1, typename T2>
+void serializeTuple(std::ostream& out, const std::tuple<T1, T2>& value) {
+  serializePrimitive(out, std::get<0>(value));
+  serializePrimitive(out, std::get<1>(value));
+}
+
+template<typename T1, typename T2>
+void deserializeTuple(std::istream& in, std::tuple<T1, T2>& value) {
+  T1 first;
+  T2 second;
+  deserializePrimitive(in, first);
+  deserializePrimitive(in, second);
+  value = std::make_tuple(first, second);
+}
+
+
+
+
+template<typename K, typename V>
+void serializeMap(std::ostream& out, const std::unordered_map<K, std::vector<V>>& map) {
+  size_t mapSize = map.size();
+  serializePrimitive(out, mapSize);
+  for (const auto& pair : map) {
+    serializeString(out, pair.first);
+    serializeVector(out, pair.second); // Assumes V can be serialized directly or is already handled
+  }
+}
+
+template<typename K, typename V>
+void deserializeMap(std::istream& in, std::unordered_map<K, std::vector<V>>& map) {
+  size_t mapSize;
+  deserializePrimitive(in, mapSize);
+  for (size_t i = 0; i < mapSize; ++i) {
+    K key;
+    deserializeString(in, key); // Assumes K is string
+    std::vector<V> vector;
+    deserializeVector(in, vector); // Assumes V can be deserialized directly or is already handled
+    map[key] = vector;
+  }
+}
+
+
+
+
+
+void serializeSimPartitionInfo(std::ostream& out, const toucanSim::SimPartitionInfo& info) {
+  serializeVector(out, info.valuePool);
+  out.write(reinterpret_cast<const char*>(&info.valuePoolSize), sizeof(info.valuePoolSize));
+
+  std::cout << "serialize valuePool 0: " << info.ops_l0.size() * sizeof(CGRegReadMetaInfo) << "B\n";
+  serializeVector(out, info.ops_l0);
+  size_t execSize = info.ops_exec.size();
+  out.write(reinterpret_cast<const char*>(&execSize), sizeof(execSize));
+  for (const auto& execVec : info.ops_exec) {
+
+    std::cout << "serialize valuePool : " << execVec.size() * sizeof(CGExecLevelMetaInfo) << "B\n";
+    serializeVector(out, execVec);
+  }
+
+  std::cout << "serialize last level: " << info.ops_last.size() * sizeof(CGLastLevelMetaInfo) << "B\n";
+  serializeVector(out, info.ops_last);
+}
+
+void deserializeSimPartitionInfo(std::istream& in, toucanSim::SimPartitionInfo& info) {
+  deserializeVector(in, info.valuePool);
+  in.read(reinterpret_cast<char*>(&info.valuePoolSize), sizeof(info.valuePoolSize));
+
+  deserializeVector(in, info.ops_l0);
+  size_t execSize;
+  in.read(reinterpret_cast<char*>(&execSize), sizeof(execSize));
+  info.ops_exec.resize(execSize);
+  for (auto& execVec : info.ops_exec) {
+    deserializeVector(in, execVec);
+  }
+
+  deserializeVector(in, info.ops_last);
+}
+
+
+
+void toucanSim::serializeSimDesignInfo(std::ostream& out, const toucanSim::SimDesignInfo& info) {
+  // Serialize lut and lutIndex vectors
+  std::cout << "serialize lut: " << info.lut.size() << "B\n";
+  serializeVector(out, info.lut);
+  std::cout << "serialize lutIndex: " << info.lutIndex.size() << "B\n";
+  serializeVector(out, info.lutIndex);
+
+  // regPool and memPool vectors need randomization.
+
+  // Serialize regPoolSize and memPoolSize
+  serializePrimitive(out, info.regPoolSize);
+  serializePrimitive(out, info.memPoolSize);
+
+  // Serialize parts (a vector of SimPartitionInfo)
+  serializePrimitive(out, info.parts.size());
+  for (const auto& part : info.parts) {
+    // Serialize SimPartitionInfo members...
+    serializeSimPartitionInfo(out, part);
+  }
+
+  // Serialize printMsgs (a vector of strings)
+  
+  serializePrimitive(out, info.printMsgs.size());
+  for (const auto& msg : info.printMsgs) {
+    serializeString(out, msg);
+  }
+}
+
+void toucanSim::deserializeSimDesignInfo(std::istream& in, toucanSim::SimDesignInfo& info) {
+  // Deserialize lut and lutIndex vectors
+  deserializeVector(in, info.lut);
+  deserializeVector(in, info.lutIndex);
+
+  // regPool and memPool vectors need randomization.
+
+  // Deserialize regPoolSize and memPoolSize
+  deserializePrimitive(in, info.regPoolSize);
+  deserializePrimitive(in, info.memPoolSize);
+
+  // Deserialize parts
+  size_t partsSize;
+  deserializePrimitive(in, partsSize);
+  info.parts.resize(partsSize);
+  for (auto& part : info.parts) {
+    // Deserialize SimPartitionInfo members...
+    deserializeSimPartitionInfo(in, part);
+  }
+
+  // Deserialize printMsgs
+  size_t printMsgsSize;
+  deserializePrimitive(in, printMsgsSize);
+  info.printMsgs.resize(printMsgsSize);
+  for (auto& msg : info.printMsgs) {
+    deserializeString(in, msg);
+  }
+}
+
+
+
+
+
+void serializeSimDebugInfo(std::ostream& out, const toucanSim::SimDebugInfo& info) {
+  // Serialize regDebugInfo
+  serializeMap(out, info.regDebugInfo);
+
+  // Serialize signalDebugInfo
+  size_t signalMapSize = info.signalDebugInfo.size();
+  serializePrimitive(out, signalMapSize);
+  for (const auto& pair : info.signalDebugInfo) {
+    serializeString(out, pair.first);
+    size_t vectorSize = pair.second.size();
+    serializePrimitive(out, vectorSize);
+    for (const auto& tuple : pair.second) {
+      serializeTuple(out, tuple);
+    }
+  }
+
+  // Serialize memDebugInfo similarly to regDebugInfo
+  serializeMap(out, info.memDebugInfo);
+}
+
+
+void deserializeSimDebugInfo(std::istream& in, toucanSim::SimDebugInfo& info) {
+  // Deserialize regDebugInfo
+  deserializeMap(in, info.regDebugInfo);
+
+  // Deserialize signalDebugInfo
+  size_t signalMapSize;
+  deserializePrimitive(in, signalMapSize);
+  for (size_t i = 0; i < signalMapSize; ++i) {
+    std::string key;
+    deserializeString(in, key);
+    size_t vectorSize;
+    deserializePrimitive(in, vectorSize);
+    std::vector<std::tuple<uint32_t, uint32_t>> vector;
+    for (size_t j = 0; j < vectorSize; ++j) {
+      std::tuple<uint32_t, uint32_t> tuple;
+      deserializeTuple(in, tuple);
+      vector.push_back(tuple);
+    }
+    info.signalDebugInfo[key] = vector;
+  }
+
+  // Deserialize memDebugInfo similarly to regDebugInfo
+  deserializeMap(in, info.memDebugInfo);
+}
+
+

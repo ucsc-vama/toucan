@@ -144,7 +144,7 @@ static LogicalResult compileAndEmit(
 
     auto cpuCodeGenOptions = toucan::CPUSingleThreadCodeGenOptions();
     cpuCodeGenOptions.outputDirectory = outputDir.string();
-    cpuCodeGenOptions.outputFilename = "CPUCode.h";
+    cpuCodeGenOptions.outputFilename = "CPUSim.bin";
     cpuCodeGenOptions.temporaryDirectory = outputDir.string();
 
     pm.addPass(toucan::createCPUSingleThreadCodeGenPass(cpuCodeGenOptions));

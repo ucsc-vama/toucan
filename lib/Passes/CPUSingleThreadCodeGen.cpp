@@ -15,6 +15,7 @@
 #include "mlir/Support/LogicalResult.h"
 #include "toucan/ToucanAnalysis.h"
 
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/STLExtras.h"
@@ -25,6 +26,7 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include <cstddef>
 #include <memory>
 #include <filesystem>
 #include <fstream>
@@ -36,7 +38,7 @@
 #include "toucan/ToucanPassCommon.h"
 
 #include "toucan/CodeGenCommon.h"
-#include "ToucanGenDataTypes.h"
+#include "ToucanSim/ToucanGenDataTypes.h"
 
 using namespace toucan;
 using namespace circt;
@@ -76,207 +78,158 @@ struct CPUSingleThreadCodeGenPass : toucan::impl::CPUSingleThreadCodeGenBase<CPU
 
     auto outputFullFileName = std::filesystem::path(outputDirectory.getValue()) / outputFilename.getValue();
 
-    std::ofstream ofs(outputFullFileName);
-
     auto partitionResult = getAnalysis<NaivePartitioner>();
     populateLUT();
 
-    // toucanSim::SimDesignInfo outputInfo;
+    toucanSim::SimDesignInfo designInfo;
+    toucanSim::SimDebugInfo debugInfo;
 
+    // TODO: fill lut
+    designInfo.regPoolSize = partitionResult.codeGenInfo.regPool.size();
+    designInfo.memPoolSize = partitionResult.codeGenInfo.totalMemSize;
 
-
-
-
-    // Write register pool
-    ofs << getIndent(1) << "// todo: consider randomize registers\n";
-    ofs << getIndent(1) << "std::array<uint8_t, " << partitionResult.codeGenInfo.regPool.size() << "> regPool;\n\n";
-
-    // Write memory pool
-    ofs << getIndent(1) << "// todo: consider randomize memories\n";
-    ofs << getIndent(1) << "std::array<uint8_t, " << partitionResult.codeGenInfo.totalMemSize << "> memPool;\n\n";
-
-    ofs << getIndent(1) << "bool shouldStop = false;\n\n";
-
-    
     for (size_t partId = 0; partId < partitionResult.codeGenInfo.partitionInfo.size(); partId++) {
       auto &part = partitionResult.codeGenInfo.partitionInfo[partId];
 
-      ofs << getIndent(1) << "std::array<uint8_t, " << part.valuePool.size() << "> p" << partId << "_valuePool;\n";
-      ofs << getIndent(1) << "std::array<uint8_t, " << part.numConstsInValuePool << "> p" << partId << "_constValues = {";
+      toucanSim::SimPartitionInfo partInfo;
+      partInfo.valuePool.resize(part.numConstsInValuePool);
       for (size_t i = 0; i < part.numConstsInValuePool; i++) {
         assert(part.valuePool[i].isConst);
-        ofs << static_cast<uint32_t>(part.valuePool[i].value);
-        // ofs << "0x" << toHex(part.valuePool[i].value);
-        if (i != part.numConstsInValuePool - 1) {
-          ofs << ", ";
-        }
-      }
-      ofs << "};\n";
+        partInfo.valuePool[i] = part.valuePool[i].value;
+      } 
+      partInfo.valuePoolSize = part.valuePool.size();
 
-      // ops
-      // first level
-
-      ofs << getIndent(1) << "static constexpr toucanSim::CGRegReadMetaInfo ";
-      ofs << getOpVectorName(partId, 0) << "[] = {\n";
-      
-      for (auto opMeta: part.opPool[0]) {
+      partInfo.ops_l0.resize(part.opPool[0].size());
+      for (size_t i = 0; i < part.opPool[0].size(); i++) {
+        auto &opMeta = part.opPool[0][i];
         assert(opMeta.opName == CGToucanOPName::RegRead);
-        ofs << "{" << opMeta.regRead.reg << ", " << opMeta.regRead.result << "},\n";
+        partInfo.ops_l0[i].reg = opMeta.regRead.reg;
+        partInfo.ops_l0[i].result = opMeta.regRead.result;
       }
-      ofs << getIndent(1) << "};\n\n";
 
       // ops, middle levels
       assert(part.opPool.size() >= 3);
+      partInfo.ops_exec.resize(part.opPool.size() - 2);
       for (size_t levelId = 1; levelId < part.opPool.size() - 1; levelId++) {
-        ofs << getIndent(1) << "static constexpr toucanSim::CGExecLevelMetaInfo ";
-        ofs << getOpVectorName(partId, levelId) << "[] = {\n";
-        for (auto opMeta: part.opPool[levelId]) {
-          auto tOpName = static_cast<uint8_t>(opMeta.opName);
+        auto execOpsIdx = levelId - 1;
+        auto &currentLevel = part.opPool[levelId];
 
-          ofs << "{" << static_cast<uint32_t>(tOpName);
+        partInfo.ops_exec[execOpsIdx].resize(currentLevel.size());
+        for (size_t i = 0; i < currentLevel.size(); i++) {
+          auto &opMeta = currentLevel[i];
+          partInfo.ops_exec[execOpsIdx][i].opType = static_cast<uint8_t>(opMeta.opName);
           switch (opMeta.opName) {
           case CGToucanOPName::LUT: {
-            ofs << ", {.lut = {" 
-              << static_cast<uint32_t>(opMeta.lut.lutId) << ", "
-              << opMeta.lut.op0 << ", "
-              << opMeta.lut.op1 << ", "
-              << opMeta.lut.op2 << ", "
-              << opMeta.lut.result 
-            << "}}";
+            partInfo.ops_exec[execOpsIdx][i].lut.lutOpName = static_cast<uint32_t>(opMeta.lut.lutId);
+            partInfo.ops_exec[execOpsIdx][i].lut.op0 = opMeta.lut.op0;
+            partInfo.ops_exec[execOpsIdx][i].lut.op1 = opMeta.lut.op1;
+            partInfo.ops_exec[execOpsIdx][i].lut.op2 = opMeta.lut.op2;
+            partInfo.ops_exec[execOpsIdx][i].lut.result = opMeta.lut.result;
+
             break;
           }
           case CGToucanOPName::VecRead: {
-            ofs << ", {.vec = {" 
-              << opMeta.vec.vecBase << ", "
-              << opMeta.vec.vecLength << ", "
-              << opMeta.vec.index0 << ", "
-              << opMeta.vec.index1 << ", "
-              << opMeta.vec.index2 << ", "
-              << opMeta.vec.index3 << ", "
-              << opMeta.vec.outRangeValue << ", "
-              << opMeta.vec.offset << ", "
-              << opMeta.vec.result 
-            << "}}";
+            partInfo.ops_exec[execOpsIdx][i].vec.vecBase = opMeta.vec.vecBase;
+            partInfo.ops_exec[execOpsIdx][i].vec.vecLength = opMeta.vec.vecLength;
+            partInfo.ops_exec[execOpsIdx][i].vec.index0 = opMeta.vec.index0;
+            partInfo.ops_exec[execOpsIdx][i].vec.index1 = opMeta.vec.index1;
+            partInfo.ops_exec[execOpsIdx][i].vec.index2 = opMeta.vec.index2;
+            partInfo.ops_exec[execOpsIdx][i].vec.index3 = opMeta.vec.index3;
+            partInfo.ops_exec[execOpsIdx][i].vec.outRangeValue = opMeta.vec.outRangeValue;
+            partInfo.ops_exec[execOpsIdx][i].vec.offset = opMeta.vec.offset;
+            partInfo.ops_exec[execOpsIdx][i].vec.result = opMeta.vec.result;
+
             break;
           }
           case CGToucanOPName::MemRead: {
-            ofs << ", {.mem = {" 
-              << opMeta.memRead.hasMultipleWriter << ", "
-              << opMeta.memRead.memDepth << ", "
-              << opMeta.memRead.memBase << ", "
-              << opMeta.memRead.addr0 << ", "
-              << opMeta.memRead.addr1 << ", "
-              << opMeta.memRead.addr2 << ", "
-              << opMeta.memRead.addr3 << ", "
-              << opMeta.memRead.addr4 << ", "
-              << opMeta.memRead.addr5 << ", "
-              << opMeta.memRead.addr6 << ", "
-              << opMeta.memRead.addr7 << ", "
-              << opMeta.memRead.result
-            << "}}";
+            partInfo.ops_exec[execOpsIdx][i].mem.hasMultipleWriter = opMeta.memRead.hasMultipleWriter;
+            partInfo.ops_exec[execOpsIdx][i].mem.memDepth = opMeta.memRead.memDepth;
+            partInfo.ops_exec[execOpsIdx][i].mem.memBase = opMeta.memRead.memBase;
+            partInfo.ops_exec[execOpsIdx][i].mem.addr0 = opMeta.memRead.addr0;
+            partInfo.ops_exec[execOpsIdx][i].mem.addr1 = opMeta.memRead.addr1;
+            partInfo.ops_exec[execOpsIdx][i].mem.addr2 = opMeta.memRead.addr2;
+            partInfo.ops_exec[execOpsIdx][i].mem.addr3 = opMeta.memRead.addr3;
+            partInfo.ops_exec[execOpsIdx][i].mem.addr4 = opMeta.memRead.addr4;
+            partInfo.ops_exec[execOpsIdx][i].mem.addr5 = opMeta.memRead.addr5;
+            partInfo.ops_exec[execOpsIdx][i].mem.addr6 = opMeta.memRead.addr6;
+            partInfo.ops_exec[execOpsIdx][i].mem.addr7 = opMeta.memRead.addr7;
+            partInfo.ops_exec[execOpsIdx][i].mem.result = opMeta.memRead.result;
+
             break;
           }
           default:
             llvm::dbgs() << static_cast<uint32_t>(opMeta.opName);
             llvm_unreachable("Other ops should not appear here");
           }
-          ofs << "},\n";
         }
-        ofs << getIndent(1) << "};\n\n";
       }
 
       // ops, last level
-      // ofs << getIndent(1) << "std::vector<toucanSim::CGLastLevelMetaInfo> ";
-      ofs << getIndent(1) << "static constexpr toucanSim::CGLastLevelMetaInfo ";
-      ofs << getOpVectorName(partId, part.opPool.size() - 1) << "[] = {\n";
-      for (auto opMeta: part.opPool.back()) {
-        auto tOpName = static_cast<uint8_t>(opMeta.opName);
-        ofs << "{" << static_cast<uint32_t>(tOpName);
+      partInfo.ops_last.resize(part.opPool.back().size());
+      for (size_t i = 0; i < part.opPool.back().size(); i++) {
+        auto &opMeta = part.opPool.back()[i];
+        partInfo.ops_last[i].opType = static_cast<uint8_t>(opMeta.opName);
         switch (opMeta.opName) {
-
         case CGToucanOPName::Print: {
-          ofs << ", {.print = {"
-            << opMeta.print.en << ", "
-            << opMeta.print.msg
-          << "}}";
+          partInfo.ops_last[i].print.en = opMeta.print.en;
+          partInfo.ops_last[i].print.msg = opMeta.print.msg;
           break;
         }
         case CGToucanOPName::Stop: {
-          ofs << ", {.stop = {"
-            << opMeta.stop.en
-          << "}}";
+          partInfo.ops_last[i].stop.en = opMeta.stop.en;
           break;
         }
         case CGToucanOPName::RegWrite: {
-          ofs << ", {.regWrite = {"
-            << opMeta.regWrite.reg << ", "
-            << opMeta.regWrite.dat
-          << "}}";
+          partInfo.ops_last[i].regWrite.reg = opMeta.regWrite.reg;
+          partInfo.ops_last[i].regWrite.dat = opMeta.regWrite.dat;
           break;
         }
         case CGToucanOPName::MemWrite: {
-          ofs << ", {.memWrite = {" 
-            << opMeta.memWrite.hasMultipleWriter << ", "
-            << opMeta.memWrite.memDepth << ", "
-            << opMeta.memWrite.memBase << ", "
-            << opMeta.memWrite.addr0 << ", "
-            << opMeta.memWrite.addr1 << ", "
-            << opMeta.memWrite.addr2 << ", "
-            << opMeta.memWrite.addr3 << ", "
-            << opMeta.memWrite.addr4 << ", "
-            << opMeta.memWrite.addr5 << ", "
-            << opMeta.memWrite.addr6 << ", "
-            << opMeta.memWrite.addr7 << ", "
-            << opMeta.memWrite.dat << ", "
-            << opMeta.memWrite.en
-          << "}}";
+          partInfo.ops_last[i].memWrite.hasMultipleWriter = opMeta.memWrite.hasMultipleWriter;
+          partInfo.ops_last[i].memWrite.memDepth = opMeta.memWrite.memDepth;
+          partInfo.ops_last[i].memWrite.memBase = opMeta.memWrite.memBase;
+          partInfo.ops_last[i].memWrite.addr0 = opMeta.memWrite.addr0;
+          partInfo.ops_last[i].memWrite.addr1 = opMeta.memWrite.addr1;
+          partInfo.ops_last[i].memWrite.addr2 = opMeta.memWrite.addr2;
+          partInfo.ops_last[i].memWrite.addr3 = opMeta.memWrite.addr3;
+          partInfo.ops_last[i].memWrite.addr4 = opMeta.memWrite.addr4;
+          partInfo.ops_last[i].memWrite.addr5 = opMeta.memWrite.addr5;
+          partInfo.ops_last[i].memWrite.addr6 = opMeta.memWrite.addr6;
+          partInfo.ops_last[i].memWrite.addr7 = opMeta.memWrite.addr7;
+          partInfo.ops_last[i].memWrite.dat = opMeta.memWrite.dat;
+          partInfo.ops_last[i].memWrite.en = opMeta.memWrite.en;
           break;
         }
         default:
           llvm_unreachable("Other type of ops should not appear in last level!");
         }
-        ofs << "},\n";
       }
-      ofs << getIndent(1) << "};\n\n";
 
+      designInfo.parts.push_back(std::move(partInfo));
+    }
 
-      // pointers to all levels
-      ofs << getIndent(1) << "static constexpr toucanSim::CGExecLevelMetaInfo* p0_middleLevels[] = {\n";
-      for (size_t levelId = 1; levelId < part.opPool.size() - 1; levelId++) {
-        ofs << getIndent(1) << getOpVectorName(partId, levelId) << ", \n";
-      }
-      ofs << getIndent(1) << "};\n";
-
-      // level size
-      ofs << getIndent(1) << "static constexpr uint32_t p0_middleLevelSize[] = {\n";
-      for (size_t levelId = 1; levelId < part.opPool.size() - 1; levelId++) {
-        ofs << part.opPool[levelId].size() << ", ";
-      }
-      ofs << getIndent(1) << "};\n";
-      
+    designInfo.printMsgs.resize(partitionResult.codeGenInfo.printStrings.size());
+    for (auto [k, v]: partitionResult.codeGenInfo.printStrings) {
+      assert(designInfo.printMsgs[v].empty());
+      designInfo.printMsgs[v] = k;
     }
 
 
-    // Write top level
-    ofs << "// First level operations. Only register reads\n";
 
-    // 1. write lut
+    // serialize
 
-    // 2. declare data
-
-    // 3. write netlist
-
-    // 4. write signal name
-
-
-    // 5. write eval
-    // write init func
-
-
-    ofs << "};\n\n";
-
+    std::ofstream ofs(outputFullFileName, std::ios::binary | std::ios::out);
+    toucanSim::serializeSimDesignInfo(ofs, designInfo);
     ofs.close();
-    
+
+
+    // test: deserialize
+    std::ifstream ifs(outputFullFileName, std::ios::binary | std::ios::in);
+    toucanSim::SimDesignInfo testInfo;
+    toucanSim::deserializeSimDesignInfo(ifs, testInfo);
+
+    assert(testInfo.printMsgs == designInfo.printMsgs);
+
 
   }
 

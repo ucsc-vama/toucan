@@ -1,1 +1,2 @@
 add_subdirectory(toucan)
+add_subdirectory(ToucanSim)
