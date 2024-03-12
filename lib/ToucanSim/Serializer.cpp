@@ -196,7 +196,7 @@ void toucanSim::deserializeSimDesignInfo(std::istream& in, toucanSim::SimDesignI
 
 
 
-void serializeSimDebugInfo(std::ostream& out, const toucanSim::SimDebugInfo& info) {
+void toucanSim::serializeSimDebugInfo(std::ostream& out, const toucanSim::SimDebugInfo& info) {
   // Serialize regDebugInfo
   serializeMap(out, info.regDebugInfo);
 
@@ -217,7 +217,7 @@ void serializeSimDebugInfo(std::ostream& out, const toucanSim::SimDebugInfo& inf
 }
 
 
-void deserializeSimDebugInfo(std::istream& in, toucanSim::SimDebugInfo& info) {
+void toucanSim::deserializeSimDebugInfo(std::istream& in, toucanSim::SimDebugInfo& info) {
   // Deserialize regDebugInfo
   deserializeMap(in, info.regDebugInfo);
 

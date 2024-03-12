@@ -233,7 +233,8 @@ def CPUSingleThreadCodeGen: Pass<"cpu-singhe-thread-codegen", "circt::ModuleOp">
   let constructor = "toucan::createCPUSingleThreadCodeGenPass(toucan::CPUSingleThreadCodeGenOptions())";
   let options = [
     Option<"outputDirectory", "outputDirectory", "std::string", "", "Directory for output">,
-    Option<"outputFilename", "outputFilename", "std::string", "", "output header file name">,
+    Option<"outputDesignFilename", "outputDesignFilename", "std::string", "", "output design file name">,
+    Option<"outputSymbolFilename", "outputSymbolFilename", "std::string", "", "output symbol file name">,
     Option<"temporaryDirectory", "temporaryDirectory", "std::string", "", "Directory for temp files">,
   ];
 }

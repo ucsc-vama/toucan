@@ -77,8 +77,6 @@ struct CPUSingleThreadCodeGenPass : toucan::impl::CPUSingleThreadCodeGenBase<CPU
     // Mark all analyses as preserved. This is a read only pass
     markAllAnalysesPreserved();
 
-    auto outputFullFileName = std::filesystem::path(outputDirectory.getValue()) / outputFilename.getValue();
-
     auto partitionResult = getAnalysis<NaivePartitioner>();
 
     toucanSim::SimDesignInfo designInfo;
@@ -220,17 +218,33 @@ struct CPUSingleThreadCodeGenPass : toucan::impl::CPUSingleThreadCodeGenBase<CPU
       designInfo.printMsgs[v] = k;
     }
 
+    // debug info
+    for (auto [regNameRef, ids]: partitionResult.codeGenInfo.regDebugInfo) {
+      debugInfo.regDebugInfo[regNameRef.str()] = std::vector<uint32_t>(ids.begin(), ids.end());
+    }
+    for (auto [memNameRef, ids]: partitionResult.codeGenInfo.memDebugInfo) {
+      debugInfo.memDebugInfo[memNameRef.str()] = std::vector<uint32_t>(ids.begin(), ids.end());
+    }
+    for (auto [sigNameRef, ids]: partitionResult.codeGenInfo.signalDebugInfo) {
+      debugInfo.signalDebugInfo[sigNameRef.str()] = std::vector<std::tuple<uint32_t, uint32_t>>(ids.begin(), ids.end());
+    }
+
 
 
     // serialize
-
-    std::ofstream ofs(outputFullFileName, std::ios::binary | std::ios::out);
+    auto outputDesignFileFullName = std::filesystem::path(outputDirectory.getValue()) / outputDesignFilename.getValue();
+    std::ofstream ofs(outputDesignFileFullName, std::ios::binary | std::ios::out);
     toucanSim::serializeSimDesignInfo(ofs, designInfo);
+    ofs.close();
+
+    auto outputSymbolFileFullName = std::filesystem::path(outputDirectory.getValue()) / outputSymbolFilename.getValue();
+    std::ofstream ofs_symbol(outputSymbolFileFullName, std::ios::binary | std::ios::out);
+    toucanSim::serializeSimDebugInfo(ofs_symbol, debugInfo);
     ofs.close();
 
 
     // test: deserialize
-    std::ifstream ifs(outputFullFileName, std::ios::binary | std::ios::in);
+    std::ifstream ifs(outputDesignFileFullName, std::ios::binary | std::ios::in);
     toucanSim::SimDesignInfo testInfo;
     toucanSim::deserializeSimDesignInfo(ifs, testInfo);
 
