@@ -8,6 +8,7 @@
 #include "mlir/IR/Operation.h"
 
 #include "mlir/Bytecode/BytecodeOpInterface.h"
+#include "mlir/IR/Value.h"
 #include "mlir/Pass/AnalysisManager.h"
 
 #include "mlir/Support/LLVM.h"
@@ -24,6 +25,7 @@
 #include "toucan/ToucanAttributes.h"
 #include "toucan/ToucanDialect.h"
 #include "toucan/ToucanOps.h"
+#include "toucan/ToucanTypes.h"
 
 #include <boost/graph/adjacency_list.hpp>
 

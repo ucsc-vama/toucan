@@ -77,6 +77,10 @@ struct RemoveMemMaskPass : toucan::impl::RemoveMemMaskBase<RemoveMemMaskPass> {
           auto numWriters = count_if(memOp.getMemory().getUsers(), [](Operation *op) {
             return isa<seq::FirMemReadOp>(op) || isa<seq::FirMemReadWriteOp>(op);
           });
+          if (numWriters == 0) {
+            memOp->emitError() << "Memory %" << memName << " has no writer!";
+            signalPassFailure();
+          }
           if (numWriters > 1) {
             memOp->emitWarning() << "Memory %" << memName << " has a Write-Under-Write behavior of [" << seq::stringifyWUW(memOp.getWuw()) << "], which is not guaranteed. This may lead to incorrect result in simulation. (Memory has " << numWriters << " writers)";
           }

@@ -13,6 +13,7 @@
 #include "toucan/ToucanTypes.h"
 #include "toucan/ToucanUtils.h"
 
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -125,32 +126,58 @@ void PartitionerNCodeGenBase::levelizePartitions(DesignGraph &graph) {
 void PartitionerNCodeGenBase::generateRegMemLayout(DesignGraph &graph, uint32_t partitionRegPaddingSpace, uint32_t memPaddingSpace) {
   // collect all reg and memory, generate layout
   for (size_t partId = 0; partId < partitions.size(); partId++) {
+    SmallVector<TypedValue<toucan::RegType>> regsInPartitionOrdered;
+    mlir::DenseSet<TypedValue<toucan::RegType>> regsInPartition;
+
+    auto &firstLevel = partLevels[partId][0];
     auto &lastLevel = partLevels[partId].back();
+
+    // insert first level
+    for (auto vtxId: firstLevel) {
+      auto vtxOpName = graph.g[vtxId].toucanOpName;
+      if (vtxOpName == CGToucanOPName::RegRead) {
+        auto regReadOp = cast<toucan::RegReadOp>(graph.g[vtxId].op);
+        auto regVal = regReadOp.getReg();
+        assert(!regsInPartition.contains(regVal));
+        regsInPartition.insert(regVal);
+        regsInPartitionOrdered.push_back(regVal);
+      }
+    }
+    // Check if there exists write-only registers.
+    // They are generally external module output or Top module output
     for (auto vtxId: lastLevel) {
-      // for each vtx in current partition
       auto vtxOpName = graph.g[vtxId].toucanOpName;
       if (vtxOpName == CGToucanOPName::RegWrite) {
         auto regWriteOp = cast<toucan::RegWriteOp>(graph.g[vtxId].op);
         auto regVal = regWriteOp.getReg();
-        auto regDefiningOp = regVal.getDefiningOp();
-
-        CGRegMetaInfo regMeta;
-
-        regMeta.namehint = getSVNameHintAttr(regDefiningOp);
-        auto fragmentIdAttr = getSignalFragmentIDAttr(regDefiningOp);
-        if (fragmentIdAttr) {
-          regMeta.fragment_id = fragmentIdAttr->getInt();
-        } else {
-          regMeta.fragment_id = UINT32_MAX;
+        if (!regsInPartition.contains(regVal)) {
+          regsInPartition.insert(regVal);
+          regsInPartitionOrdered.push_back(regVal);
         }
-        regMeta.bitWidth = regVal.getType().getElementWidth();
-        regMeta.isPadding = false;
-
-        auto regId = codeGenInfo.regPool.size();
-        codeGenInfo.regPool.push_back(regMeta);
-        codeGenInfo.toucanRegToId[regVal] = regId;
       }
     }
+
+    for (auto regVal: regsInPartitionOrdered) {
+      // for each vtx in current partition
+      auto regDefiningOp = regVal.getDefiningOp();
+
+      CGRegMetaInfo regMeta;
+
+      regMeta.namehint = getSVNameHintAttr(regDefiningOp);
+      auto fragmentIdAttr = getSignalFragmentIDAttr(regDefiningOp);
+      if (fragmentIdAttr) {
+        regMeta.fragment_id = fragmentIdAttr->getInt();
+      } else {
+        regMeta.fragment_id = UINT32_MAX;
+      }
+      regMeta.bitWidth = regVal.getType().getElementWidth();
+      regMeta.isPadding = false;
+
+      auto regId = codeGenInfo.regPool.size();
+      codeGenInfo.regPool.push_back(regMeta);
+      codeGenInfo.toucanRegToId[regVal] = regId;
+    }
+
     // Add extra padding
     for (size_t i = 0; i < partitionRegPaddingSpace; i++) {
       CGRegMetaInfo paddingRegMeta;
@@ -165,6 +192,7 @@ void PartitionerNCodeGenBase::generateRegMemLayout(DesignGraph &graph, uint32_t 
   }
 
   // collect all reg and memory, generate layout
+  // Here we assume each memory has at least 1 writer
   uint64_t memBaseAddr = 0;
   for (size_t vtxId = 0; vtxId < boost::num_vertices(graph.g); vtxId++) {
     // for each mem write
@@ -230,7 +258,9 @@ void PartitionerNCodeGenBase::collectConstant(DesignGraph &graph, CGPartitionMet
         auto op = graph.g[vtxId].op;
         
         // partInfo.opToResultValueId[op] = partInfo.valuePool.size();
-        partInfo.valueToValId[op->getResult(0)] = partInfo.valuePool.size();
+        // auto constResultVal = op->getResult(0);
+        // assert(!partInfo.valueToValId.contains(constResultVal));
+        // partInfo.valueToValId[constResultVal] = partInfo.valuePool.size();
 
         if (auto constOp = dyn_cast<toucan::ConstantOp>(op)) {
           // regular const
@@ -239,7 +269,10 @@ void PartitionerNCodeGenBase::collectConstant(DesignGraph &graph, CGPartitionMet
           auto rawVal = static_cast<uint8_t>(constVal.getZExtValue());
           // save op result value
           auto valId = partInfo.valuePool.size();
-          partInfo.valueToValId[constOp.getResult()] = valId;
+
+          auto constResultVal = constOp.getResult();
+          assert(!partInfo.valueToValId.contains(constResultVal));
+          partInfo.valueToValId[constResultVal] = valId;
 
           partInfo.valuePool.push_back({true, false, rawVal, op, 0, 0, std::nullopt, 0});
         } else {
@@ -247,8 +280,10 @@ void PartitionerNCodeGenBase::collectConstant(DesignGraph &graph, CGPartitionMet
           auto defConstVecOp = cast<toucan::DefConstVectorOp>(op);
           // save op result value
           // Vec result map to first vec element
+          auto vecHandle = defConstVecOp.getHandle();
           auto valId = partInfo.valuePool.size();
-          partInfo.valueToValId[defConstVecOp.getHandle()] = valId;
+          assert(!partInfo.valueToValId.contains(vecHandle));
+          partInfo.valueToValId[vecHandle] = valId;
 
           for (auto &vecValElem: defConstVecOp.getValues().getValue()) {
             auto elemVal = cast<mlir::IntegerAttr>(vecValElem).getValue();
@@ -324,6 +359,7 @@ void PartitionerNCodeGenBase::generateMemoryLayout(DesignGraph &graph, uint32_t 
           // a regread
           auto regReadOp = cast<toucan::RegReadOp>(op);
           auto regVal = regReadOp.getReg();
+          assert(codeGenInfo.toucanRegToId.contains(regVal) && "A register that never seen was read!");
           auto regValId = codeGenInfo.toucanRegToId[regVal];
 
           opMeta.regRead.reg = regValId;
@@ -353,7 +389,9 @@ void PartitionerNCodeGenBase::generateMemoryLayout(DesignGraph &graph, uint32_t 
         valMeta.fragment_id = opMeta.fragment_id;
 
         partInfo.valuePool.push_back(valMeta);
-        partInfo.valueToValId[opMeta.op->getResult(0)] = valId;
+        auto resultVal = opMeta.op->getResult(0);
+        assert(!partInfo.valueToValId.contains(resultVal));
+        partInfo.valueToValId[resultVal] = valId;
         opMeta.setResult(valId);
       }
 
@@ -399,6 +437,7 @@ void PartitionerNCodeGenBase::generateMemoryLayout(DesignGraph &graph, uint32_t 
 
       lutOps.clear();
       vecReadOps.clear();
+      vecReadHandleVals.clear();
       memReadOps.clear();
       vecDecls.clear();
       vecDeclVals.clear();
@@ -428,6 +467,7 @@ void PartitionerNCodeGenBase::generateMemoryLayout(DesignGraph &graph, uint32_t 
             lutOpValueIds[pos] = 0;
           }
           for (auto val: lutOp.getInputs()) {
+            assert(partInfo.valueToValId.contains(val));
             auto valId = partInfo.valueToValId[val];
             lutOpValueIds[pos] = valId;
             pos++;
@@ -458,6 +498,7 @@ void PartitionerNCodeGenBase::generateMemoryLayout(DesignGraph &graph, uint32_t 
             opMeta.lut.lutId = static_cast<uint8_t>(LUTOpName::LUT_Nop);
             opMeta.lut.op0 = 0;
             opMeta.lut.op1 = 0;
+            assert(partInfo.valueToValId.contains(elemVal));
             opMeta.lut.op2 = partInfo.valueToValId[elemVal];
             opMeta.lut.numOprands = 1;
 
@@ -473,10 +514,12 @@ void PartitionerNCodeGenBase::generateMemoryLayout(DesignGraph &graph, uint32_t 
 
           auto vecReadOp = cast<toucan::VectorReadOp>(rawOp);
           auto vecHandle = vecReadOp.getHandle();
+          assert(partInfo.valueToValId.contains(vecHandle));
           auto vecHandleId = partInfo.valueToValId[vecHandle];
           auto vecLength = vecHandle.getType().getLength();
 
           for (auto userOp: vecHandle.getUsers()) {
+            // Note: Only 1 user has vtxId. Other ops are not included in currentLevelOps
             auto userReadOp = cast<toucan::VectorReadOp>(userOp);
 
             // offset: i16
@@ -495,6 +538,7 @@ void PartitionerNCodeGenBase::generateMemoryLayout(DesignGraph &graph, uint32_t 
               vecReadOpIndexIds[pos] = 0;
             }
             for (auto val: indexValues) {
+              assert(partInfo.valueToValId.contains(val));
               auto valId = partInfo.valueToValId[val];
               vecReadOpIndexIds[pos] = valId;
               pos++;
@@ -503,7 +547,8 @@ void PartitionerNCodeGenBase::generateMemoryLayout(DesignGraph &graph, uint32_t 
 
             CGOpMetaInfo opMeta;
             opMeta.opName = CGToucanOPName::VecRead;
-            opMeta.op = rawOp;
+            opMeta.op = userOp;
+            // Share same vtxId
             opMeta.vtxId = vtxId;
             // nop, the op code should be 0
             opMeta.vec.vecBase = vecHandleId;
@@ -513,6 +558,7 @@ void PartitionerNCodeGenBase::generateMemoryLayout(DesignGraph &graph, uint32_t 
             opMeta.vec.index2 = vecReadOpIndexIds[2];
             opMeta.vec.index3 = vecReadOpIndexIds[3];
 
+            assert(partInfo.valueToValId.contains(outRangeValue));
             opMeta.vec.outRangeValue = partInfo.valueToValId[outRangeValue];
             opMeta.vec.offset = static_cast<uint16_t>(offset);
 
@@ -533,7 +579,9 @@ void PartitionerNCodeGenBase::generateMemoryLayout(DesignGraph &graph, uint32_t 
           auto memReadOp = cast<toucan::MemReadOp>(rawOp);
           auto memVal = memReadOp.getMem();
           auto memValId = codeGenInfo.toucanMemToId[memVal];
-          auto memEnId = partInfo.valueToValId[memReadOp.getEn()];
+          auto memEnVal = memReadOp.getEn();
+          assert(partInfo.valueToValId.contains(memEnVal));
+          auto memEnId = partInfo.valueToValId[memEnVal];
 
           auto memAddrs = memReadOp.getAddrs();
           auto numMemAddrs = memAddrs.size();
@@ -545,6 +593,7 @@ void PartitionerNCodeGenBase::generateMemoryLayout(DesignGraph &graph, uint32_t 
             memReadOpIndexIds[pos] = 0;
           }
           for (auto val: memAddrs) {
+            assert(partInfo.valueToValId.contains(val));
             auto valId = partInfo.valueToValId[val];
             memReadOpIndexIds[pos] = valId;
             pos++;
@@ -626,6 +675,7 @@ void PartitionerNCodeGenBase::generateMemoryLayout(DesignGraph &graph, uint32_t 
         valMeta.namehint = opMeta.namehint;
         valMeta.fragment_id = opMeta.fragment_id;
 
+        assert(!partInfo.valueToValId.contains(resultVal));
         partInfo.valueToValId[resultVal] = valId;
         partInfo.valuePool.push_back(valMeta);
 
@@ -640,6 +690,7 @@ void PartitionerNCodeGenBase::generateMemoryLayout(DesignGraph &graph, uint32_t 
       }
 
       // place vecReads
+      assert(vecReadOps.size() == vecReadHandleVals.size());
       for (auto [singleVecReadOps, vecHandle]: llvm::zip(vecReadOps, vecReadHandleVals)) {
         // each elem inside singleVecReadOps reads vector vecHandle
         for (auto &opMeta: singleVecReadOps) {
@@ -675,6 +726,7 @@ void PartitionerNCodeGenBase::generateMemoryLayout(DesignGraph &graph, uint32_t 
           // Other ops produces an invisible placeholder value
           valMeta.isPlaceholder = (i != 0);
           if (i == 0) {
+            assert(!partInfo.valueToValId.contains(vecHandle));
             partInfo.valueToValId[vecHandle] = valId;
           } 
           partInfo.valuePool.push_back(valMeta);
@@ -712,9 +764,13 @@ void PartitionerNCodeGenBase::generateMemoryLayout(DesignGraph &graph, uint32_t 
         if (vtxOpName == CGToucanOPName::RegWrite) {
           // regwrite
           auto regWriteOp = cast<toucan::RegWriteOp>(rawOp);
+          auto regVal = regWriteOp.getReg();
+          auto dataVal = regWriteOp.getData();
 
-          auto regValId = partInfo.valueToValId[regWriteOp.getReg()];
-          auto dataValId = partInfo.valueToValId[regWriteOp.getData()];
+          assert(codeGenInfo.toucanRegToId.contains(regVal) && "A register never seen was written!");
+          auto regValId = codeGenInfo.toucanRegToId[regVal];
+          assert(partInfo.valueToValId.contains(dataVal) && "A value never seen was read!");
+          auto dataValId = partInfo.valueToValId[dataVal];
 
           opMeta.regWrite.reg = regValId;
           opMeta.regWrite.dat = dataValId;
@@ -725,9 +781,16 @@ void PartitionerNCodeGenBase::generateMemoryLayout(DesignGraph &graph, uint32_t 
         } else if (vtxOpName == CGToucanOPName::MemWrite) {
           // memWrite
           auto memWriteOp = cast<toucan::MemWriteOp>(rawOp);
-          auto memValId = codeGenInfo.toucanMemToId[memWriteOp.getMem()];
-          auto dataValId = partInfo.valueToValId[memWriteOp.getData()];
-          auto enValId = partInfo.valueToValId[memWriteOp.getEn()];
+          auto memVal = memWriteOp.getMem();
+          auto dataVal = memWriteOp.getData();
+          auto enVal = memWriteOp.getEn();
+
+          assert(codeGenInfo.toucanMemToId.contains(memVal));
+          auto memValId = codeGenInfo.toucanMemToId[memVal];
+          assert(partInfo.valueToValId.contains(dataVal));
+          auto dataValId = partInfo.valueToValId[dataVal];
+          assert(partInfo.valueToValId.contains(enVal));
+          auto enValId = partInfo.valueToValId[enVal];
 
           auto memAddrs = memWriteOp.getAddrs();
           auto numMemAddrs = memAddrs.size();
@@ -739,6 +802,7 @@ void PartitionerNCodeGenBase::generateMemoryLayout(DesignGraph &graph, uint32_t 
             memReadOpIndexIds[pos] = 0;
           }
           for (auto val: memAddrs) {
+            assert(partInfo.valueToValId.contains(val));
             auto valId = partInfo.valueToValId[val];
             memReadOpIndexIds[pos] = valId;
             pos++;
@@ -767,8 +831,12 @@ void PartitionerNCodeGenBase::generateMemoryLayout(DesignGraph &graph, uint32_t 
           // print
           auto printOp = cast<toucan::PrintOp>(rawOp);
           auto printStr = printOp.getMsg();
-          auto enValId = partInfo.valueToValId[printOp.getEn()];
+          auto enVal = printOp.getEn();
+
+          assert(partInfo.valueToValId.contains(enVal));
+          auto enValId = partInfo.valueToValId[enVal];
           
+          assert(codeGenInfo.printStrings.contains(printStr));
           auto printStrId = codeGenInfo.printStrings[printStr];
 
           opMeta.print.en = enValId;
@@ -780,7 +848,10 @@ void PartitionerNCodeGenBase::generateMemoryLayout(DesignGraph &graph, uint32_t 
         } else if (vtxOpName == CGToucanOPName::Stop) {
           // stop
           auto stopOp = cast<toucan::StopOp>(rawOp);
-          auto enValId = partInfo.valueToValId[stopOp.getEn()];
+          auto enVal = stopOp.getEn();
+
+          assert(partInfo.valueToValId.contains(enVal));
+          auto enValId = partInfo.valueToValId[enVal];
 
           opMeta.stop.en = enValId;
 
@@ -824,7 +895,6 @@ void PartitionerNCodeGenBase::generateMemoryLayout(DesignGraph &graph, uint32_t 
 }
 
 void PartitionerNCodeGenBase::fillDebugInfo() {
-  // TODO: fill codeGenInfo.regDebugInfo, signalDebugInfo, memDebugInfo
   // Consider parallel
 
   // collect reg info
