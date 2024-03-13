@@ -149,6 +149,7 @@ struct CPUSingleThreadCodeGenPass : toucan::impl::CPUSingleThreadCodeGenBase<CPU
             partInfo.ops_exec[execOpsIdx][i].mem.hasMultipleWriter = opMeta.memRead.hasMultipleWriter;
             partInfo.ops_exec[execOpsIdx][i].mem.memDepth = opMeta.memRead.memDepth;
             partInfo.ops_exec[execOpsIdx][i].mem.memBase = opMeta.memRead.memBase;
+            partInfo.ops_exec[execOpsIdx][i].mem.en = opMeta.memRead.en;
             partInfo.ops_exec[execOpsIdx][i].mem.addr0 = opMeta.memRead.addr0;
             partInfo.ops_exec[execOpsIdx][i].mem.addr1 = opMeta.memRead.addr1;
             partInfo.ops_exec[execOpsIdx][i].mem.addr2 = opMeta.memRead.addr2;

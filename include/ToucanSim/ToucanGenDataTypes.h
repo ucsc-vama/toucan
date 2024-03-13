@@ -55,6 +55,7 @@ namespace toucanSim {
     // static
     uint64_t memBase;
 
+    uint32_t en;
     // max addr width: 32
     uint32_t addr0;
     uint32_t addr1;

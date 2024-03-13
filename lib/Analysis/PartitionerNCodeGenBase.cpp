@@ -533,6 +533,7 @@ void PartitionerNCodeGenBase::generateMemoryLayout(DesignGraph &graph, uint32_t 
           auto memReadOp = cast<toucan::MemReadOp>(rawOp);
           auto memVal = memReadOp.getMem();
           auto memValId = codeGenInfo.toucanMemToId[memVal];
+          auto memEnId = partInfo.valueToValId[memReadOp.getEn()];
 
           auto memAddrs = memReadOp.getAddrs();
           auto numMemAddrs = memAddrs.size();
@@ -553,6 +554,7 @@ void PartitionerNCodeGenBase::generateMemoryLayout(DesignGraph &graph, uint32_t 
           opMeta.memRead.memBase = codeGenInfo.memPool[memValId].memBase;
           opMeta.memRead.memDepth = codeGenInfo.memPool[memValId].memDepth;
 
+          opMeta.memRead.en = memEnId;
           opMeta.memRead.addr0 = memReadOpIndexIds[0];
           opMeta.memRead.addr1 = memReadOpIndexIds[1];
           opMeta.memRead.addr2 = memReadOpIndexIds[2];

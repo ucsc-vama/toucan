@@ -7,7 +7,6 @@ add_circt_dialect_library(
   FactorArrayGet.cpp
   SplitFirMemRWPorts.cpp
   ExpandMemoryDelay.cpp
-  RemoveMemReadEn.cpp
   ReplaceAsyncResetRegs.cpp
   SplitRegisters.cpp
   RemoveMemMask.cpp
