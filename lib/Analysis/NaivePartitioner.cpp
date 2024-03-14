@@ -31,7 +31,7 @@ NaivePartitioner::NaivePartitioner(mlir::Operation *op, mlir::AnalysisManager &a
 
   levelizePartitions(graph);
 
-  generateMemoryLayout(graph);
+  schedule(graph);
 
   fillDebugInfo();
 

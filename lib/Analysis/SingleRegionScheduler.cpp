@@ -36,7 +36,7 @@ using namespace mlir;
 using namespace llvm;
 using namespace circt;
 
-void PartitionerNCodeGenBase::levelizePartitions(DesignGraph &graph) {
+void SingleRegionScheduler::levelizePartitions(DesignGraph &graph) {
   std::vector<uint32_t> topo_order;
   topo_order.reserve(boost::num_vertices(graph.g));
   boost::topological_sort(graph.g, std::back_inserter(topo_order));
@@ -123,7 +123,7 @@ void PartitionerNCodeGenBase::levelizePartitions(DesignGraph &graph) {
 }
 
 
-void PartitionerNCodeGenBase::generateRegMemLayout(DesignGraph &graph, uint32_t partitionRegPaddingSpace, uint32_t memPaddingSpace) {
+void SingleRegionScheduler::generateRegMemLayout(DesignGraph &graph, uint32_t partitionRegPaddingSpace, uint32_t memPaddingSpace) {
   // collect all reg and memory, generate layout
   for (size_t partId = 0; partId < partitions.size(); partId++) {
     SmallVector<TypedValue<toucan::RegType>> regsInPartitionOrdered;
@@ -230,7 +230,7 @@ void PartitionerNCodeGenBase::generateRegMemLayout(DesignGraph &graph, uint32_t 
   codeGenInfo.totalMemSize = memBaseAddr;
 }
 
-void PartitionerNCodeGenBase::collectPrintString(DesignGraph &graph) {
+void SingleRegionScheduler::collectPrintString(DesignGraph &graph) {
   uint32_t stringId = 0;
 
   for (uint32_t vtxId = 0; vtxId < boost::num_vertices(graph.g); vtxId++) {
@@ -248,7 +248,7 @@ void PartitionerNCodeGenBase::collectPrintString(DesignGraph &graph) {
   }
 }
 
-void PartitionerNCodeGenBase::collectConstant(DesignGraph &graph, CGPartitionMetaInfo &partInfo, uint32_t partId) {
+void SingleRegionScheduler::collectConstant(DesignGraph &graph, CGPartitionMetaInfo &partInfo, uint32_t partId) {
   // Collect all consts, populate value pool
   for (uint32_t vtxId = 0; vtxId < boost::num_vertices(graph.g); vtxId++) {
     if (vtxIdToPartId[vtxId] == partId) {
@@ -308,7 +308,7 @@ static void populateOpMetaDebugInfo(CGOpMetaInfo &opMeta, Operation *op) {
   }
 }
 
-void PartitionerNCodeGenBase::generateMemoryLayout(DesignGraph &graph, uint32_t partitionRegPaddingSpace, uint32_t memPaddingSpace) {
+void SingleRegionScheduler::schedule(DesignGraph &graph, uint32_t partitionRegPaddingSpace, uint32_t memPaddingSpace) {
   // TODO: parallelize for each partition
 
   // Collect information for code gen
@@ -894,7 +894,7 @@ void PartitionerNCodeGenBase::generateMemoryLayout(DesignGraph &graph, uint32_t 
   }
 }
 
-void PartitionerNCodeGenBase::fillDebugInfo() {
+void SingleRegionScheduler::fillDebugInfo() {
   // Consider parallel
 
   // collect reg info

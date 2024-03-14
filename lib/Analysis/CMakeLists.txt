@@ -4,7 +4,7 @@ add_circt_dialect_library(
 
   IsLegalToucan4B.cpp
   DesignGraph.cpp
-  PartitionerNCodeGenBase.cpp
+  SingleRegionScheduler.cpp
   NaivePartitioner.cpp
   RepCutPartitioner.cpp
 

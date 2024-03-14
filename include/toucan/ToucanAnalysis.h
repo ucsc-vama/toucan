@@ -371,7 +371,7 @@ namespace toucan {
   };
 
 
-  class PartitionerNCodeGenBase {
+  class SingleRegionScheduler {
   public:
     mlir::SmallVector<mlir::BitVector> partitions;
     mlir::SmallVector<uint32_t> vtxIdToPartId;
@@ -382,7 +382,7 @@ namespace toucan {
 
     void levelizePartitions(DesignGraph &graph);
 
-    void generateMemoryLayout(DesignGraph &graph, uint32_t partitionRegPaddingSpace = 32, uint32_t memPaddingSpace = 32);
+    void schedule(DesignGraph &graph, uint32_t partitionRegPaddingSpace = 32, uint32_t memPaddingSpace = 32);
 
     void fillDebugInfo();
 
@@ -395,12 +395,12 @@ namespace toucan {
   };
 
 
-  class NaivePartitioner: public PartitionerNCodeGenBase {
+  class NaivePartitioner: public SingleRegionScheduler {
     public:
     NaivePartitioner(mlir::Operation *op, mlir::AnalysisManager &am);
   };
 
-  class RepCutPartitioner: public PartitionerNCodeGenBase {
+  class RepCutPartitioner: public SingleRegionScheduler {
     public:
     RepCutPartitioner(mlir::Operation *op, mlir::AnalysisManager &am);
   };
