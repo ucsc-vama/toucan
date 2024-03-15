@@ -240,16 +240,16 @@ void CodeGenHelper::populateLUT_Shl() {
   for (uint8_t i = 0; i < 0x4; i++) {
     for (uint8_t j = 0; j <= 0xF; j++) {
       for (uint8_t k = 0; k <= 0xF; k++) {
-        uint8_t result = ((j << 4) | k) >> (4 - i);
+        uint8_t result = (((j << 4) | k) >> (4 - i)) & 0xF;
         lut.push_back(result);
       }
     }
   }
 
   lutPos[static_cast<uint8_t>(LUTOpName::LUT_DShl)] = lutContent.size();
-  lutPos[static_cast<uint8_t>(LUTOpName::LUT_Shl1)] = lutContent.size() + 16;
-  lutPos[static_cast<uint8_t>(LUTOpName::LUT_Shl2)] = lutContent.size() + 32;
-  lutPos[static_cast<uint8_t>(LUTOpName::LUT_Shl3)] = lutContent.size() + 48;
+  lutPos[static_cast<uint8_t>(LUTOpName::LUT_Shl1)] = lutContent.size() + 256;
+  lutPos[static_cast<uint8_t>(LUTOpName::LUT_Shl2)] = lutContent.size() + 512;
+  lutPos[static_cast<uint8_t>(LUTOpName::LUT_Shl3)] = lutContent.size() + 768;
   lutContent.insert(lutContent.end(), lut.begin(), lut.end());
 }
 
@@ -260,7 +260,7 @@ void CodeGenHelper::populateLUT_DShr() {
   for (uint8_t i = 0; i < 0x4; i++) {
     for (uint8_t j = 0; j <= 0xF; j++) {
       for (uint8_t k = 0; k <= 0xF; k++) {
-        uint8_t result = ((j << 4) | k) >> i;
+        uint8_t result = (((j << 4) | k) >> i) & 0xF;
         lut.push_back(result);
       }
     }
@@ -295,4 +295,8 @@ void CodeGenHelper::populateLUT() {
   // Replace shr op with shl op
   populateLUT_Shl();
   populateLUT_DShr();
+
+  // for (auto elem: lutContent) {
+  //   assert(elem <= 0xF);
+  // }
 }
