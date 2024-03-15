@@ -418,5 +418,32 @@ namespace toucan {
 
     return andOp.getResult();
   }
+
+
+
+  bool isElementsFullWidth(OperandRange &vals) {
+    for (size_t i = 0; i < vals.size(); i++) {
+      auto valBitWidth = hw::getBitWidth(vals[i].getType());
+      if (i != 0) {
+        if (valBitWidth != 4) return false;
+      } else {
+        if (valBitWidth > 4) return false;
+      }
+    } 
+    return true;
+  }
+
+  bool isElementsFullWidth(mlir::SmallVector<Value> &vals) {
+    for (size_t i = 0; i < vals.size(); i++) {
+      auto valBitWidth = hw::getBitWidth(vals[i].getType());
+      if (i != 0) {
+        if (valBitWidth != 4) return false;
+      } else {
+        if (valBitWidth > 4) return false;
+      }
+    } 
+    return true;
+  }
+  
 }
 

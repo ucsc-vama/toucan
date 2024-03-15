@@ -13,6 +13,7 @@
 #include "toucan/ToucanTypes.h"
 #include "toucan/ToucanUtils.h"
 
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
@@ -914,7 +915,7 @@ void SingleRegionScheduler::fillDebugInfo() {
   for (auto &elem: codeGenInfo.regDebugInfo) {
     auto &v = elem.getSecond();
     std::sort(v.begin(), v.end(), [=](const uint32_t a, const uint32_t b) {
-      return codeGenInfo.regPool[a].fragment_id < codeGenInfo.regPool[b].fragment_id;
+      return codeGenInfo.regPool[a].fragment_id > codeGenInfo.regPool[b].fragment_id;
     });
   }
 
@@ -936,7 +937,7 @@ void SingleRegionScheduler::fillDebugInfo() {
   for (auto &elem: codeGenInfo.memDebugInfo) {
     auto &v = elem.getSecond();
     std::sort(v.begin(), v.end(), [=](const uint32_t a, const uint32_t b) {
-      return codeGenInfo.memPool[a].fragment_id < codeGenInfo.memPool[b].fragment_id;
+      return codeGenInfo.memPool[a].fragment_id > codeGenInfo.memPool[b].fragment_id;
     });
   }
 
@@ -971,7 +972,7 @@ void SingleRegionScheduler::fillDebugInfo() {
 
       auto a_fragmentId = codeGenInfo.partitionInfo[a_partId].valuePool[a_valId].fragment_id;
       auto b_fragmentId = codeGenInfo.partitionInfo[a_partId].valuePool[a_valId].fragment_id;
-      return a_fragmentId < b_fragmentId;
+      return a_fragmentId > b_fragmentId;
     });
   }
 }

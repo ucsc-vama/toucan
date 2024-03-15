@@ -102,4 +102,8 @@ namespace toucan {
   mlir::Value generate_reduce_tree(mlir::RewriterBase &rewritter, mlir::Location loc, llvm::SmallVector<mlir::Value> &inputs, std::function<mlir::Value(mlir::RewriterBase&, mlir::Location, mlir::Value, mlir::Value)> cb);
 
   mlir::Value removeHighBits(mlir::RewriterBase &rewriter, mlir::Location loc, mlir::Value val, size_t bitsNeeded);
+
+  bool isElementsFullWidth(mlir::OperandRange &vals);
+
+  bool isElementsFullWidth(mlir::SmallVector<mlir::Value> &vals);
 };

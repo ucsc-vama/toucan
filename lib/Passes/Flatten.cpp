@@ -95,7 +95,7 @@ struct FlattenPass : toucan::impl::FlattenBase<FlattenPass> {
   static void createRegAndWrite(Operation *op, Value &inputVal, RewriterBase &rewriter, StringAttr &valueNewNameAttr) {
     auto splitedVals = split_value_4B(op, inputVal, rewriter);
     for (size_t chunkId = 0; chunkId < splitedVals.size(); chunkId++) {
-      auto inputChunk = splitedVals[chunkId];
+      auto inputChunk = splitedVals[splitedVals.size() - 1 - chunkId];
       auto inputChunkWidth = hw::getBitWidth(inputChunk.getType());
       auto regType = rewriter.getIntegerType(inputChunkWidth);
 

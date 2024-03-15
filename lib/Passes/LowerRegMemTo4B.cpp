@@ -89,7 +89,7 @@ struct LowerRegMemTo4BPass : toucan::impl::LowerRegMemTo4BBase<LowerRegMemTo4BPa
             // set name hint
             setSVNameHintAttr(newRegOp_4B, namehint);
             // Set fragment Id
-            auto fragmentId = rewriter.getIntegerAttr(rewriter.getIntegerType(32), regId);
+            auto fragmentId = rewriter.getI32IntegerAttr(regId);
             setSignalFragmentIDAttr(newRegOp_4B, fragmentId);
 
             newRegInfos.push_back({fragmentId, regWidth, newRegHandle, namehint});
@@ -141,13 +141,15 @@ struct LowerRegMemTo4BPass : toucan::impl::LowerRegMemTo4BBase<LowerRegMemTo4BPa
           }
 
         } else {
-          // Don't need expand
-          regsAfterInModule++;
-          // set name hint
-          setSVNameHintAttr(regOp, namehint);
-          // Set fragment Id
-          auto fragmentId = rewriter.getIntegerAttr(rewriter.getIntegerType(32), 0);
-          setSignalFragmentIDAttr(regOp, fragmentId);
+          if (!getSignalFragmentIDAttr(regOp)) {
+            // Don't need expand
+            regsAfterInModule++;
+            // set name hint
+            setSVNameHintAttr(regOp, namehint);
+            // Set fragment Id
+            auto fragmentId = rewriter.getI32IntegerAttr( 0);
+            setSignalFragmentIDAttr(regOp, fragmentId);
+          }
         }
       } else if (auto memOp = dyn_cast<toucan::DefMemOp>(stmt)) {
         // Memory
@@ -252,14 +254,16 @@ struct LowerRegMemTo4BPass : toucan::impl::LowerRegMemTo4BBase<LowerRegMemTo4BPa
             toRemove.push_back(op);
           }
         } else {
-          // memory width less or equal than 4
-          // Don't need expand
-          memsAfterInModule++;
-          // set name hint
-          setSVNameHintAttr(memOp, namehint);
-          // Set fragment Id
-          auto fragmentId = rewriter.getIntegerAttr(rewriter.getIntegerType(32), 0);
-          setSignalFragmentIDAttr(memOp, fragmentId);
+          if (!getSignalFragmentIDAttr(memOp)) {
+            // memory width less or equal than 4
+            // Don't need expand
+            memsAfterInModule++;
+            // set name hint
+            setSVNameHintAttr(memOp, namehint);
+            // Set fragment Id
+            auto fragmentId = rewriter.getIntegerAttr(rewriter.getIntegerType(32), 0);
+            setSignalFragmentIDAttr(memOp, fragmentId);
+          }
         }
       }
     }

@@ -59,29 +59,6 @@ using namespace llvm;
 
 struct BitsOperations {
 
-  static bool isElementsFullWidth(OperandRange &vals) {
-    for (size_t i = 0; i < vals.size(); i++) {
-      auto valBitWidth = hw::getBitWidth(vals[i].getType());
-      if (i != 0) {
-        if (valBitWidth != 4) return false;
-      } else {
-        if (valBitWidth > 4) return false;
-      }
-    } 
-    return true;
-  }
-
-  static bool isElementsFullWidth(SmallVector<Value> &vals) {
-    for (size_t i = 0; i < vals.size(); i++) {
-      auto valBitWidth = hw::getBitWidth(vals[i].getType());
-      if (i != 0) {
-        if (valBitWidth != 4) return false;
-      } else {
-        if (valBitWidth > 4) return false;
-      }
-    } 
-    return true;
-  }
 
   static LUTOpName getShlNameUsingShamt(size_t shamt) {
     switch (shamt) {
