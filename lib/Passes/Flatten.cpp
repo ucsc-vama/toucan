@@ -382,6 +382,11 @@ struct FlattenPass : toucan::impl::FlattenBase<FlattenPass> {
       }
     });
 
+    if (topModule == nullptr) {
+      modlist->emitError() << "No top module detected. Is it already flatten?";
+      return signalPassFailure();
+    }
+
     auto & instGraph = getAnalysis<hw::InstanceGraph>();
     
     for(auto modNode: post_order(&instGraph)) {
