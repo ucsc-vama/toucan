@@ -419,7 +419,7 @@ void SingleRegionScheduler::schedule(DesignGraph &graph, uint32_t partitionRegPa
     // each defvector is converted to a list of LUT_Nop
     mlir::SmallVector<mlir::SmallVector<CGOpMetaInfo>> vecDecls;
     mlir::SmallVector<mlir::Value> vecDeclVals;
-    // vec produced by nops. ** Don't reorder **
+    // vec reads
     mlir::SmallVector<mlir::SmallVector<CGOpMetaInfo>> vecReadOps;
     mlir::SmallVector<mlir::Value> vecReadHandleVals;
     // mem reads. reorder is not necessary
@@ -508,7 +508,7 @@ void SingleRegionScheduler::schedule(DesignGraph &graph, uint32_t partitionRegPa
             currentVecDeclOps.push_back(opMeta);
           }
           // Nops are ordered.
-          vecDecls.push_back(std::move(currentVecDeclOps));
+          vecDecls.push_back(currentVecDeclOps);
           vecDeclVals.push_back(vecDeclOp.getHandle());
         } else if (tOpName == CGToucanOPName::VecRead) {
           currentVecReadOps.clear();
