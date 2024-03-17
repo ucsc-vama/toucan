@@ -66,7 +66,9 @@ static std::atomic<uint64_t> numArrayReadFromShiftInModules;
 class DynamicShiftOperations {
   public:
 
-  Value shiftCore(RewriterBase &rewriter, Operation *op, SmallVector<Value> intermediateResults, Value shamt, Value fillingValue, size_t realInputWidth, std::optional<StringAttr> namehint) const {
+  // A vector-based shift left, use high bits of shamt
+  // This logic is shared by shift left and right
+  Value shiftCore(RewriterBase &rewriter, Operation *op, SmallVector<Value> intermediateResults, Value shamt, Value fillingValue, size_t realInputWidth, std::optional<StringAttr> namehint, bool reverseOffset) const {
     auto shamtWidth = hw::getBitWidth(shamt.getType());
 
     SmallVector<Value> shiftResult;
@@ -82,7 +84,9 @@ class DynamicShiftOperations {
       auto shamt_high_split = (hw::getBitWidth(shamt_high.getType()) > 4) ? split_value_4B(op, shamt_high, rewriter) : SmallVector<Value>({shamt_high});
       
       for (size_t i = 0; i < intermediateResults.size(); i++) {
-        auto vecReadOp = rewriter.create<toucan::VectorReadOp>(op->getLoc(), vecHandle, i, fillingValue, shamt_high_split);
+        uint16_t offset = i;
+        if (reverseOffset) offset = intermediateResults.size() - 1 - i;
+        auto vecReadOp = rewriter.create<toucan::VectorReadOp>(op->getLoc(), vecHandle, offset, fillingValue, shamt_high_split);
         shiftResult.push_back(vecReadOp.getResult());
       }
       numShiftToArrayInModules++;
@@ -151,8 +155,7 @@ class DynamicShiftOperations {
       intermediateResults.push_back(dshlOp.getResult());
     }
 
-    std::reverse(intermediateResults.begin(), intermediateResults.end());
-    return shiftCore(rewriter, op, intermediateResults, shamt, zeroConstValue, realInputWidth, namehint);
+    return shiftCore(rewriter, op, intermediateResults, shamt, zeroConstValue, realInputWidth, namehint, false);
   }
 
   // shift right, inputs need to be extended!!!, inputs are 4b values from msb to lsb
@@ -192,7 +195,8 @@ class DynamicShiftOperations {
       intermediateResults.push_back(dshlOp.getResult());
     }
 
-    return shiftCore(rewriter, op, intermediateResults, shamt, fillingValue, realInputWidth, namehint);
+    std::reverse(intermediateResults.begin(), intermediateResults.end());
+    return shiftCore(rewriter, op, intermediateResults, shamt, fillingValue, realInputWidth, namehint, true);
   }
 
 
