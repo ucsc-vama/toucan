@@ -187,10 +187,13 @@ void CodeGenHelper::populateLUT_Mul_Lo() {
 void CodeGenHelper::populateLUT_Carry() {
   SmallVector<uint8_t> lut;
 
-  for (uint8_t i = 0; i <= 0xF; i++) {
+  for (uint8_t i = 0; i < 0x2; i++) {
     for (uint8_t j = 0; j <= 0xF; j++) {
-      uint8_t result = (i + j) >> 4;
-      lut.push_back(result);
+      for (uint8_t k = 0; k <= 0xF; k++) {
+        uint8_t result = (i + j + k) >> 4;
+        assert(result == 1 || result == 0);
+        lut.push_back(result);
+      }
     }
   }
 

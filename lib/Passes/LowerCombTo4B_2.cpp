@@ -62,28 +62,40 @@ static std::atomic<uint64_t> numCombMuxInModules;
 struct AddSubCore {
   public:
   Value addCore(Operation *op, PatternRewriter &rewriter, Value lhsValue, Value rhsValue, Value base_carry, std::optional<StringAttr> namehint) const {
+    auto inputValWidth = hw::getBitWidth(lhsValue.getType());
+
     auto lhsValues = split_value_4B(op, lhsValue, rewriter);
     auto rhsValues = split_value_4B(op, rhsValue, rewriter);
 
     SmallVector<Value> results;
     auto last_carry = base_carry;
     for (size_t i = 0; i < lhsValues.size(); i++) {
-      auto lhs = lhsValues[i];
-      auto rhs = rhsValues[i];
+      auto pos = lhsValues.size() - 1 - i;
+
+      auto lhs = lhsValues[pos];
+      auto rhs = rhsValues[pos];
 
       auto addOp = rewriter.create<toucan::LUTOp>(op->getLoc(), toucan::LUTOpName::LUT_Add, last_carry, lhs, rhs);
       auto addValue = addOp.getResult();
       results.push_back(addValue);
 
-      if (i < (lhsValues.size() - 1)) {
-        // Not last one, generate carry signal
-        auto carryOp = rewriter.create<toucan::LUTOp>(op->getLoc(), toucan::LUTOpName::LUT_Carry, lhs, rhs);
+      if (pos != 0) {
+        // Not first one, generate carry signal
+        auto carryOp = rewriter.create<toucan::LUTOp>(op->getLoc(), toucan::LUTOpName::LUT_Carry, last_carry, lhs, rhs);
         auto carryValue = carryOp.getResult();
         last_carry = carryValue;
       }
     }
 
     // Concat
+    std::reverse(results.begin(), results.end());
+
+    if (inputValWidth % 4 != 0) {
+      // Need clear top bits
+      auto extractOp = rewriter.create<comb::ExtractOp>(op->getLoc(), results[0], 0, inputValWidth % 4);
+      results[0] = extractOp.getResult();
+    }
+
     attachNameHintAndFragmentId(rewriter, results, namehint);
     auto concatOp = rewriter.create<comb::ConcatOp>(op->getLoc(), results);
     

@@ -114,8 +114,8 @@ size_t LUTOp::getLegalOperandCount(toucan::LUTOpName opName) {
     case LUTOpName::LUT_Cmp_Eq:
     case LUTOpName::LUT_Mul_Hi:
     case LUTOpName::LUT_Mul_Lo:
-    case LUTOpName::LUT_Carry:
       return 2;
+    case LUTOpName::LUT_Carry:
     case LUTOpName::LUT_Add:
     case LUTOpName::LUT_Mux:
     case LUTOpName::LUT_DShl:
@@ -137,6 +137,15 @@ LogicalResult LUTOp::verify() {
     if (hw::getBitWidth(input.getType()) > 4) {
       return emitError() << "Operand has a max width of 4";
     }
+  }
+  switch (getOpName()) {
+    case LUTOpName::LUT_Carry: {
+      if (hw::getBitWidth(getInputs()[0].getType()) != 1) {
+        return emitError() << "First operand of carry op must have width of 1";
+      }
+      break;
+    }
+    default: return success();
   }
   return success();
 }
@@ -192,9 +201,6 @@ size_t LUTOp::getResultWidth2(toucan::LUTOpName opName, ValueRange inputs) {
     } 
     
     case LUTOpName::LUT_Cmp_Eq:
-    case LUTOpName::LUT_Carry: {
-      return 1;
-    }
 
     default: ;
   }
@@ -207,6 +213,10 @@ size_t LUTOp::getResultWidth3(toucan::LUTOpName opName, ValueRange inputs) {
   } else {
     assert(hw::getBitWidth(inputs[0].getType()) <= 2);
   }
+
+  // Note: Add always returns 4 bits. Use extract to limit output width
+  if (opName == toucan::LUTOpName::LUT_Add) return 4;
+  if (opName == toucan::LUTOpName::LUT_Carry) return 1;
 
   auto lhsWidth = hw::getBitWidth(inputs[1].getType());
   auto rhsWidth = hw::getBitWidth(inputs[2].getType());
