@@ -200,7 +200,7 @@ size_t LUTOp::getResultWidth2(toucan::LUTOpName opName, ValueRange inputs) {
       return 4;
     } 
     
-    case LUTOpName::LUT_Cmp_Eq:
+    case LUTOpName::LUT_Cmp_Eq: return 1;
 
     default: ;
   }
