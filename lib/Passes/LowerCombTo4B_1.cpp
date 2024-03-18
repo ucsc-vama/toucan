@@ -37,6 +37,7 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/Format.h"
 
+#include <algorithm>
 #include <memory>
 #include <atomic>
 
@@ -644,21 +645,18 @@ struct LowerCombMulOp: OpRewritePattern<comb::MulOp> {
     SmallVector<SmallVector<Value>> tempValues;
     for (size_t i = 0; i < outputIntegers; i++) {
       tempValues.push_back({});
-      tempValues.reserve(outputSections);
-      for (size_t j = 0; j < outputSections; j++) {
-        tempValues[i].push_back(zeroConstValue);
-      }
+      tempValues[i].resize(outputSections, zeroConstValue);
     }
 
     for (size_t i = 0; i < inputSections; i++) {
       for (size_t j = 0; j < inputSections; j++) {
-        auto current_int_level = i * inputSections + j;
+        auto current_result_id = i * inputSections + j;
 
-        auto pos_lo = i + j;
-        auto pos_hi = pos_lo + 1;
+        auto pos_lo = outputSections - 1 - (i + j);
+        auto pos_hi = pos_lo - 1;
 
-        auto lhs = lhsValues[i];
-        auto rhs = rhsValues[j];
+        auto lhs = lhsValues[inputSections - 1 - j];
+        auto rhs = rhsValues[inputSections - 1 - i];
 
         auto mulLoOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Mul_Lo, lhs, rhs);
         auto mulHiOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Mul_Hi, lhs, rhs);
@@ -666,8 +664,8 @@ struct LowerCombMulOp: OpRewritePattern<comb::MulOp> {
         auto loVal = mulLoOp.getResult();
         auto hiVal = mulHiOp.getResult();
 
-        tempValues[current_int_level][pos_lo] = loVal;
-        tempValues[current_int_level][pos_hi] = hiVal;
+        tempValues[current_result_id][pos_lo] = loVal;
+        tempValues[current_result_id][pos_hi] = hiVal;
       }
     }
 
