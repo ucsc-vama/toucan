@@ -410,6 +410,25 @@ struct LowerCombICmpOp: OpRewritePattern<comb::ICmpOp> {
     return paddingValue;
   }
 
+  // Sign-extend a value to align with 4b. If value is already aligned, add extra 4 bits
+  Value sExtValueForIcmp(comb::ICmpOp &op, PatternRewriter &rewriter, Value val) const {
+    auto inputValueWidth = hw::getBitWidth(val.getType());
+
+    auto paddingTargetWidth = ((inputValueWidth & 0x3) == 0) ? inputValueWidth + 4 : ((inputValueWidth + 3) & (~0x3));
+
+    auto extractTopBitOp = rewriter.create<comb::ExtractOp>(op.getLoc(), val, inputValueWidth - 1, 1);
+    auto topBitVal = extractTopBitOp.getResult();
+
+    auto repOp = rewriter.create<comb::ReplicateOp>(op.getLoc(), topBitVal, paddingTargetWidth - inputValueWidth);
+    auto fillingVal = repOp.getResult();
+
+    // Temp value, don't need namehint
+    auto sExtOp = rewriter.create<comb::ConcatOp>(op.getLoc(), ValueRange({fillingVal, val}));
+    auto sExtValue = sExtOp.getResult();
+
+    return sExtValue;
+  }
+
   Value icmpEqCore(comb::ICmpOp &op, PatternRewriter &rewriter, Value lhsValue, Value rhsValue) const {
 
     auto lhsValues = split_value_4B(op.getOperation(), lhsValue, rewriter);
@@ -508,7 +527,10 @@ struct LowerCombICmpOp: OpRewritePattern<comb::ICmpOp> {
     auto inputValueWidth = hw::getBitWidth(lhsValue.getType());
     assert(inputValueWidth == hw::getBitWidth(rhsValue.getType()));
 
-    return icmpLTCore(op, rewriter, lhsValue, rhsValue);
+    auto sExtLhsValue = sExtValueForIcmp(op, rewriter, lhsValue);
+    auto sExtRhsValue = sExtValueForIcmp(op, rewriter, rhsValue);
+
+    return icmpLTCore(op, rewriter, sExtLhsValue, sExtRhsValue);
   }
 
   Value LowerCombICmpSLE(comb::ICmpOp &op, PatternRewriter &rewriter) const {
@@ -518,10 +540,13 @@ struct LowerCombICmpOp: OpRewritePattern<comb::ICmpOp> {
     auto inputValueWidth = hw::getBitWidth(lhsValue.getType());
     assert(inputValueWidth == hw::getBitWidth(rhsValue.getType()));
 
-    auto ultValue = icmpLTCore(op, rewriter, lhsValue, rhsValue);
-    auto eqValue = icmpEqCore(op, rewriter, lhsValue, rhsValue);
+    auto sExtLhsValue = sExtValueForIcmp(op, rewriter, lhsValue);
+    auto sExtRhsValue = sExtValueForIcmp(op, rewriter, rhsValue);
 
-    auto orOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Or, ultValue, eqValue);
+    auto sltValue = icmpLTCore(op, rewriter, sExtLhsValue, sExtRhsValue);
+    auto eqValue = icmpEqCore(op, rewriter, sExtLhsValue, sExtRhsValue);
+
+    auto orOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Or, sltValue, eqValue);
 
     return orOp.getResult();
   }

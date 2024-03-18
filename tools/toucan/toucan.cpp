@@ -119,10 +119,10 @@ static LogicalResult compileAndEmit(
         // Convert hw array
         pm.addPass(toucan::createLowerCombPreProcessPass());
         // Lower HW to 4B
-        pm.addPass(toucan::createLowerCombTo4B_ShortReplicateOpPass());
         pm.addPass(toucan::createLowerCombTo4B_1Pass());
         pm.addPass(toucan::createLowerCombTo4B_2Pass());
         pm.addPass(toucan::createLowerCombTo4B_3Pass());
+        pm.addPass(toucan::createLowerCombTo4B_ShortReplicateOpPass());
 
         pm.addPass(toucan::createCanonicalizerPass());
         // Canonicalizer may generates ReplicateOp. Revert back.
