@@ -285,6 +285,11 @@ namespace toucan {
 
 
   bool value_is_const_zero(mlir::Value &inputVal) {
+    if (auto tConstOp = inputVal.getDefiningOp<toucan::ConstantOp>()) {
+      if (tConstOp.getValue().isZero()) {
+        return true;
+      }
+    }
     if (auto constOp = inputVal.getDefiningOp<hw::ConstantOp>()) {
       if (constOp.getValue().isZero()) {
         return true;
@@ -294,6 +299,11 @@ namespace toucan {
   }
 
   bool value_is_const_ones(mlir::Value &inputVal) {
+    if (auto tConstOp = inputVal.getDefiningOp<toucan::ConstantOp>()) {
+      if (tConstOp.getValue().isAllOnes()) {
+        return true;
+      }
+    }
     if (auto constOp = inputVal.getDefiningOp<hw::ConstantOp>()) {
       if (constOp.getValue().isAllOnes()) {
         return true;
@@ -303,6 +313,9 @@ namespace toucan {
   }
 
   bool value_is_const(mlir::Value &inputVal) {
+    if (auto tConstOp = inputVal.getDefiningOp<toucan::ConstantOp>()) {
+      return true;
+    }
     if (auto constOp = inputVal.getDefiningOp<hw::ConstantOp>()) {
       return true;
     }

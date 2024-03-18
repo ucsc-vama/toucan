@@ -16,6 +16,7 @@
 #include "mlir/Interfaces/CallInterfaces.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
+#include "llvm/ADT/APInt.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Casting.h"
@@ -224,6 +225,44 @@ size_t LUTOp::getResultWidth3(toucan::LUTOpName opName, ValueRange inputs) {
   return std::max(lhsWidth, rhsWidth);
 }
 
+
+static inline LogicalResult canonicalize_LUT_Add(LUTOp &op, PatternRewriter &rewriter) {
+  auto inputs = op.getInputs();
+
+  auto carry = inputs[0];
+  auto lhs = inputs[1];
+  auto rhs = inputs[2];
+
+  auto carry_isConstZero = value_is_const_zero(carry);
+  auto lhs_isConstZero = value_is_const_zero(lhs);
+  auto rhs_isConstZero = value_is_const_zero(rhs);
+
+  if (lhs_isConstZero && rhs_isConstZero) {
+    rewriter.replaceOp(op, lhs);
+    return success();
+  } else if (lhs_isConstZero && carry_isConstZero) {
+    rewriter.replaceOp(op, rhs);
+    return success();
+  } else if (rhs_isConstZero && carry_isConstZero) {
+    rewriter.replaceOp(op, lhs);
+    return success();
+  }
+  return failure();
+}
+
+static inline LogicalResult canonicalize_LUT_Carry(LUTOp &op, PatternRewriter &rewriter) {
+  auto inputs = op.getInputs();
+
+  auto lhs = inputs[1];
+  auto rhs = inputs[2];
+  if (value_is_const_zero(lhs) && value_is_const_zero(rhs)) {
+    auto constI1Zero = rewriter.create<toucan::ConstantOp>(op.getLoc(), APInt(1, 0)).getResult();
+    rewriter.replaceOp(op, constI1Zero);
+    return success();
+  }
+  return failure();
+}
+
 LogicalResult LUTOp::canonicalize(LUTOp op, PatternRewriter &rewriter) {
   auto opName = op.getOpName();
   auto inputs = op.getInputs();
@@ -287,15 +326,11 @@ LogicalResult LUTOp::canonicalize(LUTOp op, PatternRewriter &rewriter) {
     case LUTOpName::LUT_Mul_Lo:
       break;
     case LUTOpName::LUT_Add: {
-      // carry, lhs, rhs
-      if (all_of(inputs, [&](auto val){return value_is_const_zero(val);})) {
-        rewriter.replaceOp(op, inputs[1]);
-        return success();
-      }
-      return failure();
+      return canonicalize_LUT_Add(op, rewriter);
     }
-    case LUTOpName::LUT_Carry:
-      break;
+    case LUTOpName::LUT_Carry: {
+      return canonicalize_LUT_Carry(op, rewriter);
+    }
     case LUTOpName::LUT_Mux: {
       assert(inputs.size() == 3);
       auto enSignal = inputs[0];
