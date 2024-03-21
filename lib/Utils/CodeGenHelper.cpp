@@ -302,4 +302,8 @@ void CodeGenHelper::populateLUT() {
   // for (auto elem: lutContent) {
   //   assert(elem <= 0xF);
   // }
+
+  // for (size_t enumId = 0; enumId <= toucan::getMaxEnumValForLUTOpName(); enumId++) {
+  //   llvm::dbgs() << "Pos for op " << stringifyLUTOpName(static_cast<LUTOpName>(enumId)) << ": " << lutPos[enumId] << "\n";
+  // }
 }

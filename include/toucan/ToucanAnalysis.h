@@ -74,6 +74,7 @@ namespace toucan {
 
     uint32_t levelId;
     uint32_t opId;
+    uint8_t bitWidth;
 
     std::optional<mlir::StringRef> namehint;
     uint32_t fragment_id;

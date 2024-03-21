@@ -32,6 +32,7 @@
 #include <filesystem>
 #include <fstream>
 #include <format>
+#include <tuple>
 #include <vector>
 
 
@@ -220,14 +221,37 @@ struct CPUSingleThreadCodeGenPass : toucan::impl::CPUSingleThreadCodeGenBase<CPU
     }
 
     // debug info
+    std::vector<std::tuple<uint32_t, uint32_t>> eachRegDbgInfo;
+    std::vector<std::tuple<uint32_t, uint32_t, uint32_t>> eachMemDbgInfo;
+    std::vector<std::tuple<uint32_t, uint32_t, uint32_t>> eachSignalDbgInfo;
+
     for (auto [regNameRef, ids]: partitionResult.codeGenInfo.regDebugInfo) {
-      debugInfo.regDebugInfo[regNameRef.str()] = std::vector<uint32_t>(ids.begin(), ids.end());
+      eachRegDbgInfo.clear();
+      for (auto regId: ids) {
+        eachRegDbgInfo.push_back(std::make_tuple(regId, partitionResult.codeGenInfo.regPool[regId].bitWidth));
+      }
+      debugInfo.regDebugInfo[regNameRef.str()] = eachRegDbgInfo;
     }
     for (auto [memNameRef, ids]: partitionResult.codeGenInfo.memDebugInfo) {
-      debugInfo.memDebugInfo[memNameRef.str()] = std::vector<uint32_t>(ids.begin(), ids.end());
+      eachMemDbgInfo.clear();
+      for (auto memId: ids) {
+        auto startPos = partitionResult.codeGenInfo.memPool[memId].memBase;
+        auto bitWidth = partitionResult.codeGenInfo.memPool[memId].bitWidth;
+        auto memDepth = partitionResult.codeGenInfo.memPool[memId].memDepth;
+        eachMemDbgInfo.push_back(std::make_tuple(startPos, bitWidth, memDepth));
+      }
+      debugInfo.memDebugInfo[memNameRef.str()] = eachMemDbgInfo;
     }
-    for (auto [sigNameRef, ids]: partitionResult.codeGenInfo.signalDebugInfo) {
-      debugInfo.signalDebugInfo[sigNameRef.str()] = std::vector<std::tuple<uint32_t, uint32_t>>(ids.begin(), ids.end());
+    for (auto [sigNameRef, sigLocs]: partitionResult.codeGenInfo.signalDebugInfo) {
+      eachSignalDbgInfo.clear();
+
+      for (auto sigLoc: sigLocs) {
+        auto partId = std::get<0>(sigLoc);
+        auto sigId = std::get<1>(sigLoc);
+        auto sigBitWidth = partitionResult.codeGenInfo.partitionInfo[partId].valuePool[sigId].bitWidth;
+        eachSignalDbgInfo.push_back(std::make_tuple(partId, sigId, sigBitWidth));
+      }
+      debugInfo.signalDebugInfo[sigNameRef.str()] = eachSignalDbgInfo;
     }
 
 

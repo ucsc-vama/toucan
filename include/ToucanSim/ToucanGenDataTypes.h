@@ -158,11 +158,12 @@ namespace toucanSim {
   };
 
   struct SimDebugInfo {
-    std::unordered_map<std::string, std::vector<uint32_t> > regDebugInfo;
-    // name -> ((part, valId), (part, valId), ..)
-    std::unordered_map<std::string, std::vector<std::tuple<uint32_t, uint32_t> > > signalDebugInfo;
-    // name -> (start pos, bit width, length)
-    std::unordered_map<std::string, std::vector<uint32_t> > memDebugInfo;
+    // name -> ((id, wdith), (id, width), ...)
+    std::unordered_map<std::string, std::vector<std::tuple<uint32_t, uint32_t>> > regDebugInfo;
+    // name -> ((part, valId, width), (part, valId, width), ..)
+    std::unordered_map<std::string, std::vector<std::tuple<uint32_t, uint32_t, uint32_t> > > signalDebugInfo;
+    // name -> ((start pos, bit width, length), ...)
+    std::unordered_map<std::string, std::vector<std::tuple<uint32_t, uint32_t, uint32_t>> > memDebugInfo;
   };
 
 

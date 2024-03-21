@@ -78,6 +78,24 @@ void deserializeTuple(std::istream& in, std::tuple<T1, T2>& value) {
   value = std::make_tuple(first, second);
 }
 
+template<typename T1, typename T2, typename T3>
+void serializeTuple(std::ostream& out, const std::tuple<T1, T2, T3>& value) {
+  serializePrimitive(out, std::get<0>(value));
+  serializePrimitive(out, std::get<1>(value));
+  serializePrimitive(out, std::get<2>(value));
+}
+
+template<typename T1, typename T2, typename T3>
+void deserializeTuple(std::istream& in, std::tuple<T1, T2, T3>& value) {
+  T1 first;
+  T2 second;
+  T3 third;
+  deserializePrimitive(in, first);
+  deserializePrimitive(in, second);
+  deserializePrimitive(in, third);
+  value = std::make_tuple(first, second, third);
+}
+
 
 
 
@@ -198,7 +216,16 @@ void toucanSim::deserializeSimDesignInfo(std::istream& in, toucanSim::SimDesignI
 
 void toucanSim::serializeSimDebugInfo(std::ostream& out, const toucanSim::SimDebugInfo& info) {
   // Serialize regDebugInfo
-  serializeMap(out, info.regDebugInfo);
+  size_t regMapSize = info.regDebugInfo.size();
+  serializePrimitive(out, regMapSize);
+  for (const auto& pair : info.regDebugInfo) {
+    serializeString(out, pair.first);
+    size_t vectorSize = pair.second.size();
+    serializePrimitive(out, vectorSize);
+    for (const auto& tuple : pair.second) {
+      serializeTuple(out, tuple);
+    }
+  }
 
   // Serialize signalDebugInfo
   size_t signalMapSize = info.signalDebugInfo.size();
@@ -213,18 +240,24 @@ void toucanSim::serializeSimDebugInfo(std::ostream& out, const toucanSim::SimDeb
   }
 
   // Serialize memDebugInfo similarly to regDebugInfo
-  serializeMap(out, info.memDebugInfo);
+  size_t memMapSize = info.memDebugInfo.size();
+  serializePrimitive(out, memMapSize);
+  for (const auto& pair : info.memDebugInfo) {
+    serializeString(out, pair.first);
+    size_t vectorSize = pair.second.size();
+    serializePrimitive(out, vectorSize);
+    for (const auto& tuple : pair.second) {
+      serializeTuple(out, tuple);
+    }
+  }
 }
 
 
 void toucanSim::deserializeSimDebugInfo(std::istream& in, toucanSim::SimDebugInfo& info) {
   // Deserialize regDebugInfo
-  deserializeMap(in, info.regDebugInfo);
-
-  // Deserialize signalDebugInfo
-  size_t signalMapSize;
-  deserializePrimitive(in, signalMapSize);
-  for (size_t i = 0; i < signalMapSize; ++i) {
+  size_t regMapSize;
+  deserializePrimitive(in, regMapSize);
+  for (size_t i = 0; i < regMapSize; ++i) {
     std::string key;
     deserializeString(in, key);
     size_t vectorSize;
@@ -235,11 +268,42 @@ void toucanSim::deserializeSimDebugInfo(std::istream& in, toucanSim::SimDebugInf
       deserializeTuple(in, tuple);
       vector.push_back(tuple);
     }
+    info.regDebugInfo[key] = vector;
+  }
+
+  // Deserialize signalDebugInfo
+  size_t signalMapSize;
+  deserializePrimitive(in, signalMapSize);
+  for (size_t i = 0; i < signalMapSize; ++i) {
+    std::string key;
+    deserializeString(in, key);
+    size_t vectorSize;
+    deserializePrimitive(in, vectorSize);
+    std::vector<std::tuple<uint32_t, uint32_t, uint32_t>> vector;
+    for (size_t j = 0; j < vectorSize; ++j) {
+      std::tuple<uint32_t, uint32_t, uint32_t> tuple;
+      deserializeTuple(in, tuple);
+      vector.push_back(tuple);
+    }
     info.signalDebugInfo[key] = vector;
   }
 
   // Deserialize memDebugInfo similarly to regDebugInfo
-  deserializeMap(in, info.memDebugInfo);
+  size_t memMapSize;
+  deserializePrimitive(in, memMapSize);
+  for (size_t i = 0; i < memMapSize; ++i) {
+    std::string key;
+    deserializeString(in, key);
+    size_t vectorSize;
+    deserializePrimitive(in, vectorSize);
+    std::vector<std::tuple<uint32_t, uint32_t, uint32_t>> vector;
+    for (size_t j = 0; j < vectorSize; ++j) {
+      std::tuple<uint32_t, uint32_t, uint32_t> tuple;
+      deserializeTuple(in, tuple);
+      vector.push_back(tuple);
+    }
+    info.memDebugInfo[key] = vector;
+  }
 }
 
 

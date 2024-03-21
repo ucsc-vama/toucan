@@ -266,7 +266,8 @@ void SingleRegionScheduler::collectConstant(DesignGraph &graph, CGPartitionMetaI
         if (auto constOp = dyn_cast<toucan::ConstantOp>(op)) {
           // regular const
           auto constVal = constOp.getValue();
-          assert(constVal.getBitWidth() <= 4);
+          auto bitWidth = constVal.getBitWidth();
+          assert(bitWidth <= 4);
           auto rawVal = static_cast<uint8_t>(constVal.getZExtValue());
           // save op result value
           auto valId = partInfo.valuePool.size();
@@ -275,13 +276,16 @@ void SingleRegionScheduler::collectConstant(DesignGraph &graph, CGPartitionMetaI
           assert(!partInfo.valueToValId.contains(constResultVal));
           partInfo.valueToValId[constResultVal] = valId;
 
-          partInfo.valuePool.push_back({true, false, rawVal, op, 0, 0, std::nullopt, 0});
+          partInfo.valuePool.push_back({true, false, rawVal, op, 0, 0, static_cast<uint8_t>(bitWidth), std::nullopt, 0});
         } else {
           // it must be a vector const
           auto defConstVecOp = cast<toucan::DefConstVectorOp>(op);
           // save op result value
           // Vec result map to first vec element
           auto vecHandle = defConstVecOp.getHandle();
+          auto bitWidth = vecHandle.getType().getElementWidth();
+          assert(bitWidth <= 4);
+
           auto valId = partInfo.valuePool.size();
           assert(!partInfo.valueToValId.contains(vecHandle));
           partInfo.valueToValId[vecHandle] = valId;
@@ -290,7 +294,7 @@ void SingleRegionScheduler::collectConstant(DesignGraph &graph, CGPartitionMetaI
             auto elemVal = cast<mlir::IntegerAttr>(vecValElem).getValue();
             assert(elemVal.getBitWidth() <= 4);
             auto rawVal = static_cast<uint8_t>(elemVal.getZExtValue());
-            partInfo.valuePool.push_back({true, false, rawVal, op, 0, 0, std::nullopt, 0});
+            partInfo.valuePool.push_back({true, false, rawVal, op, 0, 0, static_cast<uint8_t>(bitWidth), std::nullopt, 0});
           }
         }
       }
@@ -328,7 +332,7 @@ void SingleRegionScheduler::schedule(DesignGraph &graph, uint32_t partitionRegPa
     std::memset(&partInfo.opStatistics, 0, sizeof(CGOpStatistics));
 
     // A const zero for all luts
-    CGValueMetaInfo zeroConst = {true, false, 0, nullptr, 0, 0, std::nullopt, 0};
+    CGValueMetaInfo zeroConst = {true, false, 0, nullptr, 0, 0, 0, std::nullopt, 0};
     partInfo.valuePool.push_back(zeroConst);
 
     // Collect all constants
@@ -386,6 +390,7 @@ void SingleRegionScheduler::schedule(DesignGraph &graph, uint32_t partitionRegPa
         valMeta.definingOp = opMeta.op;
         valMeta.levelId = 0;
         valMeta.opId = opId;
+        valMeta.bitWidth = static_cast<uint8_t>(hw::getBitWidth(opMeta.op->getResult(0).getType()));
         valMeta.namehint = opMeta.namehint;
         valMeta.fragment_id = opMeta.fragment_id;
 
@@ -418,7 +423,7 @@ void SingleRegionScheduler::schedule(DesignGraph &graph, uint32_t partitionRegPa
     // vec produced by nops. ** Don't reorder **
     // each defvector is converted to a list of LUT_Nop
     mlir::SmallVector<mlir::SmallVector<CGOpMetaInfo>> vecDecls;
-    mlir::SmallVector<mlir::Value> vecDeclVals;
+    mlir::SmallVector<mlir::TypedValue<toucan::VecType>> vecDeclVals;
     // vec reads
     mlir::SmallVector<mlir::SmallVector<CGOpMetaInfo>> vecReadOps;
     mlir::SmallVector<mlir::Value> vecReadHandleVals;
@@ -475,7 +480,7 @@ void SingleRegionScheduler::schedule(DesignGraph &graph, uint32_t partitionRegPa
           }
 
           auto rawOpName = static_cast<uint32_t>(lutOp.getOpName());
-          assert(rawOpName < 128);
+          assert(rawOpName <= toucan::getMaxEnumValForLUTOpName());
           opMeta.lut.lutId = static_cast<uint8_t>(rawOpName);
           opMeta.lut.op0 = lutOpValueIds[0];
           opMeta.lut.op1 = lutOpValueIds[1];
@@ -673,6 +678,7 @@ void SingleRegionScheduler::schedule(DesignGraph &graph, uint32_t partitionRegPa
         valMeta.definingOp = opMeta.op;
         valMeta.levelId = layerId;
         valMeta.opId = currentLevelOps.size();
+        valMeta.bitWidth = static_cast<uint8_t>(hw::getBitWidth(opMeta.op->getResult(0).getType()));
         valMeta.namehint = opMeta.namehint;
         valMeta.fragment_id = opMeta.fragment_id;
 
@@ -708,6 +714,7 @@ void SingleRegionScheduler::schedule(DesignGraph &graph, uint32_t partitionRegPa
 
       // place vecdefs
       for (auto [singleVecDefOps, vecHandle]: llvm::zip(vecDecls, vecDeclVals)) {
+        auto bitWidth = static_cast<uint8_t>(vecHandle.getType().getElementWidth());
         for (size_t i = 0; i < singleVecDefOps.size(); ++i) {
           auto &opMeta = singleVecDefOps[i];
           assert(opMeta.opName == CGToucanOPName::LUT);
@@ -722,6 +729,7 @@ void SingleRegionScheduler::schedule(DesignGraph &graph, uint32_t partitionRegPa
           valMeta.levelId = layerId;
           valMeta.opId = currentLevelOps.size();
           valMeta.namehint = opMeta.namehint;
+          valMeta.bitWidth = bitWidth;
           valMeta.fragment_id = opMeta.fragment_id;
           // First op produces the vecHandle. 
           // Other ops produces an invisible placeholder value
