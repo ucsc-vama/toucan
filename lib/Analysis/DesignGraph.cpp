@@ -173,6 +173,10 @@ DesignGraph::DesignGraph(Operation *op, AnalysisManager &am) {
     //   // save
     //   constVecOps.push_back(&constVecOp);
     // }
+    if (auto regDeclOp = dyn_cast<toucan::DefRegOp>(rawOp)) {
+      auto regVal = regDeclOp.getHandle();
+      regs.insert(regVal);
+    }
     
     if (opShouldRemoveInGraph(rawOp)) {
       // Remove all defmem, defreg, const, const vec

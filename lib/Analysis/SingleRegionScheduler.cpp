@@ -158,6 +158,14 @@ void SingleRegionScheduler::generateRegMemLayout(DesignGraph &graph, uint32_t pa
       }
     }
 
+    // Insert any register that not found in previous step
+    for (auto regVal: graph.regs) {
+      if (!regsInPartition.contains(regVal)) {
+        regsInPartition.insert(regVal);
+        regsInPartitionOrdered.push_back(regVal);
+      }
+    }
+
     for (auto regVal: regsInPartitionOrdered) {
       // for each vtx in current partition
       auto regDefiningOp = regVal.getDefiningOp();

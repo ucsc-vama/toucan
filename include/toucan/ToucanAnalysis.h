@@ -360,6 +360,7 @@ namespace toucan {
     // mlir::DenseSet<uint32_t> sinkVtxs;
     // mlir::DenseSet<mlir::Operation*> constDeclVtxs;
     mlir::DenseMap<mlir::Operation*, uint32_t> opToId;
+    mlir::DenseSet<mlir::TypedValue<toucan::RegType>> regs;
 
     // mlir::SmallVector<toucan::DefConstVectorOp*> constVecOps;
     

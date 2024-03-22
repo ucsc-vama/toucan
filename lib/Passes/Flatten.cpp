@@ -282,18 +282,19 @@ struct FlattenPass : toucan::impl::FlattenBase<FlattenPass> {
 
     SmallVector<unsigned int> inPortToErase;
 
-    for (auto [argVal, portInfo]: zip(bodyBlock->getArguments(), topMod.getPortList())) {
+    assert(bodyBlock->getNumArguments() == topMod.getNumInputPorts());
+
+    for (auto [argVal, portInfo]: zip(bodyBlock->getArguments(), topMod.getInputNames())) {
       if (isa<seq::ClockType>(argVal.getType())) {
         auto dummyClockVal = createDummpyClockValue(builder, loc);
 
         argVal.replaceAllUsesWith(dummyClockVal);
       } else {
-        // Not clock
-        auto argName = portInfo.getName();
+        // Not clock, input io, translate to reg read
+        auto argName = cast<StringAttr>(portInfo);
         auto valueWidth = hw::getBitWidth(argVal.getType());
-        auto newNameAttr = builder.getStringAttr(argName);
 
-        auto newVal = createRegAndReturnSingleReadValue(valueWidth, loc, builder, newNameAttr);
+        auto newVal = createRegAndReturnSingleReadValue(valueWidth, loc, builder, argName);
 
         argVal.replaceAllUsesWith(newVal);
       }
