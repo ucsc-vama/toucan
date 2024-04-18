@@ -88,7 +88,7 @@ struct SplitRegistersPass : toucan::impl::SplitRegistersBase<SplitRegistersPass>
 
           // Reset mux, choose value to appear in next cycle base on reset signal
           auto resetMux = rewriter.create<comb::MuxOp>(regOp.getLoc(), resetSignal, resetValue, nextValue);
-          // setSVNameHintAttr(resetMux, nextValueName);
+          setSVNameHintAttr(resetMux, nextValueName);
 
           // Reg write op
           auto regWriteOp = rewriter.create<toucan::RegWriteOp>(regOp.getLoc(), resetMux.getResult(), regDefReference);
