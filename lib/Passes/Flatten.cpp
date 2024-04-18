@@ -231,7 +231,7 @@ struct FlattenPass : toucan::impl::FlattenBase<FlattenPass> {
       auto newVal = getMap(val);
       if (auto valDefOp = newVal.getDefiningOp()) {
         // Add namehint
-        auto newName = instName + "." + argName;
+        auto newName = argName;
         auto namehint = builder.getStringAttr(newName);
         setSVNameHintAttr(valDefOp, namehint);
         setIOSignalMarker(valDefOp);
