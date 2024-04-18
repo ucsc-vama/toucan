@@ -52,6 +52,8 @@ using namespace llvm;
 
 #define DEBUG_TYPE "LowerCombPreProcessPass"
 
+#define SMALL_VEC_SIZE 8
+
 static std::atomic<uint64_t> numLongRepInModule;
 static std::atomic<uint64_t> numMultiOprandBinOpInModule;
 static std::atomic<uint64_t> num1bShrUInModule;
@@ -287,7 +289,7 @@ struct LowerHWArrayTo4B: OpRewritePattern<hw::ArrayCreateOp> {
 
     bool useMux = false;
 
-    if (arrayInputs.size() <= 8) {
+    if (arrayInputs.size() <= SMALL_VEC_SIZE) {
       useMux = true;
       numSmallHWArrayInModule++;
     } else {
@@ -316,7 +318,7 @@ struct LowerHWArrayTo4B: OpRewritePattern<hw::ArrayCreateOp> {
         }
 
         if (useMux) {
-          auto readResult = generate_mux_chain(arrayGetOp, rewriter, arrayInputs, arrayIndex);
+          auto readResult = generate_mux_chain_for_array(arrayGetOp, rewriter, arrayInputs, arrayIndex);
           copyCustomizedAttrs(userOp, readResult.getDefiningOp());
           rewriter.replaceOp(userOp, readResult);
           return success();

@@ -93,7 +93,7 @@ namespace toucan {
 
   void attachNameHintAndFragmentId(mlir::RewriterBase &rewriter, mlir::Operation *op, std::optional<mlir::StringAttr> namehint);
 
-  mlir::Value generate_mux_chain(mlir::Operation *op, mlir::RewriterBase &rewriter, llvm::SmallVector<mlir::Value> values, mlir::Value index);
+  mlir::Value generate_mux_chain_for_array(mlir::Operation *op, mlir::RewriterBase &rewriter, llvm::SmallVector<mlir::Value> values, mlir::Value index);
 
   mlir::Value extractMinimumWidth(mlir::Value val, mlir::RewriterBase &rewriter, mlir::Operation* op);
 

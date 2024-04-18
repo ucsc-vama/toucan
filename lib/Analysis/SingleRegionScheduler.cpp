@@ -502,7 +502,7 @@ void SingleRegionScheduler::schedule(DesignGraph &graph, uint32_t partitionRegPa
           // vec decl, expand to list of nops
           currentVecDeclOps.clear();
           auto vecDeclOp = cast<toucan::DefVectorOp>(rawOp);
-          for (auto elemVal: vecDeclOp.getInputs()) {
+          for (auto elemVal: llvm::reverse(vecDeclOp.getInputs())) {
             // Create a NOP
             CGOpMetaInfo opMeta;
             opMeta.opName = CGToucanOPName::LUT;

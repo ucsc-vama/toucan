@@ -237,7 +237,7 @@ namespace toucan {
     }
   }
 
-  mlir::Value generate_mux_chain(mlir::Operation *op, mlir::RewriterBase &rewriter, llvm::SmallVector<mlir::Value> values, mlir::Value index) {
+  mlir::Value generate_mux_chain_for_array(mlir::Operation *op, mlir::RewriterBase &rewriter, llvm::SmallVector<mlir::Value> values, mlir::Value index) {
     SmallVector<mlir::Value> outputs, inputs;
     inputs.append(values.begin(), values.end());
     auto elemType = values[0].getType();
@@ -264,9 +264,9 @@ namespace toucan {
       for (size_t mux_id = 0; mux_id < ((inputs.size() + 1) >> 1); mux_id++) {
         // fval: low addr, tval: high addr
         size_t val_id = mux_id << 1;
-        auto fVal = (val_id <= inputs.size()) ? inputs[val_id] : defaultValue;
-        val_id++;
         auto tVal = (val_id <= inputs.size()) ? inputs[val_id] : defaultValue;
+        val_id++;
+        auto fVal = (val_id <= inputs.size()) ? inputs[val_id] : defaultValue;
 
         auto muxOp = rewriter.create<comb::MuxOp>(op->getLoc(), addrFragment, tVal, fVal);
 
