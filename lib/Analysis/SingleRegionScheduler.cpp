@@ -502,6 +502,7 @@ void SingleRegionScheduler::schedule(DesignGraph &graph, uint32_t partitionRegPa
           // vec decl, expand to list of nops
           currentVecDeclOps.clear();
           auto vecDeclOp = cast<toucan::DefVectorOp>(rawOp);
+          // Why reverse? vector decl op elements are MSB first. Reorder to LSB first to make vecRead's life easier
           for (auto elemVal: llvm::reverse(vecDeclOp.getInputs())) {
             // Create a NOP
             CGOpMetaInfo opMeta;
@@ -576,14 +577,14 @@ void SingleRegionScheduler::schedule(DesignGraph &graph, uint32_t partitionRegPa
             opMeta.vec.outRangeValue = partInfo.valueToValId[outRangeValue];
             opMeta.vec.offset = static_cast<uint16_t>(offset);
 
+            populateOpMetaDebugInfo(opMeta, userOp);
+
             currentVecReadOps.push_back(opMeta);
           }
 
           // Sort by offset for performance reason
           std::sort(currentVecReadOps.begin(), currentVecReadOps.end(), 
             [](const CGOpMetaInfo& a, const CGOpMetaInfo& b) {return a.vec.offset < b.vec.offset;});
-
-          // No namhint
 
           vecReadOps.push_back(std::move(currentVecReadOps));
           vecReadHandleVals.push_back(vecHandle);
