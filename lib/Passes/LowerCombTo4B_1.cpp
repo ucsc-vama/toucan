@@ -67,15 +67,19 @@ static std::atomic<uint64_t> numArrayReadFromShiftInModules;
 class DynamicShiftOperations {
   public:
 
-  // A vector-based shift left, use high bits of shamt
+  // A vector-based shift right, use high bits of shamt
   // This logic is shared by shift left and right
-  Value shiftCore(RewriterBase &rewriter, Operation *op, SmallVector<Value> intermediateResults, Value shamt, Value fillingValue, size_t realInputWidth, std::optional<StringAttr> namehint, bool reverseOffset) const {
+  Value shiftCore(RewriterBase &rewriter, Operation *op, SmallVector<Value> intermediateResults, Value shamt, Value fillingValue, size_t realInputWidth, std::optional<StringAttr> namehint, bool isShiftLeft) const {
     auto shamtWidth = hw::getBitWidth(shamt.getType());
 
     SmallVector<Value> shiftResult;
     shiftResult.reserve(intermediateResults.size());
 
     if (shamtWidth > 2) {
+      if (isShiftLeft) {
+        std::reverse(intermediateResults.begin(), intermediateResults.end());
+      }
+      
       auto createVecOp = rewriter.create<toucan::DefVectorOp>(op->getLoc(), intermediateResults);
       auto vecHandle = createVecOp.getHandle();
 
@@ -85,10 +89,12 @@ class DynamicShiftOperations {
       auto shamt_high_split = (hw::getBitWidth(shamt_high.getType()) > 4) ? split_value_4B(op, shamt_high, rewriter) : SmallVector<Value>({shamt_high});
       
       for (size_t i = 0; i < intermediateResults.size(); i++) {
-        uint16_t offset = i;
-        if (reverseOffset) offset = intermediateResults.size() - 1 - i;
+        uint16_t offset = intermediateResults.size() - 1 - i;
         auto vecReadOp = rewriter.create<toucan::VectorReadOp>(op->getLoc(), vecHandle, offset, fillingValue, shamt_high_split);
         shiftResult.push_back(vecReadOp.getResult());
+      }
+      if (isShiftLeft) {
+        std::reverse(shiftResult.begin(), shiftResult.end());
       }
       numShiftToArrayInModules++;
       numArrayReadFromShiftInModules += shiftResult.size();
@@ -156,7 +162,7 @@ class DynamicShiftOperations {
       intermediateResults.push_back(dshlOp.getResult());
     }
 
-    return shiftCore(rewriter, op, intermediateResults, shamt, zeroConstValue, realInputWidth, namehint, false);
+    return shiftCore(rewriter, op, intermediateResults, shamt, zeroConstValue, realInputWidth, namehint, true);
   }
 
   // shift right, inputs need to be extended!!!, inputs are 4b values from msb to lsb
@@ -191,13 +197,12 @@ class DynamicShiftOperations {
       auto op1 = (i == 0) ? fillingValue : inputs[i-1];
       auto op2 = inputs[i];
 
-      auto dshlOp = rewriter.create<toucan::LUTOp>(op->getLoc(), toucan::LUTOpName::LUT_DShr, shamt_l2b, op1, op2);
+      auto dshrOp = rewriter.create<toucan::LUTOp>(op->getLoc(), toucan::LUTOpName::LUT_DShr, shamt_l2b, op1, op2);
 
-      intermediateResults.push_back(dshlOp.getResult());
+      intermediateResults.push_back(dshrOp.getResult());
     }
 
-    std::reverse(intermediateResults.begin(), intermediateResults.end());
-    return shiftCore(rewriter, op, intermediateResults, shamt, fillingValue, realInputWidth, namehint, true);
+    return shiftCore(rewriter, op, intermediateResults, shamt, fillingValue, realInputWidth, namehint, false);
   }
 
 
