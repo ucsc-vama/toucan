@@ -106,7 +106,7 @@ struct RemoveMemMaskPass : toucan::impl::RemoveMemMaskBase<RemoveMemMaskPass> {
           auto splitMemElemType = rewriter.getIntegerType(maskLaneWidth);
           // auto splitMemType = rewriter.getType<toucan::MemType>(memDepth, splitMemElemType);
           auto splitMemTypeAttr = rewriter.getAttr<toucan::MemType>(memDepth, splitMemElemType);
-          size_t accumulated_mem_width = 0;
+          size_t accumulated_mem_width = memWidth;
           for (uint32_t i = 0; i < numSplittedMems; i++) {
             // Create i'th memory
             // auto splitMemName = rewriter.getStringAttr(memName + "_" + std::to_string(i));
@@ -120,12 +120,14 @@ struct RemoveMemMaskPass : toucan::impl::RemoveMemMaskBase<RemoveMemMaskPass> {
               setSVNameHintAttr(newMemOp, namehint);
             }
 
+            accumulated_mem_width -= maskLaneWidth;
+            // Ensure no negative
+            assert(accumulated_mem_width <= memWidth);
+
             auto accumulateMemWidthAttr = rewriter.getI32IntegerAttr(accumulated_mem_width);
             setAccumulatedMemWidthAttr(newMemOp, accumulateMemWidthAttr);
             // auto memMaskFragmentIdAttr = rewriter.getI32IntegerAttr(i);
             // setMemMaskFragmentIDAttr(newMemOp, memMaskFragmentIdAttr);
-            
-            accumulated_mem_width += newMem.getType().getElementWidth();
           }
 
         } else {
@@ -213,19 +215,22 @@ struct RemoveMemMaskPass : toucan::impl::RemoveMemMaskBase<RemoveMemMaskPass> {
               auto memMask = memWriteOp.getMask();
               assert(memMask.getType().getWidth() > 0);
 
-              for (uint32_t memId = 0; memId < newMemValues.size(); memId ++) {
+              auto memLanes = newMemValues.size();
+
+              for (uint32_t memId = 0; memId < memLanes; memId ++) {
                 auto newMem = newMemValues[memId];
                 auto maskLaneWidth = newMem.getType().cast<MemType>().getElementWidth();
 
                 auto memMaskWidth = hw::getBitWidth(memMask.getType());
                 assert(memId < memMaskWidth);
 
-                auto maskBitOp = rewriter.create<comb::ExtractOp>(op->getLoc(), memMask, memId, 1);
+                auto maskBitOp = rewriter.create<comb::ExtractOp>(op->getLoc(), memMask, (memLanes - 1 - memId), 1);
                 auto newMemEnOp = rewriter.create<comb::AndOp>(op->getLoc(), maskBitOp.getResult(), memEnSignal, true);
 
                 auto newMemEn = newMemEnOp.getResult();
 
-                auto dataSliceOp = rewriter.create<comb::ExtractOp>(op->getLoc(), memData, memId * maskLaneWidth, maskLaneWidth);
+                // auto dataSliceOp = rewriter.create<comb::ExtractOp>(op->getLoc(), memData, memId * maskLaneWidth, maskLaneWidth);
+                auto dataSliceOp = rewriter.create<comb::ExtractOp>(op->getLoc(), memData, (memLanes - 1 - memId) * maskLaneWidth, maskLaneWidth);
                 auto dataSlice = dataSliceOp.getResult();
 
                 auto newMemWriteOp = rewriter.create<toucan::MemWriteOp>(op->getLoc(), newMem, memAddrs, dataSlice, newMemEn);
