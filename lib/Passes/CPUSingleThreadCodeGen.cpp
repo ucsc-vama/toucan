@@ -258,22 +258,28 @@ struct CPUSingleThreadCodeGenPass : toucan::impl::CPUSingleThreadCodeGenBase<CPU
 
     // serialize
     auto outputDesignFileFullName = std::filesystem::path(outputDirectory.getValue()) / outputDesignFilename.getValue();
-    std::ofstream ofs(outputDesignFileFullName, std::ios::binary | std::ios::out);
-    toucanSim::serializeSimDesignInfo(ofs, designInfo);
-    ofs.close();
+    std::ofstream ofs_design(outputDesignFileFullName, std::ios::binary | std::ios::out);
+    toucanSim::serializeSimDesignInfo(ofs_design, designInfo);
+    ofs_design.close();
 
+    // Debug symbols
     auto outputSymbolFileFullName = std::filesystem::path(outputDirectory.getValue()) / outputSymbolFilename.getValue();
     std::ofstream ofs_symbol(outputSymbolFileFullName, std::ios::binary | std::ios::out);
     toucanSim::serializeSimDebugInfo(ofs_symbol, debugInfo);
-    ofs.close();
+    ofs_symbol.close();
 
+    // IO signal only
+    debugInfo.memDebugInfo.clear();
+    debugInfo.signalDebugInfo.clear();
+    std::erase_if(debugInfo.regDebugInfo, [&](auto const &item) {
+      auto const& [k, v] = item;
+      return !(partitionResult.codeGenInfo.ioSignals.contains(k));
+    });
 
-    // test: deserialize
-    std::ifstream ifs(outputDesignFileFullName, std::ios::binary | std::ios::in);
-    toucanSim::SimDesignInfo testInfo;
-    toucanSim::deserializeSimDesignInfo(ifs, testInfo);
-
-    assert(testInfo.printMsgs == designInfo.printMsgs);
+    auto outputIOSymbolFileFullName = std::filesystem::path(outputDirectory.getValue()) / outputIOSymbolFilename.getValue();
+    std::ofstream ofs_io_symbol(outputIOSymbolFileFullName, std::ios::binary | std::ios::out);
+    toucanSim::serializeSimDebugInfo(ofs_io_symbol, debugInfo);
+    ofs_io_symbol.close();
 
 
   }

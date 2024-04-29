@@ -265,6 +265,7 @@ namespace toucan {
     uint32_t bitWidth;
     uint32_t fragment_id;
     bool isPadding;
+    bool isIO;
   };
 
   struct CGMemMetaInfo {
@@ -338,6 +339,8 @@ namespace toucan {
     mlir::DenseMap<mlir::TypedValue<toucan::MemType>, uint32_t> toucanMemToId;
 
     mlir::SmallVector<CGPartitionMetaInfo, 4> partitionInfo;
+
+    mlir::DenseSet<mlir::StringRef> ioSignals;
   };
 
   class IsLegalToucan4B {

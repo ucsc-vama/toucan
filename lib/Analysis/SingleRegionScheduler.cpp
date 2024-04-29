@@ -181,6 +181,7 @@ void SingleRegionScheduler::generateRegMemLayout(DesignGraph &graph, uint32_t pa
       }
       regMeta.bitWidth = regVal.getType().getElementWidth();
       regMeta.isPadding = false;
+      regMeta.isIO = hasIOSignalMarker(regDefiningOp);
 
       auto regId = codeGenInfo.regPool.size();
       codeGenInfo.regPool.push_back(regMeta);
@@ -194,6 +195,7 @@ void SingleRegionScheduler::generateRegMemLayout(DesignGraph &graph, uint32_t pa
       paddingRegMeta.isPadding = true;
       paddingRegMeta.bitWidth = 0;
       paddingRegMeta.fragment_id = 0;
+      paddingRegMeta.isIO = false;
 
       // auto regId = codeGenInfo.regPool.size();
       codeGenInfo.regPool.push_back(paddingRegMeta);
@@ -914,6 +916,17 @@ void SingleRegionScheduler::schedule(DesignGraph &graph, uint32_t partitionRegPa
 
 void SingleRegionScheduler::fillDebugInfo() {
   // Consider parallel
+
+  // Collect io signals and extern module signals
+  for (size_t regId = 0; regId < codeGenInfo.regPool.size(); regId++) {
+    auto &regMeta = codeGenInfo.regPool[regId];
+    if (regMeta.isIO) {
+      assert(regMeta.namehint && "An io signal must have a name");
+      auto namehint = regMeta.namehint.value();
+      codeGenInfo.ioSignals.insert(namehint);
+    }
+  }
+
 
   // collect reg info
   for (size_t regId = 0; regId < codeGenInfo.regPool.size(); regId++) {
