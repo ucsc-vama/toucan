@@ -18,7 +18,6 @@ std::unique_ptr<mlir::Pass> createExpandMemoryDelayPass();
 // std::unique_ptr<mlir::Pass> createRemoveMemReadEnPass();
 std::unique_ptr<mlir::Pass> createFactorArrayGetMuxPass();
 std::unique_ptr<mlir::Pass> createSplitFirMemRWPortsPass();
-std::unique_ptr<mlir::Pass> createReplaceAsyncResetRegsPass();
 std::unique_ptr<mlir::Pass> createSplitRegistersPass();
 std::unique_ptr<mlir::Pass> createRemoveMemMaskPass();
 

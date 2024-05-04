@@ -64,18 +64,18 @@ def ExpandMemoryDelay: Pass<"expand-memory-delay", "circt::ModuleOp"> {
 //   ];
 // }
 
-def ReplaceAsyncResetRegs: Pass<"replace-async-reset-regs", "circt::ModuleOp"> {
-  let summary = "Replace async reset registers with sync reset";
-  let description = summary;
-  let constructor = "toucan::createReplaceAsyncResetRegsPass()";
-  let statistics = [
-    Statistic<"asyncRegs", "AsyncResetRegs", "Number of async reset registers">
-  ];
-}
+// def ReplaceAsyncResetRegs: Pass<"replace-async-reset-regs", "circt::ModuleOp"> {
+//   let summary = "Replace async reset registers with sync reset";
+//   let description = summary;
+//   let constructor = "toucan::createReplaceAsyncResetRegsPass()";
+//   let statistics = [
+//     Statistic<"asyncRegs", "AsyncResetRegs", "Number of async reset registers">
+//   ];
+// }
 
 def SplitRegisters: Pass<"split-registers", "circt::ModuleOp"> {
   let summary = "Split register read and write";
-  let description = "Replace a seq::FirRegOp with toucan::DefRegOp, toucan::RegReadOp, and toucan::RegWriteOp. Reset will be replaced by a Mux";
+  let description = "Replace a seq::FirRegOp with toucan::DefRegOp, toucan::RegReadOp, and toucan::RegWriteOp. Reset will be replaced by a Mux. Async reset is converted to sync reset.";
   let constructor = "toucan::createSplitRegistersPass()";
   let statistics = [
     Statistic<"numRegs", "Registers", "Number of registers">,

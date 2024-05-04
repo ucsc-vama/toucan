@@ -99,8 +99,6 @@ static LogicalResult compileAndEmit(
         // Remove all mem write masks. Split memory if there is any mask
         pm.addPass(toucan::createRemoveMemMaskPass());
 
-        // Replace async reset regs
-        pm.addPass(toucan::createReplaceAsyncResetRegsPass());
         // Split registers into def, read and write nodes
         pm.addPass(toucan::createSplitRegistersPass());
 

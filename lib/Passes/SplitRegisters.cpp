@@ -1,5 +1,6 @@
 
 #include "circt/Dialect/HW/HWTypes.h"
+#include "circt/Dialect/SV/SVAttributes.h"
 #include "circt/Support/LLVM.h"
 #include "circt/Dialect/Comb/CombDialect.h"
 #include "circt/Dialect/Comb/CombOps.h"
@@ -53,7 +54,8 @@ struct SplitRegistersPass : toucan::impl::SplitRegistersBase<SplitRegistersPass>
 
     for (auto &stmt: mod.getOps()) {
       if (auto regOp = dyn_cast<seq::FirRegOp>(stmt)) {
-        assert(regOp.getIsAsync() == false && "Async reset registers should not appear here!");
+        // assert(regOp.getIsAsync() == false && "Async reset registers should not appear here!");
+        auto isAsyncReset = regOp.getIsAsync();
 
         OpBuilder builder(regOp);
         IRRewriter rewriter(builder);
@@ -65,7 +67,11 @@ struct SplitRegistersPass : toucan::impl::SplitRegistersBase<SplitRegistersPass>
         auto elemType = cast<mlir::IntegerType>(regOp.getData().getType());
         // auto regWidth = hw::getBitWidth(elemType);
 
-        // Declare register
+        auto nextValue = regOp.getNext();
+        auto nextValueName = rewriter.getStringAttr(regName + getRegNextSuffix());
+
+
+        // Declare new register in toucan
         auto regDefOp = rewriter.create<toucan::DefRegOp>(regOp.getLoc(), elemType);
         auto regDefReference = regDefOp.getHandle();
 
@@ -73,25 +79,37 @@ struct SplitRegistersPass : toucan::impl::SplitRegistersBase<SplitRegistersPass>
 
         // Read 
         auto regReadOp = rewriter.create<toucan::RegReadOp>(regOp.getLoc(), regDefReference);
-        // Set namehint for future use
-        setSVNameHintAttr(regReadOp, regName);
-        // Replace reads
-        rewriter.replaceAllUsesWith(regOp.getResult(), regReadOp.getResult());
+
+        if (isAsyncReset) {
+          // Add a read mux
+          assert(regOp.hasReset());
+          auto resetValue = regOp.getResetValue();
+          auto resetSignal = regOp.getReset();
+
+          auto resetReadMux = rewriter.create<comb::MuxOp>(regOp.getLoc(), resetSignal, resetValue, regReadOp);
+
+          setSVNameHintAttr(resetReadMux, regName);
+          rewriter.replaceAllUsesWith(regOp.getResult(), resetReadMux);
+        } else {
+          // Set namehint for future use
+          setSVNameHintAttr(regReadOp, regName);
+          // Replace reads
+          rewriter.replaceAllUsesWith(regOp.getResult(), regReadOp.getResult());
+        }
+
 
         // Factor reg write
-        auto nextValue = regOp.getNext();
-        auto nextValueName = rewriter.getStringAttr(regName + getRegNextSuffix());
 
         if (regOp.hasReset()) {
           auto resetValue = regOp.getResetValue();
           auto resetSignal = regOp.getReset();
 
           // Reset mux, choose value to appear in next cycle base on reset signal
-          auto resetMux = rewriter.create<comb::MuxOp>(regOp.getLoc(), resetSignal, resetValue, nextValue);
-          setSVNameHintAttr(resetMux, nextValueName);
+          auto resetWriteMux = rewriter.create<comb::MuxOp>(regOp.getLoc(), resetSignal, resetValue, nextValue);
+          setSVNameHintAttr(resetWriteMux, nextValueName);
 
           // Reg write op
-          auto regWriteOp = rewriter.create<toucan::RegWriteOp>(regOp.getLoc(), resetMux.getResult(), regDefReference);
+          auto regWriteOp = rewriter.create<toucan::RegWriteOp>(regOp.getLoc(), resetWriteMux.getResult(), regDefReference);
           setSVNameHintAttr(regWriteOp, nextValueName);
           numResetRegsInModule++;
         } else {
