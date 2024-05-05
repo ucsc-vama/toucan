@@ -300,7 +300,8 @@ void SingleRegionScheduler::collectConstant(DesignGraph &graph, CGPartitionMetaI
           assert(!partInfo.valueToValId.contains(vecHandle));
           partInfo.valueToValId[vecHandle] = valId;
 
-          for (auto &vecValElem: defConstVecOp.getValues().getValue()) {
+          // Why reverse? vector decl op elements are MSB first. Reorder to LSB first to make vecRead's life easier
+          for (auto &vecValElem: llvm::reverse(defConstVecOp.getValues().getValue())) {
             auto elemVal = cast<mlir::IntegerAttr>(vecValElem).getValue();
             assert(elemVal.getBitWidth() <= 4);
             auto rawVal = static_cast<uint8_t>(elemVal.getZExtValue());
