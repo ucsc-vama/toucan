@@ -303,8 +303,11 @@ void SingleRegionScheduler::collectConstant(DesignGraph &graph, CGPartitionMetaI
           // Why reverse? vector decl op elements are MSB first. Reorder to LSB first to make vecRead's life easier
           for (auto &vecValElem: llvm::reverse(defConstVecOp.getValues().getValue())) {
             auto elemVal = cast<mlir::IntegerAttr>(vecValElem).getValue();
-            assert(elemVal.getBitWidth() <= 4);
-            auto rawVal = static_cast<uint8_t>(elemVal.getZExtValue());
+            auto elemValWidth = elemVal.getBitWidth();
+            assert(elemValWidth <= 4);
+
+            auto elemValMask = static_cast<uint8_t>((1 << elemValWidth) - 1);
+            uint8_t rawVal = elemValMask & static_cast<uint8_t>(elemVal.getZExtValue());
             partInfo.valuePool.push_back({true, false, rawVal, op, 0, 0, static_cast<uint8_t>(bitWidth), std::nullopt, 0});
           }
         }
