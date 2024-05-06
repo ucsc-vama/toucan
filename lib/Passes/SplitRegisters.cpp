@@ -117,6 +117,9 @@ struct SplitRegistersPass : toucan::impl::SplitRegistersBase<SplitRegistersPass>
           // Simply write next
           
           auto regWriteOp = rewriter.create<toucan::RegWriteOp>(regOp.getLoc(), nextValue, regDefReference);
+          if (nextValue.getDefiningOp() != nullptr) {
+            setSVNameHintAttr(nextValue.getDefiningOp(), nextValueName);
+          }
           setSVNameHintAttr(regWriteOp, nextValueName);
         }
         toRemove.push_back(regOp);
