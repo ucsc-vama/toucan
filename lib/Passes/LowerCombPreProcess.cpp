@@ -209,14 +209,16 @@ struct LowerConstArrayTo4B: OpRewritePattern<hw::AggregateConstantOp> {
 
       int startPos = (numChunks-1) * 4;
       for (auto [chunkId, chunkWidth]: (split_signal_4B(constArrayElemValWidth))) {
-        if (startPos + chunkWidth > static_cast<int>(constArrayElemValWidth)) {
-          llvm::dbgs() << "Hit\n";
-        }
+        assert (startPos + chunkWidth <= static_cast<int>(constArrayElemValWidth));
         auto val = constArrayElemVal.extractBits(chunkWidth, startPos);
         startPos -= 4;
         auto intAttr = rewriter.getIntegerAttr(rewriter.getIntegerType(val.getBitWidth()), val.getLimitedValue());
         array_values[chunkId].push_back(intAttr);
       }
+    }
+
+    if (array_values.size() > 1) {
+      std::reverse(array_values.begin(), array_values.end());
     }
 
     SmallVector<Value> defVecHandles;
@@ -299,6 +301,10 @@ struct LowerHWArrayTo4B: OpRewritePattern<hw::ArrayCreateOp> {
         for (size_t i = 0; i < chunkValues.size(); i++) {
           array_values[i].push_back(chunkValues[i]);
         }
+      }
+
+      if (array_values.size() > 1) {
+        std::reverse(array_values.begin(), array_values.end());
       }
 
       for (auto elems: array_values) {
