@@ -131,7 +131,8 @@ def LowerCombPreProcess: Pass<"lower-comb-pre-process", "circt::ModuleOp"> {
     Statistic<"num1bShru", "1 Bit ShrU", "Number of 1 bit ShrU op">,
     Statistic<"numConstArray", "hw::AggregateConstOp", "Number of hw::AggregateConstOp">,
     Statistic<"numHWArray", "hw::ArrayCreateOp", "Number of hw::ArrayCreateOp">,
-    Statistic<"numSmallHWArray", "hw::ArrayCreateOp small", "Number of hw::ArrayCreateOp that is no longer than 8 elements. Will lower to mux chain">
+    Statistic<"numSmallHWArray", "hw::ArrayCreateOp small", "Number of hw::ArrayCreateOp that is no longer than 8 elements. Will lower to mux chain">,
+    Statistic<"numSmallConstArray", "hw::AggregateConstOp small", "Number of hw::AggregateConstOp that is no longer than 8 elements. Will lower to mux chain">
   ];
 }
 

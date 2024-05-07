@@ -58,6 +58,7 @@ static std::atomic<uint64_t> numLongRepInModule;
 static std::atomic<uint64_t> numMultiOprandBinOpInModule;
 static std::atomic<uint64_t> num1bShrUInModule;
 static std::atomic<uint64_t> numConstArrayInModule;
+static std::atomic<uint64_t> numSmallConstArrayInModule;
 static std::atomic<uint64_t> numHWArrayInModule;
 static std::atomic<uint64_t> numSmallHWArrayInModule;
 
@@ -189,6 +190,8 @@ struct LowerConstArrayTo4B: OpRewritePattern<hw::AggregateConstantOp> {
     auto zeroConstValue = zeroConstOp.getResult();
 
     SmallVector<SmallVector<Attribute>> array_values;
+    SmallVector<Value> array_const_vals;
+    SmallVector<Value> defVecHandles;
 
     auto constArrayValues = constArrayOp.getFields().getValue();
 
@@ -198,35 +201,51 @@ struct LowerConstArrayTo4B: OpRewritePattern<hw::AggregateConstantOp> {
       array_values.push_back({});
     }
 
-    for (auto &constArrayElem: constArrayValues) {
-      if (!isa<mlir::IntegerAttr>(constArrayElem)) {
-        constArrayOp->emitError() << "Only supports integer arrays!";
-        return failure();
+    bool useMux = constArrayValues.size() <= SMALL_VEC_SIZE;
+
+    if (useMux) {
+      numSmallHWArrayInModule++;
+      for (auto &constArrayElem: constArrayValues) {
+        if (!isa<mlir::IntegerAttr>(constArrayElem)) {
+          constArrayOp->emitError() << "Only supports integer arrays!";
+          return failure();
+        }
+
+        auto constArrayElemVal = cast<mlir::IntegerAttr>(constArrayElem).getValue();
+        auto arrayElemConstOp = rewriter.create<hw::ConstantOp>(constArrayOp.getLoc(), constArrayElemVal);
+        array_const_vals.push_back(arrayElemConstOp.getResult());
+      }
+    } else {
+      for (auto &constArrayElem: constArrayValues) {
+        if (!isa<mlir::IntegerAttr>(constArrayElem)) {
+          constArrayOp->emitError() << "Only supports integer arrays!";
+          return failure();
+        }
+
+        auto constArrayElemVal = cast<mlir::IntegerAttr>(constArrayElem).getValue();
+        auto constArrayElemValWidth = constArrayElemVal.getBitWidth();
+
+        int startPos = (numChunks-1) * 4;
+        for (auto [chunkId, chunkWidth]: (split_signal_4B(constArrayElemValWidth))) {
+          assert (startPos + chunkWidth <= static_cast<int>(constArrayElemValWidth));
+          auto val = constArrayElemVal.extractBits(chunkWidth, startPos);
+          startPos -= 4;
+          auto intAttr = rewriter.getIntegerAttr(rewriter.getIntegerType(val.getBitWidth()), val.getLimitedValue());
+          array_values[chunkId].push_back(intAttr);
+        }
       }
 
-      auto constArrayElemVal = cast<mlir::IntegerAttr>(constArrayElem).getValue();
-      auto constArrayElemValWidth = constArrayElemVal.getBitWidth();
+      if (array_values.size() > 1) {
+        std::reverse(array_values.begin(), array_values.end());
+      }
 
-      int startPos = (numChunks-1) * 4;
-      for (auto [chunkId, chunkWidth]: (split_signal_4B(constArrayElemValWidth))) {
-        assert (startPos + chunkWidth <= static_cast<int>(constArrayElemValWidth));
-        auto val = constArrayElemVal.extractBits(chunkWidth, startPos);
-        startPos -= 4;
-        auto intAttr = rewriter.getIntegerAttr(rewriter.getIntegerType(val.getBitWidth()), val.getLimitedValue());
-        array_values[chunkId].push_back(intAttr);
+      for (auto elems: array_values) {
+        auto arrayAttr = rewriter.getArrayAttr(elems);
+        auto newDefVecOp = rewriter.create<toucan::DefConstVectorOp>(constArrayOp.getLoc(), arrayAttr);
+        defVecHandles.push_back(newDefVecOp.getHandle());
       }
     }
 
-    if (array_values.size() > 1) {
-      std::reverse(array_values.begin(), array_values.end());
-    }
-
-    SmallVector<Value> defVecHandles;
-    for (auto elems: array_values) {
-      auto arrayAttr = rewriter.getArrayAttr(elems);
-      auto newDefVecOp = rewriter.create<toucan::DefConstVectorOp>(constArrayOp.getLoc(), arrayAttr);
-      defVecHandles.push_back(newDefVecOp.getHandle());
-    }
 
     for (auto userOp: constArrayOp->getUsers()) {
       if (auto arrayGetOp = dyn_cast<hw::ArrayGetOp>(userOp)) {
@@ -240,24 +259,32 @@ struct LowerConstArrayTo4B: OpRewritePattern<hw::AggregateConstantOp> {
           arrayGetOp.emitWarning() << "Too much index bits than necessary. (Expect index bits no more than " << maxIndexBits << ", but got " << arrayIndexBits;
         }
 
-        auto indicies_4b = split_value_4B(userOp, arrayIndex, rewriter);
-
-        SmallVector<Value> arrayGetResults;
-        for (auto vecHandle: defVecHandles) {
-          auto readOp = rewriter.create<toucan::VectorReadOp>(arrayGetOp.getLoc(), vecHandle, zeroConstValue, indicies_4b);
-          arrayGetResults.push_back(readOp);
-        }
-
-        if (arrayGetResults.size() > 1) {
-          auto concatOp = rewriter.create<comb::ConcatOp>(constArrayOp.getLoc(), arrayGetResults);
-
-          copyCustomizedAttrs(userOp, concatOp);
-          rewriter.replaceOp(arrayGetOp, concatOp);
+        if (useMux) {
+          auto readResult = generate_mux_chain_for_array(arrayGetOp, rewriter, array_const_vals, arrayIndex);
+          copyCustomizedAttrs(userOp, readResult.getDefiningOp());
+          rewriter.replaceOp(userOp, readResult);
+          return success();
         } else {
-          auto result = arrayGetResults[0];
-          copyCustomizedAttrs(userOp, result.getDefiningOp());
-          rewriter.replaceOp(arrayGetOp, result);
+          auto indicies_4b = split_value_4B(userOp, arrayIndex, rewriter);
+
+          SmallVector<Value> arrayGetResults;
+          for (auto vecHandle: defVecHandles) {
+            auto readOp = rewriter.create<toucan::VectorReadOp>(arrayGetOp.getLoc(), vecHandle, zeroConstValue, indicies_4b);
+            arrayGetResults.push_back(readOp);
+          }
+
+          if (arrayGetResults.size() > 1) {
+            auto concatOp = rewriter.create<comb::ConcatOp>(constArrayOp.getLoc(), arrayGetResults);
+
+            copyCustomizedAttrs(userOp, concatOp);
+            rewriter.replaceOp(arrayGetOp, concatOp);
+          } else {
+            auto result = arrayGetResults[0];
+            copyCustomizedAttrs(userOp, result.getDefiningOp());
+            rewriter.replaceOp(arrayGetOp, result);
+          }
         }
+
       } else {
         return userOp->emitError() << "Unknow op using const array: " << userOp->getName();
       }
@@ -370,6 +397,7 @@ struct LowerCombPreProcessPass : toucan::impl::LowerCombPreProcessBase<LowerComb
     numConstArrayInModule = 0;
     numHWArrayInModule = 0;
     numSmallHWArrayInModule = 0;
+    numSmallConstArray = 0;
 
     RewritePatternSet owningPatterns(context);
     
@@ -424,6 +452,7 @@ struct LowerCombPreProcessPass : toucan::impl::LowerCombPreProcessBase<LowerComb
     numConstArray = numConstArrayInModule;
     numHWArray = numHWArrayInModule;
     numSmallHWArray = numSmallHWArrayInModule;
+    numSmallConstArray = numSmallConstArrayInModule;
   }
 };
 
