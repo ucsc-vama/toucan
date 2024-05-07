@@ -102,15 +102,14 @@ struct LowerBinaryOpWithMultipleOperandBase {
     if (inputs.size() > 2) {
       numMultiOprandBinOpInModule++;
 
-      auto head = inputs[0];
-      for (size_t i = 1; i < inputs.size(); i++) {
-        auto currentVal = inputs[i];
-        auto newInputs = ValueRange({head, currentVal});
-        auto newOp = rewriter.create<OpTy>(op.getLoc(), newInputs, false);
-        head = newOp.getResult();
-      }
+      SmallVector<Value> inputs_vec;
+      inputs_vec.assign(inputs.begin(), inputs.end());
+      auto resultVal = generate_reduce_tree(rewriter, op.getLoc(), inputs_vec, [&](RewriterBase &rewriter, Location loc, Value lhs, Value rhs) {
+        auto newOp = rewriter.create<OpTy>(loc, ValueRange({lhs, rhs}), false);
+        return newOp.getResult();
+      });
 
-      rewriter.replaceOp(op, head);
+      rewriter.replaceOp(op, resultVal);
       return success();
     }
     return failure();
