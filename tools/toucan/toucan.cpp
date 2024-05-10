@@ -102,7 +102,7 @@ static LogicalResult compileAndEmit(
         // Split registers into def, read and write nodes
         pm.addPass(toucan::createSplitRegistersPass());
 
-        pm.addPass(toucan::createCanonicalizerPass());
+        // pm.addPass(toucan::createCanonicalizerPass());
     }
 
     if (inputLevel < Toucan4B) {
@@ -214,7 +214,7 @@ int main(int argc, char ** argv) {
     cl::HideUnrelatedOptions(mainCategory);
     toucan::registerPasses();
     mlir::registerCSEPass();
-    mlir::registerCanonicalizerPass();
+    // mlir::registerCanonicalizerPass();
     mlir::registerSCCPPass();
     mlir::registerSymbolDCEPass();
     mlir::registerMLIRContextCLOptions();

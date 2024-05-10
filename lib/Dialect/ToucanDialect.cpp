@@ -237,7 +237,7 @@ static inline LogicalResult canonicalize_LUT_Add(LUTOp &op, PatternRewriter &rew
   auto lhs_isConstZero = value_is_const_zero(lhs);
   auto rhs_isConstZero = value_is_const_zero(rhs);
 
-  if (lhs_isConstZero && rhs_isConstZero) {
+  if (lhs_isConstZero && rhs_isConstZero && carry_isConstZero) {
     rewriter.replaceOp(op, lhs);
     return success();
   } else if (lhs_isConstZero && carry_isConstZero) {
@@ -266,10 +266,8 @@ static inline LogicalResult canonicalize_LUT_Carry(LUTOp &op, PatternRewriter &r
 LogicalResult LUTOp::canonicalize(LUTOp op, PatternRewriter &rewriter) {
   auto opName = op.getOpName();
   auto inputs = op.getInputs();
-  // SmallVector<bool> opRandIsConst;
-  // for (opRand: inputs) {
-  //   opRandIsConst
-  // }
+
+  // TODO: calculate at compile time if all inputs are const
 
   switch(opName) {
     case LUTOpName::LUT_And: {
@@ -289,11 +287,12 @@ LogicalResult LUTOp::canonicalize(LUTOp op, PatternRewriter &rewriter) {
     }
     case LUTOpName::LUT_Or: {
       assert(inputs.size() == 2);
+      assert(hw::getBitWidth(inputs[0].getType()) == hw::getBitWidth(inputs[1].getType()) && "Input should of same type.");
       for (size_t i = 0; i < 2; i++) {
         auto opRand = inputs[i];
+        auto opRand_another = inputs[1 - i];
         if (value_is_const_zero(opRand)) {
-          auto constZeroOp = rewriter.create<hw::ConstantOp>(op.getLoc(), rewriter.getIntegerType(hw::getBitWidth(opRand.getType())), 0);
-          rewriter.replaceOp(op, constZeroOp);
+          rewriter.replaceOp(op, opRand_another);
           return success();
         } else if (value_is_const_ones(opRand)) {
           auto constOnesOp = rewriter.create<hw::ConstantOp>(op.getLoc(), rewriter.getIntegerType(hw::getBitWidth(opRand.getType())), -1);
