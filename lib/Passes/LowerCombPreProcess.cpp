@@ -230,6 +230,7 @@ struct LowerConstArrayTo4B: OpRewritePattern<hw::AggregateConstantOp> {
           auto val = constArrayElemVal.extractBits(chunkWidth, startPos);
           startPos -= 4;
           auto intAttr = rewriter.getIntegerAttr(rewriter.getIntegerType(val.getBitWidth()), val.getLimitedValue());
+          // Insert by chunkId (0 for LSB), need reverse later
           array_values[chunkId].push_back(intAttr);
         }
       }
@@ -329,9 +330,6 @@ struct LowerHWArrayTo4B: OpRewritePattern<hw::ArrayCreateOp> {
         }
       }
 
-      if (array_values.size() > 1) {
-        std::reverse(array_values.begin(), array_values.end());
-      }
 
       for (auto elems: array_values) {
         auto newDefVecOp = rewriter.create<toucan::DefVectorOp>(arrayCreateOp.getLoc(), elems);
