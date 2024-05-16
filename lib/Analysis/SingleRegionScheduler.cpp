@@ -280,6 +280,7 @@ void SingleRegionScheduler::collectConstant(DesignGraph &graph, CGPartitionMetaI
           assert(bitWidth <= 4);
           auto rawVal = static_cast<uint8_t>(constVal.getZExtValue());
           // save op result value
+          assert(rawVal == (rawVal & ((1 << bitWidth) - 1)));
           auto valId = partInfo.valuePool.size();
 
           auto constResultVal = constOp.getResult();

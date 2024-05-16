@@ -1,6 +1,5 @@
 #pragma once
 
-#include <_types/_uint8_t.h>
 #include <cstdint>
 #include <string>
 #include <unordered_map>

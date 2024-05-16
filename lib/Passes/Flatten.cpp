@@ -111,6 +111,14 @@ struct FlattenPass : toucan::impl::FlattenBase<FlattenPass> {
       setSignalFragmentIDAttr(regOperation, idAttr);
       setIOSignalMarker(regOperation);
 
+      if (auto chunkDefiningOp = inputChunk.getDefiningOp()) {
+        auto nextValueName = valueNewNameAttr.getValue() + getRegNextSuffix();
+        auto nextValueNameAttr = rewriter.getStringAttr(nextValueName);
+
+        setSVNameHintAttr(chunkDefiningOp, nextValueNameAttr);
+        setSignalFragmentIDAttr(chunkDefiningOp, idAttr);
+      }
+
     }
   }
 

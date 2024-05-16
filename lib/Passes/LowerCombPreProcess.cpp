@@ -109,6 +109,11 @@ struct LowerBinaryOpWithMultipleOperandBase {
         return newOp.getResult();
       });
 
+      auto namehint = getSVNameHintAttr(op);
+      if (namehint) {
+        setSVNameHintAttr(resultVal.getDefiningOp(), namehint.value());
+      }
+
       rewriter.replaceOp(op, resultVal);
       return success();
     }

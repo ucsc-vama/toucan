@@ -752,7 +752,6 @@ struct LowerCombParityOp: OpRewritePattern<comb::ParityOp> {
     } else {
       auto xorrOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_XorR, inputValue);
 
-      assert(hw::getBitWidth(xorrOp.getResult().getType()) == 1);
 
       copyCustomizedAttrs(op, xorrOp);
       rewriter.replaceOp(op, xorrOp);
