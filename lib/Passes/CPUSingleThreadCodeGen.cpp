@@ -31,7 +31,6 @@
 #include <memory>
 #include <filesystem>
 #include <fstream>
-#include <format>
 #include <tuple>
 #include <vector>
 
@@ -51,27 +50,6 @@ using namespace llvm;
 
 struct CPUSingleThreadCodeGenPass : toucan::impl::CPUSingleThreadCodeGenBase<CPUSingleThreadCodeGenPass>, CodeGenHelper {
   using CPUSingleThreadCodeGenBase<CPUSingleThreadCodeGenPass>::CPUSingleThreadCodeGenBase;
-
-
-  size_t indentSize = 2;
-  // std::string className = "SimDesign";
-
-  static std::string getOpVectorName(size_t partId, size_t levelId) {
-    return std::format("p{}_{}_ops", partId, levelId);
-  }
-
-  std::vector<std::string> _indentStrings;
-  const std::string getIndent(size_t indentLevel) {
-    if (indentLevel >= _indentStrings.size()) {
-      for (size_t i = _indentStrings.size(); i <= indentLevel; i++) {
-        std::string indentString(i * indentSize, ' ');
-        _indentStrings.push_back(indentString);
-      }
-      assert(_indentStrings.size() == indentLevel + 1);
-    }
-    return _indentStrings[indentLevel];
-  }
-
 
 
   void runOnOperation() final {
