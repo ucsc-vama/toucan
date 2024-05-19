@@ -9,7 +9,7 @@ add_circt_dialect_library(
   ExpandMemoryDelay.cpp
   SplitRegisters.cpp
   RemoveMemMask.cpp
-  Canonicalizer.cpp
+  ToucanCanonicalizer.cpp
   LowerRegMemTo4B.cpp
   EnsureNoClockOp.cpp
   LowerCombPreProcess.cpp

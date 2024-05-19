@@ -94,10 +94,10 @@ def RemoveMemMask: Pass<"remove-mem-mask", "circt::ModuleOp"> {
 }
 
 
-def Canonicalizer: Pass<"canonicalizer", "circt::ModuleOp"> {
-  let summary = "Canonicalizer pass, parallel execution module by module";
+def ToucanCanonicalizer: Pass<"ToucanCanonicalizer", "circt::ModuleOp"> {
+  let summary = "ToucanCanonicalizer pass, parallel execution module by module";
   let description = summary;
-  let constructor = "toucan::createCanonicalizerPass()";
+  let constructor = "toucan::createToucanCanonicalizerPass()";
 }
 
 

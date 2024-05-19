@@ -21,8 +21,8 @@ std::unique_ptr<mlir::Pass> createSplitFirMemRWPortsPass();
 std::unique_ptr<mlir::Pass> createSplitRegistersPass();
 std::unique_ptr<mlir::Pass> createRemoveMemMaskPass();
 
-std::unique_ptr<mlir::Pass> createCanonicalizerPass();
-std::unique_ptr<mlir::Pass> createCanonicalizerPass(const mlir::GreedyRewriteConfig &config);
+std::unique_ptr<mlir::Pass> createToucanCanonicalizerPass();
+std::unique_ptr<mlir::Pass> createToucanCanonicalizerPass(const mlir::GreedyRewriteConfig &config);
 
 std::unique_ptr<mlir::Pass> createLowerRegMemTo4BPass();
 std::unique_ptr<mlir::Pass> createEnsureNoClockOpPass();

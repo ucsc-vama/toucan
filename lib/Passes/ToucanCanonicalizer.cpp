@@ -32,7 +32,7 @@
 #include <memory>
 
 
-#define GEN_PASS_DEF_CANONICALIZER
+#define GEN_PASS_DEF_TOUCANCANONICALIZER
 #include "toucan/ToucanPassCommon.h"
 
 #include "toucan/ToucanOps.h"
@@ -43,13 +43,13 @@ using namespace circt;
 using namespace mlir;
 using namespace llvm;
 
-#define DEBUG_TYPE "CanonicalizerPass"
+#define DEBUG_TYPE "ToucanCanonicalizerPass"
 
 
 
 
-struct CanonicalizerPass : toucan::impl::CanonicalizerBase<CanonicalizerPass> {
-  using CanonicalizerBase<CanonicalizerPass>::CanonicalizerBase;
+struct ToucanCanonicalizerPass : toucan::impl::ToucanCanonicalizerBase<ToucanCanonicalizerPass> {
+  using ToucanCanonicalizerBase<ToucanCanonicalizerPass>::ToucanCanonicalizerBase;
 
   GreedyRewriteConfig config;
   std::shared_ptr<const FrozenRewritePatternSet> patterns;
@@ -57,11 +57,11 @@ struct CanonicalizerPass : toucan::impl::CanonicalizerBase<CanonicalizerPass> {
   ArrayRef<std::string> disabledPatterns;
   ArrayRef<std::string> enabledPatterns;
 
-  CanonicalizerPass() = default;
-  CanonicalizerPass(const GreedyRewriteConfig &config)
+  ToucanCanonicalizerPass() = default;
+  ToucanCanonicalizerPass(const GreedyRewriteConfig &config)
       : config(config) { }
 
-  CanonicalizerPass(const GreedyRewriteConfig &config,
+  ToucanCanonicalizerPass(const GreedyRewriteConfig &config,
                 ArrayRef<std::string> disabledPatterns,
                 ArrayRef<std::string> enabledPatterns)
       : config(config) {
@@ -72,11 +72,9 @@ struct CanonicalizerPass : toucan::impl::CanonicalizerBase<CanonicalizerPass> {
   LogicalResult initialize(MLIRContext *context) override {
 
     RewritePatternSet owningPatterns(context);
-    // Don't run canonicalizer for hw dialect!
+    // Don't run ToucanCanonicalizer for hw dialect!
     for (auto *dialect : context->getLoadedDialects()) {
-      if (isa<comb::CombDialect>(dialect)
-        || isa<toucan::ToucanDialect>(dialect)
-        || isa<seq::SeqDialect>(dialect)) {
+      if (isa<toucan::ToucanDialect>(dialect)) {
         dialect->getCanonicalizationPatterns(owningPatterns);
       }
     }
@@ -110,7 +108,7 @@ struct CanonicalizerPass : toucan::impl::CanonicalizerBase<CanonicalizerPass> {
   }
 
   void runOnOperation() final {
-    LLVM_DEBUG(llvm::dbgs() << "Start parallel canonicalizer pass\n");
+    LLVM_DEBUG(llvm::dbgs() << "Start parallel ToucanCanonicalizer pass\n");
     auto mod = getOperation();
 
     SmallVector<hw::HWModuleOp> modulesToProcess;
@@ -125,7 +123,7 @@ struct CanonicalizerPass : toucan::impl::CanonicalizerBase<CanonicalizerPass> {
       return runOnModule(mod);
     });
 
-    LLVM_DEBUG(llvm::dbgs() << "Done parallel canonicalizer pass\n");
+    LLVM_DEBUG(llvm::dbgs() << "Done parallel ToucanCanonicalizer pass\n");
     if (failed(result)) return signalPassFailure();
   }
 
@@ -133,10 +131,10 @@ struct CanonicalizerPass : toucan::impl::CanonicalizerBase<CanonicalizerPass> {
 
 
 
-std::unique_ptr<mlir::Pass> toucan::createCanonicalizerPass() {
-  return std::make_unique<CanonicalizerPass>();
+std::unique_ptr<mlir::Pass> toucan::createToucanCanonicalizerPass() {
+  return std::make_unique<ToucanCanonicalizerPass>();
 }
 
-std::unique_ptr<mlir::Pass> toucan::createCanonicalizerPass(const GreedyRewriteConfig &config) {
-  return std::make_unique<CanonicalizerPass>(config);
+std::unique_ptr<mlir::Pass> toucan::createToucanCanonicalizerPass(const GreedyRewriteConfig &config) {
+  return std::make_unique<ToucanCanonicalizerPass>(config);
 }

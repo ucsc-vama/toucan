@@ -102,7 +102,7 @@ static LogicalResult compileAndEmit(
         // Split registers into def, read and write nodes
         pm.addPass(toucan::createSplitRegistersPass());
 
-        pm.addPass(toucan::createCanonicalizerPass());
+        // pm.addPass(toucan::createCanonicalizerPass());
     }
 
     if (inputLevel < Toucan4B) {
@@ -122,7 +122,7 @@ static LogicalResult compileAndEmit(
         pm.addPass(toucan::createLowerCombTo4B_3Pass());
         pm.addPass(toucan::createLowerCombTo4B_ShortReplicateOpPass());
 
-        pm.addPass(toucan::createCanonicalizerPass());
+        pm.addPass(toucan::createToucanCanonicalizerPass());
         // Canonicalizer may generates ReplicateOp. Revert back.
         pm.addPass(toucan::createLowerCombTo4B_ShortReplicateOpPass());
     }
