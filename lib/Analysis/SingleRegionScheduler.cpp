@@ -18,7 +18,6 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
-#include <_types/_uint8_t.h>
 #include <cstddef>
 #include <cstdint>
 
