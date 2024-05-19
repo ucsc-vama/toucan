@@ -8,6 +8,12 @@ void boost::throw_exception(std::exception const & e){
 }
 
 void boost::throw_exception(std::exception const & e, boost::source_location const &loc){
-  llvm::dbgs() << loc.to_string() << e.what();
+  llvm::dbgs() << "File: " << loc.file_name() << "\n";
+  llvm::dbgs() << "Line: " << loc.line() << "\n";
+  llvm::dbgs() << "Column: " << loc.column() << "\n";
+  llvm::dbgs() << "Function: " << loc.function_name() << "\n";
+
+  llvm::dbgs() << "Error: " << e.what() << "\n";
+
   assert(false);
 }
