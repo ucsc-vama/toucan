@@ -235,7 +235,7 @@ void SingleRegionScheduler::generateRegMemLayout(DesignGraph &graph, uint32_t pa
 
       auto memId = codeGenInfo.memPool.size();
       codeGenInfo.memPool.push_back(memMeta);
-      codeGenInfo.toucanMemToId[memVal] = memId; 
+      codeGenInfo.toucanMemToId[memVal] = memId;
     }
   }
   codeGenInfo.totalMemSize = memBaseAddr;
@@ -367,6 +367,8 @@ void SingleRegionScheduler::schedule(DesignGraph &graph, uint32_t partitionRegPa
       currentLevelOps.reserve(firstLevel.size());
       for (auto vtxId: firstLevel) {
         auto tOpName = graph.g[vtxId].toucanOpName;
+        auto vtxWeight = graph.g[vtxId].weight;
+        assert(vtxWeight == 1);
 
         auto op = graph.g[vtxId].op;
         CGOpMetaInfo opMeta;
@@ -466,7 +468,7 @@ void SingleRegionScheduler::schedule(DesignGraph &graph, uint32_t partitionRegPa
       for (auto vtxId: currentLevel) {
         auto tOpName = graph.g[vtxId].toucanOpName;
         auto rawOp = graph.g[vtxId].op;
-        // auto vtxWeight = graph.g[vtxId].weight;
+        auto vtxWeight = graph.g[vtxId].weight;
 
         CGOpMetaInfo opMeta;
         opMeta.opName = tOpName;
@@ -476,6 +478,8 @@ void SingleRegionScheduler::schedule(DesignGraph &graph, uint32_t partitionRegPa
 
         if (tOpName == CGToucanOPName::LUT) {
           // lut
+          assert(vtxWeight == 1);
+
           auto lutOp = cast<toucan::LUTOp>(rawOp);
 
           // fill input oprands
@@ -528,6 +532,8 @@ void SingleRegionScheduler::schedule(DesignGraph &graph, uint32_t partitionRegPa
 
             currentVecDeclOps.push_back(opMeta);
           }
+          assert(currentVecDeclOps.size() == vtxWeight);
+
           // Nops are ordered.
           vecDecls.push_back(currentVecDeclOps);
           vecDeclVals.push_back(vecDeclOp.getHandle());
@@ -588,6 +594,7 @@ void SingleRegionScheduler::schedule(DesignGraph &graph, uint32_t partitionRegPa
 
             currentVecReadOps.push_back(opMeta);
           }
+          assert(currentVecReadOps.size() == vtxWeight);
 
           // Sort by offset for performance reason
           std::sort(currentVecReadOps.begin(), currentVecReadOps.end(), 
@@ -598,6 +605,8 @@ void SingleRegionScheduler::schedule(DesignGraph &graph, uint32_t partitionRegPa
 
         } else if (tOpName == CGToucanOPName::MemRead) {
           // a memread
+          assert(vtxWeight == 1);
+
           auto memReadOp = cast<toucan::MemReadOp>(rawOp);
           auto memVal = memReadOp.getMem();
           auto memValId = codeGenInfo.toucanMemToId[memVal];
@@ -780,6 +789,7 @@ void SingleRegionScheduler::schedule(DesignGraph &graph, uint32_t partitionRegPa
       for (auto vtxId: lastLevel) {
         auto vtxOpName = graph.g[vtxId].toucanOpName;
         auto rawOp = graph.g[vtxId].op;
+        auto vtxWeight = graph.g[vtxId].weight;
 
         CGOpMetaInfo opMeta;
         opMeta.op = rawOp;
@@ -788,6 +798,8 @@ void SingleRegionScheduler::schedule(DesignGraph &graph, uint32_t partitionRegPa
 
         if (vtxOpName == CGToucanOPName::RegWrite) {
           // regwrite
+          assert(vtxWeight == 1);
+
           auto regWriteOp = cast<toucan::RegWriteOp>(rawOp);
           auto regVal = regWriteOp.getReg();
           auto dataVal = regWriteOp.getData();
@@ -805,55 +817,73 @@ void SingleRegionScheduler::schedule(DesignGraph &graph, uint32_t partitionRegPa
 
         } else if (vtxOpName == CGToucanOPName::MemWrite) {
           // memWrite
-          auto memWriteOp = cast<toucan::MemWriteOp>(rawOp);
-          auto memVal = memWriteOp.getMem();
-          auto dataVal = memWriteOp.getData();
-          auto enVal = memWriteOp.getEn();
-
+          // Note: if there is multiple writers, they are all merged into 1 vtx
+          // Split
+          auto memVal = cast<toucan::MemWriteOp>(rawOp).getMem();
           assert(codeGenInfo.toucanMemToId.contains(memVal));
           auto memValId = codeGenInfo.toucanMemToId[memVal];
-          assert(partInfo.valueToValId.contains(dataVal));
-          auto dataValId = partInfo.valueToValId[dataVal];
-          assert(partInfo.valueToValId.contains(enVal));
-          auto enValId = partInfo.valueToValId[enVal];
 
-          auto memAddrs = memWriteOp.getAddrs();
-          auto numMemAddrs = memAddrs.size();
-          assert(numMemAddrs <= 8 && "Memory address is too long");
+          uint32_t numMemWrites = 0;
+          for (auto userOp: memVal.getUsers()) {
+            if (auto memWriteOp = dyn_cast<toucan::MemWriteOp>(userOp)) {
+              // for each writer
+              numMemWrites ++;
 
-          size_t pos = 0;
-          for (; pos < 8 - numMemAddrs; pos++) {
-            // Note: the first elem in value pool is const 0
-            memReadOpIndexIds[pos] = 0;
+              CGOpMetaInfo mwOpMeta;
+              mwOpMeta.op = rawOp;
+              mwOpMeta.opName = vtxOpName;
+              mwOpMeta.vtxId = vtxId;
+
+              auto dataVal = memWriteOp.getData();
+              auto enVal = memWriteOp.getEn();
+
+              assert(partInfo.valueToValId.contains(dataVal));
+              auto dataValId = partInfo.valueToValId[dataVal];
+              assert(partInfo.valueToValId.contains(enVal));
+              auto enValId = partInfo.valueToValId[enVal];
+
+              auto memAddrs = memWriteOp.getAddrs();
+              auto numMemAddrs = memAddrs.size();
+              assert(numMemAddrs <= 8 && "Memory address is too long");
+
+              size_t pos = 0;
+              for (; pos < 8 - numMemAddrs; pos++) {
+                // Note: the first elem in value pool is const 0
+                memReadOpIndexIds[pos] = 0;
+              }
+              for (auto val: memAddrs) {
+                assert(partInfo.valueToValId.contains(val));
+                auto valId = partInfo.valueToValId[val];
+                memReadOpIndexIds[pos] = valId;
+                pos++;
+              }
+
+              mwOpMeta.memWrite.hasMultipleWriter = codeGenInfo.memPool[memValId].hasMultipleWriter;
+              mwOpMeta.memWrite.memBase = codeGenInfo.memPool[memValId].memBase;
+              mwOpMeta.memWrite.memDepth = codeGenInfo.memPool[memValId].memDepth;
+
+              mwOpMeta.memWrite.addr0 = memReadOpIndexIds[0];
+              mwOpMeta.memWrite.addr1 = memReadOpIndexIds[1];
+              mwOpMeta.memWrite.addr2 = memReadOpIndexIds[2];
+              mwOpMeta.memWrite.addr3 = memReadOpIndexIds[3];
+              mwOpMeta.memWrite.addr4 = memReadOpIndexIds[4];
+              mwOpMeta.memWrite.addr5 = memReadOpIndexIds[5];
+              mwOpMeta.memWrite.addr6 = memReadOpIndexIds[6];
+              mwOpMeta.memWrite.addr7 = memReadOpIndexIds[7];
+
+              mwOpMeta.memWrite.dat = dataValId;
+              mwOpMeta.memWrite.en = enValId;
+
+              // Namehint not needed for last level ops
+              memWriteOps.push_back(mwOpMeta);
+            }
           }
-          for (auto val: memAddrs) {
-            assert(partInfo.valueToValId.contains(val));
-            auto valId = partInfo.valueToValId[val];
-            memReadOpIndexIds[pos] = valId;
-            pos++;
-          }
-
-          opMeta.memWrite.hasMultipleWriter = codeGenInfo.memPool[memValId].hasMultipleWriter;
-          opMeta.memWrite.memBase = codeGenInfo.memPool[memValId].memBase;
-          opMeta.memWrite.memDepth = codeGenInfo.memPool[memValId].memDepth;
-
-          opMeta.memWrite.addr0 = memReadOpIndexIds[0];
-          opMeta.memWrite.addr1 = memReadOpIndexIds[1];
-          opMeta.memWrite.addr2 = memReadOpIndexIds[2];
-          opMeta.memWrite.addr3 = memReadOpIndexIds[3];
-          opMeta.memWrite.addr4 = memReadOpIndexIds[4];
-          opMeta.memWrite.addr5 = memReadOpIndexIds[5];
-          opMeta.memWrite.addr6 = memReadOpIndexIds[6];
-          opMeta.memWrite.addr7 = memReadOpIndexIds[7];
-
-          opMeta.memWrite.dat = dataValId;
-          opMeta.memWrite.en = enValId;
-
-          // Namehint not needed for last level ops
-          memWriteOps.push_back(opMeta);
+          assert(numMemWrites == vtxWeight);
 
         } else if (vtxOpName == CGToucanOPName::Print) {
           // print
+          assert(vtxWeight == 1);
+
           auto printOp = cast<toucan::PrintOp>(rawOp);
           auto printStr = printOp.getMsg();
           auto enVal = printOp.getEn();
@@ -872,6 +902,8 @@ void SingleRegionScheduler::schedule(DesignGraph &graph, uint32_t partitionRegPa
 
         } else if (vtxOpName == CGToucanOPName::Stop) {
           // stop
+          assert(vtxWeight == 1);
+
           auto stopOp = cast<toucan::StopOp>(rawOp);
           auto enVal = stopOp.getEn();
 
