@@ -55,14 +55,86 @@ using namespace llvm;
 
 #define DEBUG_TYPE "LowerCombTo4B_1Pass"
 
+
+static std::atomic<uint64_t> numLongRepInModule;
+static std::atomic<uint64_t> numShortRepInModule;
+
 static std::atomic<uint64_t> numCombShlInModules;
 static std::atomic<uint64_t> numCombShrUInModules;
+static std::atomic<uint64_t> numCombShrU1bInModule;
 static std::atomic<uint64_t> numCombShrSInModules;
 static std::atomic<uint64_t> numCombICmpInModules;
 static std::atomic<uint64_t> numCombMulInModules;
 static std::atomic<uint64_t> numCombParityInModules;
 static std::atomic<uint64_t> numShiftToArrayInModules;
 static std::atomic<uint64_t> numArrayReadFromShiftInModules;
+
+struct LowerCombReplicateOp: OpRewritePattern<comb::ReplicateOp> {
+  using OpRewritePattern<comb::ReplicateOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(comb::ReplicateOp op, PatternRewriter &rewriter) const final {
+    // Handles repop with input width > 1
+    auto inputValue = op.getInput();
+    auto inputValueWidth = hw::getBitWidth(inputValue.getType());
+    auto resultValue = op.getResult();
+    auto resultValueWidth = hw::getBitWidth(resultValue.getType());
+
+    if (inputValueWidth == 1) {
+      numShortRepInModule++;
+
+      assert(resultValueWidth > 1 && "Why you have a replicateOp with same input and output width?");
+      
+      if (resultValueWidth > 4) {
+        SmallVector<Value> intermediateResults;
+        for (auto&& [sigId, sigWidth]: split_signal_4B(resultValueWidth)) {
+          if (sigWidth > 1) {
+            auto newOp = rewriter.create<toucan::LUTOp>(op.getLoc(), LUTOpName::LUT_Rep1b, inputValue);
+            auto repVal = newOp.getResult();
+            // shink if needed
+            auto shrinkVal = removeHighBits(rewriter, op.getLoc(), repVal, sigWidth);
+            intermediateResults.push_back(shrinkVal);
+          } else {
+            // 1b. simply use input
+            intermediateResults.push_back(inputValue);
+          }
+        }
+        attachNameHintAndFragmentId(rewriter, intermediateResults, getSVNameHintAttr(op.getOperation()));
+
+        concat_4b_and_replace(op.getOperation(), op.getResult(), intermediateResults, rewriter);
+      } else {
+        auto newOp = rewriter.create<toucan::LUTOp>(op.getLoc(), LUTOpName::LUT_Rep1b, inputValue);
+        auto repVal = newOp.getResult();
+        auto shrinkVal = removeHighBits(rewriter, op.getLoc(), repVal, resultValueWidth);
+
+        attachNameHintAndFragmentId(rewriter, shrinkVal.getDefiningOp(), getSVNameHintAttr(newOp));
+
+        rewriter.replaceOp(op, shrinkVal);
+      }
+    } else {
+      // long
+      numLongRepInModule++;
+
+      auto resultValue = op.getResult();
+      auto resultValueWidth = hw::getBitWidth(resultValue.getType());
+      assert(resultValueWidth % inputValueWidth == 0);
+      assert(resultValueWidth > inputValueWidth);
+
+      auto numOf4B = static_cast<size_t>(resultValueWidth / inputValueWidth);
+
+      SmallVector<Value> values;
+      for (size_t i = 0; i < numOf4B; i++) {
+        values.push_back(inputValue);
+      }
+
+      auto newOp = rewriter.create<comb::ConcatOp>(op.getLoc(), values);
+      rewriter.replaceOp(op, newOp);
+    }
+
+    return success();
+  }
+};
+
+
 
 class DynamicShiftOperations {
   public:
@@ -265,6 +337,8 @@ struct LowerCombShrUOp: OpRewritePattern<comb::ShrUOp>, DynamicShiftOperations {
   using OpRewritePattern<comb::ShrUOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(comb::ShrUOp shruOp, PatternRewriter &rewriter) const final {
+    numCombShrUInModules++;
+
     auto inputValue = shruOp.getLhs();
     auto shamtValue = extractMinimumWidth(shruOp.getRhs(), rewriter, shruOp.getOperation());
     auto shamtWidth = hw::getBitWidth(shamtValue.getType());
@@ -272,7 +346,26 @@ struct LowerCombShrUOp: OpRewritePattern<comb::ShrUOp>, DynamicShiftOperations {
       shruOp.emitError("shru: Shift amount is too large: " + std::to_string(shamtWidth));
       return failure();
     }
-    numCombShrUInModules++;
+
+    auto resultWidth = hw::getBitWidth(shruOp.getResult().getType());
+    if (resultWidth == 1) {
+      // 1 bit. Replace with mux.
+      numCombShrU1bInModule++;
+
+      auto en = shruOp.getRhs();
+      auto data = shruOp.getLhs();
+      assert(hw::getBitWidth(en.getType()) == 1);
+      assert(hw::getBitWidth(data.getType()) == 1);
+
+      auto constZeroOp = rewriter.create<hw::ConstantOp>(shruOp.getLoc(), rewriter.getI1Type(), 0);
+      auto constZeroValue = constZeroOp.getResult();
+
+      auto muxOp = rewriter.create<comb::MuxOp>(shruOp.getLoc(), en, constZeroValue, data);
+
+      rewriter.replaceOp(shruOp, muxOp);
+      return success();
+    }
+
 
     auto inputValueWithPadding = padding_with_0_and_align_4b(shruOp.getOperation(), rewriter, inputValue);
     auto inputValuesWithPadding_4b = split_value_4B(shruOp.getOperation(), inputValueWithPadding, rewriter);
@@ -808,8 +901,11 @@ struct LowerCombTo4B_1Pass : toucan::impl::LowerCombTo4B_1Base<LowerCombTo4B_1Pa
   std::shared_ptr<ConversionTarget> target;
 
   LogicalResult initialize(MLIRContext *context) override {
+    numLongRepInModule = 0;
+    numShortRepInModule = 0;
     numCombShlInModules = 0;
     numCombShrUInModules = 0;
+    numCombShrU1bInModule = 0;
     numCombShrSInModules = 0;
     numCombICmpInModules = 0;
     numCombMulInModules = 0;
@@ -820,6 +916,7 @@ struct LowerCombTo4B_1Pass : toucan::impl::LowerCombTo4B_1Base<LowerCombTo4B_1Pa
     RewritePatternSet owningPatterns(context);
     ConversionTarget conversionTarget(*context);
     
+    owningPatterns.add<LowerCombReplicateOp>(context);
     owningPatterns.add<LowerCombShlOp>(context);
     owningPatterns.add<LowerCombShrUOp>(context);
     owningPatterns.add<LowerCombShrSOp>(context);
@@ -838,6 +935,7 @@ struct LowerCombTo4B_1Pass : toucan::impl::LowerCombTo4B_1Base<LowerCombTo4B_1Pa
     conversionTarget.addLegalDialect<comb::CombDialect>();
 
     // After lowering, following ops should no longer appear
+    conversionTarget.addIllegalOp<comb::ReplicateOp>();
     conversionTarget.addIllegalOp<comb::ShlOp>();
     conversionTarget.addIllegalOp<comb::ShrUOp>();
     conversionTarget.addIllegalOp<comb::ShrSOp>();
@@ -883,8 +981,11 @@ struct LowerCombTo4B_1Pass : toucan::impl::LowerCombTo4B_1Base<LowerCombTo4B_1Pa
     });
     if (failed(result)) return signalPassFailure();
 
+    numLongRep = numLongRepInModule;
+    numShortRep = numShortRepInModule;
     numCombShl = numCombShlInModules;
     numCombShrU = numCombShrUInModules;
+    numCombShrU1b = numCombShrU1bInModule;
     numCombShrS = numCombShrSInModules;
     numCombICmp = numCombICmpInModules;
     numCombMul = numCombMulInModules;

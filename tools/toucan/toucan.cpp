@@ -107,37 +107,32 @@ static LogicalResult compileAndEmit(
 
     if (inputLevel < Toucan4B) {
         // Lower to Toucan4B
-        pm.addPass(toucan::createFactorArrayGetMuxPass());
         // Lower registers and memory to 4b
         pm.addPass(toucan::createLowerRegMemTo4BPass());
-        // Remove clock and AsClock. 
+        // By this time clock should be removed by DCE. AsClock is not supported
         pm.addPass(toucan::createEnsureNoClockOpPass());
 
+        // Lower HW vector
+        pm.addPass(toucan::createFactorArrayGetMuxPass());
+        pm.addPass(toucan::createLowerHWVectorTo4BPass());
         // Fold binary ops with more than 2 operands
-        // Convert hw array
-        pm.addPass(toucan::createLowerCombPreProcessPass());
-        // Lower HW to 4B
+        pm.addPass(toucan::createFactorBinaryOpPass());
+        // Lower Comb to 4B
         pm.addPass(toucan::createLowerCombTo4B_1Pass());
         pm.addPass(toucan::createLowerCombTo4B_2Pass());
         pm.addPass(toucan::createLowerCombTo4B_3Pass());
-        pm.addPass(toucan::createLowerCombTo4B_ShortReplicateOpPass());
 
         pm.addPass(toucan::createToucanCanonicalizerPass());
-        // Canonicalizer may generates ReplicateOp. Revert back.
-        pm.addPass(toucan::createLowerCombTo4B_ShortReplicateOpPass());
+        // Note: Canonicalizer might bring comb::ReplicateOp back (from hw::ConstantOp). Run LowerCombTo4B_1 again to remove them.
+        // pm.addPass(toucan::createLowerCombTo4B_1Pass());
     }
 
     if (inputLevel < ToucanFlattened) {
         // Lower to flattened
         pm.addPass(toucan::createFlattenPass());
         pm.addPass(toucan::createFactorConcatExtractPass());
-        // Dead ops are normally removed by previous pass
-        // pm.addPass(toucan::createFlatDCEPass());
-        // TODO: parallelize this pass
         pm.addPass(toucan::createMergeConstPass());
-
         pm.addPass(toucan::createEnsureToucanOnlyPass());
-
     }
 
     auto cpuCodeGenOptions = toucan::CPUSingleThreadCodeGenOptions();

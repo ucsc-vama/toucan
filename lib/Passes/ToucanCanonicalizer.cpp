@@ -79,9 +79,9 @@ struct ToucanCanonicalizerPass : toucan::impl::ToucanCanonicalizerBase<ToucanCan
       }
     }
       
-    for (RegisteredOperationName op : context->getRegisteredOperations()) {
-      op.getCanonicalizationPatterns(owningPatterns, context);
-    }
+    // for (RegisteredOperationName op : context->getRegisteredOperations()) {
+    //   op.getCanonicalizationPatterns(owningPatterns, context);
+    // }
 
     patterns = std::make_shared<FrozenRewritePatternSet>(
         std::move(owningPatterns), disabledPatterns, enabledPatterns);

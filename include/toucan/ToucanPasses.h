@@ -26,8 +26,8 @@ std::unique_ptr<mlir::Pass> createToucanCanonicalizerPass(const mlir::GreedyRewr
 
 std::unique_ptr<mlir::Pass> createLowerRegMemTo4BPass();
 std::unique_ptr<mlir::Pass> createEnsureNoClockOpPass();
-std::unique_ptr<mlir::Pass> createLowerCombPreProcessPass();
-std::unique_ptr<mlir::Pass> createLowerCombTo4B_ShortReplicateOpPass();
+std::unique_ptr<mlir::Pass> createFactorBinaryOpPass();
+std::unique_ptr<mlir::Pass> createLowerHWVectorTo4BPass();
 std::unique_ptr<mlir::Pass> createLowerCombTo4B_1Pass();
 std::unique_ptr<mlir::Pass> createLowerCombTo4B_2Pass();
 std::unique_ptr<mlir::Pass> createLowerCombTo4B_3Pass();
@@ -35,7 +35,6 @@ std::unique_ptr<mlir::Pass> createLowerCombTo4B_3Pass();
 std::unique_ptr<mlir::Pass> createFlattenPass();
 std::unique_ptr<mlir::Pass> createRemoveSeqPass();
 std::unique_ptr<mlir::Pass> createFactorConcatExtractPass();
-std::unique_ptr<mlir::Pass> createFlatDCEPass();
 std::unique_ptr<mlir::Pass> createEnsureToucanOnlyPass();
 std::unique_ptr<mlir::Pass> createMergeConstPass();
 

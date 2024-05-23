@@ -121,14 +121,11 @@ def EnsureNoClockOp: Pass<"ensure-no-clock", "circt::ModuleOp"> {
 }
 
 
-def LowerCombPreProcess: Pass<"lower-comb-pre-process", "circt::ModuleOp"> {
-  let summary = "Lower comb,and, comb.add, comb.xor, comb.xor to binary op (it may contains more than 2 operands). Handle replicateOp when input width greater than 1. ";
+def LowerHWVectorTo4B: Pass<"lower-hw-vector", "circt::ModuleOp"> {
+  let summary = "Lower hw::vector and hw::aggregated_const";
   let description = summary;
-  let constructor = "toucan::createLowerCombPreProcessPass()";
+  let constructor = "toucan::createLowerHWVectorTo4BPass()";
   let statistics = [
-    Statistic<"numLongRep", "Long Replicate Op", "Number of long replicate (input width > 1)">,
-    Statistic<"numMultiOprandBinaryOp", "Multi-Oprand Binary Op", "Number of binary op (Add, And, Or, Xor) with more than 2 oprand">,
-    Statistic<"num1bShru", "1 Bit ShrU", "Number of 1 bit ShrU op">,
     Statistic<"numConstArray", "hw::AggregateConstOp", "Number of hw::AggregateConstOp">,
     Statistic<"numHWArray", "hw::ArrayCreateOp", "Number of hw::ArrayCreateOp">,
     Statistic<"numSmallHWArray", "hw::ArrayCreateOp small", "Number of hw::ArrayCreateOp that is no longer than 8 elements. Will lower to mux chain">,
@@ -136,12 +133,12 @@ def LowerCombPreProcess: Pass<"lower-comb-pre-process", "circt::ModuleOp"> {
   ];
 }
 
-def LowerCombTo4B_ShortReplicateOp: Pass<"lower-comb-to-4b-short-replicateop", "circt::ModuleOp"> {
-  let summary = "Lower comb::ReplicateOp with 1-bit input to 4 bits";
-  let description = "Why a seperate pass? Because the canonicalizer may create ReplicateOp.";
-  let constructor = "toucan::createLowerCombTo4B_ShortReplicateOpPass()";
+def FactorBinaryOp: Pass<"lower-comb-pre-process", "circt::ModuleOp"> {
+  let summary = "Lower comb,and, comb.add, comb.xor, comb.xor to binary op that each op contains exactly 2 operands";
+  let description = summary;
+  let constructor = "toucan::createFactorBinaryOpPass()";
   let statistics = [
-    Statistic<"numShortRepOp", "Short Replicate Op", "Number of short replicate (input width == 1)">
+    Statistic<"numMultiOprandBinaryOp", "Multi-Oprand Binary Op", "Number of binary op (Add, And, Or, Xor) with more than 2 oprand">,
   ];
 }
 
@@ -150,8 +147,15 @@ def LowerCombTo4B_1: Pass<"lower-comb-to-4b-1", "circt::ModuleOp"> {
   let description = summary;
   let constructor = "toucan::createLowerCombTo4B_1Pass()";
   let statistics = [
+    Statistic<"numLongRep", "Long Replicate Op", "Number of long replicate (input width > 1)">,
+    Statistic<"numShortRep", "Short Replicate Op (1b)", "Number of short replicate (input width == 1)">,
+    Statistic<"numConstArray", "hw::AggregateConstOp", "Number of hw::AggregateConstOp">,
+    Statistic<"numHWArray", "hw::ArrayCreateOp", "Number of hw::ArrayCreateOp">,
+    Statistic<"numSmallHWArray", "hw::ArrayCreateOp small", "Number of hw::ArrayCreateOp that is no longer than 8 elements. Will lower to mux chain">,
+    Statistic<"numSmallConstArray", "hw::AggregateConstOp small", "Number of hw::AggregateConstOp that is no longer than 8 elements. Will lower to mux chain">,
     Statistic<"numCombShl", "comb::ShlOp", "Number of comb::ShlOp">,
     Statistic<"numCombShrU", "comb::ShrUOp", "Number of comb::ShrUOp">,
+    Statistic<"numCombShrU1b", "comb::ShrUOp_1bit", "Number of comb::ShrUOp that with 1 bit input and output.">,
     Statistic<"numCombShrS", "comb::ShrSOp", "Number of comb::ShrSOp">,
     Statistic<"numCombICmp", "comb::ICmpOp", "Number of comb::ICmpOp">,
     Statistic<"numCombMul", "comb::MulOp", "Number of comb::MulOp">,
@@ -201,15 +205,6 @@ def FactorConcatExtract: Pass<"factor-concat-extract", "circt::ModuleOp"> {
   let constructor = "toucan::createFactorConcatExtractPass()";
 }
 
-def FlatDCE: Pass<"flat-dce", "circt::ModuleOp"> {
-  let summary = "DCE pass on flatten design";
-  let description = summary;
-  let constructor = "toucan::createFlatDCEPass()";
-
-  let statistics = [
-    Statistic<"removedOps", "removedOps", "Operations removed by DCE pass">
-  ];
-}
 
 def EnsureToucanOnly: Pass<"ensure-toucan-only", "circt::ModuleOp"> {
   let summary = "Ensure output only contains toucan dialect, and all values are within 4B";

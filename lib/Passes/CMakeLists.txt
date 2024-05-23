@@ -12,14 +12,13 @@ add_circt_dialect_library(
   ToucanCanonicalizer.cpp
   LowerRegMemTo4B.cpp
   EnsureNoClockOp.cpp
-  LowerCombPreProcess.cpp
-  LowerCombTo4B_ShortReplicateOp.cpp
+  FactorBinaryOp.cpp
+  LowerHWVectorTo4B.cpp
   LowerCombTo4B_1.cpp
   LowerCombTo4B_2.cpp
   LowerCombTo4B_3.cpp
   Flatten.cpp
   FactorConcatExtract.cpp
-  FlatDCE.cpp
   EnsureToucanOnly.cpp
   MergeConst.cpp
   CPUSingleThreadCodeGen.cpp
