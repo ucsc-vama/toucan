@@ -77,6 +77,69 @@ def RegWriteOp: ToucanOp<"reg_write"> {
 
 
 
+def DefConstVectorOp : ToucanOp<"const_vector", [Pure]> {
+  let summary = "def const vector";
+  let description = summary;
+
+  let arguments = (ins ArrayAttr: $values);
+  let results = (outs VecType: $handle);
+  let assemblyFormat = [{
+    $values attr-dict `:` type($handle)
+  }];
+  // let hasVerifier = 1;
+  let builders = [
+    OpBuilder<(ins "mlir::ArrayAttr":$values), [{
+      auto elemBitWidth = hw::getBitWidth(values[0].cast<IntegerAttr>().getType());
+      auto vecType = $_builder.getAttr<toucan::VecType>(true, values.size(), $_builder.getIntegerType(elemBitWidth));
+      return build($_builder, $_state, vecType, values);
+    }]>
+  ];
+}
+
+def DefVectorOp : ToucanOp<"vector", [Pure]> {
+  let summary = "def vector";
+  let description = summary;
+
+  let arguments = (ins Variadic<HWIntegerType>: $inputs);
+  let results = (outs VecType: $handle);
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    $inputs attr-dict `:` type($inputs) `->` type($handle)
+  }];
+  let builders = [
+    OpBuilder<(ins CArg<"mlir::ArrayRef<mlir::Value>","{}">:$inputs), [{
+      auto vecType = $_builder.getAttr<toucan::VecType>(false, inputs.size(), inputs[0].getType().cast<mlir::IntegerType>());
+      return build($_builder, $_state, vecType, inputs);
+    }]>
+  ];
+}
+
+def VectorReadOp : ToucanOp<"vec_read", [Pure]> {
+  let summary = "vec read";
+  let description = summary;
+
+  let arguments = (ins
+    VecType: $handle,
+    APIntAttr: $offset,
+    HWIntegerType: $out_range_value,
+    Variadic<HWIntegerType>: $indicies
+  );
+  let results = (outs HWIntegerType: $result);
+  let builders = [
+    OpBuilder<(ins "mlir::Value": $vec, "mlir::Value":$out_range_value, CArg<"mlir::ArrayRef<mlir::Value>","{}">:$indicies), [{
+      auto resultType = vec.getType().cast<VecType>().getElementType();
+      auto offsetAttr = $_builder.getI16IntegerAttr(0);
+      return build($_builder, $_state, resultType, vec, offsetAttr, out_range_value, indicies);
+    }]>,
+    OpBuilder<(ins "mlir::Value": $vec, "int16_t": $offset, "mlir::Value": $out_range_value, CArg<"mlir::ArrayRef<mlir::Value>","{}">:$indicies), [{
+      auto resultType = vec.getType().cast<VecType>().getElementType();
+      auto offsetAttr = $_builder.getI16IntegerAttr(offset);
+      return build($_builder, $_state, resultType, vec, offsetAttr, out_range_value, indicies);
+    }]>
+  ];
+
+  let assemblyFormat = "$handle `[` type($indicies) $indicies `+` $offset `]` `out_range` type($out_range_value) $out_range_value attr-dict `:` type($handle) `->` type($result)";
+}
 
 def MemReadOp: ToucanOp<"mem_read", [Pure]> {
   let summary = "memory read";
@@ -85,20 +148,22 @@ def MemReadOp: ToucanOp<"mem_read", [Pure]> {
   let arguments = (ins
     MemType: $mem,
     // HWIntegerType: $addr,
-    Variadic<HWIntegerType>: $addrs,
+    // Variadic<HWIntegerType>: $addrs,
+    VecType: $addrVec,
     I1: $en
   );
 
   let results = (outs AnySignlessInteger: $result);
+  let hasVerifier = 1;
 
   let builders = [
-    OpBuilder<(ins "mlir::Value":$mem, "mlir::ArrayRef<mlir::Value>":$addrs, "mlir::Value":$en), [{
+    OpBuilder<(ins "mlir::Value":$mem, "mlir::Value":$addrVec, "mlir::Value":$en), [{
       auto dataType = mem.getType().cast<toucan::MemType>().getElementType();
-      build($_builder, $_state, dataType, mem, addrs, en);
+      build($_builder, $_state, dataType, mem, addrVec, en);
     }]>
   ];
 
-  let assemblyFormat = "$mem `[` type($addrs) $addrs `]` `en` $en attr-dict `:` type($mem) `->` type($result)";
+  let assemblyFormat = "$mem `[` type($addrVec) $addrVec `]` `en` $en attr-dict `:` type($mem) `->` type($result)";
 
 }
 
@@ -110,12 +175,14 @@ def MemWriteOp: ToucanOp<"mem_write"> {
   let arguments = (ins 
     MemType: $mem,
     // HWIntegerType: $addr,
-    Variadic<HWIntegerType>: $addrs,
+    // Variadic<HWIntegerType>: $addrs,
+    VecType: $addrVec,
     HWIntegerType: $data,
     I1: $en
   );
+  let hasVerifier = 1;
 
-  let assemblyFormat = "$mem `[` $addrs `]` `=` $data `en` $en attr-dict `:` type($mem) `[` type($addrs) `]` type($data) `en` type($en) `->` `(``)`";
+  let assemblyFormat = "$mem `[` $addrVec `]` `=` $data `en` $en attr-dict `:` type($mem) `[` type($addrVec) `]` type($data) `en` type($en) `->` `(``)`";
 }
 
 def DefMemOp : ToucanOp<"def_mem"> {
@@ -200,69 +267,6 @@ def LUTOp : ToucanOp<"lut", [Pure]> {
 
 }
 
-def DefConstVectorOp : ToucanOp<"const_vector", [Pure]> {
-  let summary = "def const vector";
-  let description = summary;
-
-  let arguments = (ins ArrayAttr: $values);
-  let results = (outs VecType: $handle);
-  let assemblyFormat = [{
-    $values attr-dict `:` type($handle)
-  }];
-  // let hasVerifier = 1;
-  let builders = [
-    OpBuilder<(ins "mlir::ArrayAttr":$values), [{
-      auto elemBitWidth = hw::getBitWidth(values[0].cast<IntegerAttr>().getType());
-      auto vecType = $_builder.getAttr<toucan::VecType>(true, values.size(), $_builder.getIntegerType(elemBitWidth));
-      return build($_builder, $_state, vecType, values);
-    }]>
-  ];
-}
-
-def DefVectorOp : ToucanOp<"vector", [Pure]> {
-  let summary = "def vector";
-  let description = summary;
-
-  let arguments = (ins Variadic<HWIntegerType>: $inputs);
-  let results = (outs VecType: $handle);
-  let hasVerifier = 1;
-  let assemblyFormat = [{
-    $inputs attr-dict `:` type($inputs) `->` type($handle)
-  }];
-  let builders = [
-    OpBuilder<(ins CArg<"mlir::ArrayRef<mlir::Value>","{}">:$inputs), [{
-      auto vecType = $_builder.getAttr<toucan::VecType>(false, inputs.size(), inputs[0].getType().cast<mlir::IntegerType>());
-      return build($_builder, $_state, vecType, inputs);
-    }]>
-  ];
-}
-
-def VectorReadOp : ToucanOp<"vec_read", [Pure]> {
-  let summary = "vec read";
-  let description = summary;
-
-  let arguments = (ins
-    VecType: $handle,
-    APIntAttr: $offset,
-    HWIntegerType: $out_range_value,
-    Variadic<HWIntegerType>: $indicies
-  );
-  let results = (outs HWIntegerType: $result);
-  let builders = [
-    OpBuilder<(ins "mlir::Value": $vec, "mlir::Value":$out_range_value, CArg<"mlir::ArrayRef<mlir::Value>","{}">:$indicies), [{
-      auto resultType = vec.getType().cast<VecType>().getElementType();
-      auto offsetAttr = $_builder.getI16IntegerAttr(0);
-      return build($_builder, $_state, resultType, vec, offsetAttr, out_range_value, indicies);
-    }]>,
-    OpBuilder<(ins "mlir::Value": $vec, "int16_t": $offset, "mlir::Value": $out_range_value, CArg<"mlir::ArrayRef<mlir::Value>","{}">:$indicies), [{
-      auto resultType = vec.getType().cast<VecType>().getElementType();
-      auto offsetAttr = $_builder.getI16IntegerAttr(offset);
-      return build($_builder, $_state, resultType, vec, offsetAttr, out_range_value, indicies);
-    }]>
-  ];
-
-  let assemblyFormat = "$handle `[` type($indicies) $indicies `+` $offset `]` `out_range` type($out_range_value) $out_range_value attr-dict `:` type($handle) `->` type($result)";
-}
 
 def ConstantOp : ToucanOp<"const", [Pure]> {
   let summary = "constant";

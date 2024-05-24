@@ -103,6 +103,8 @@ namespace toucan {
 
   mlir::Value removeHighBits(mlir::RewriterBase &rewriter, mlir::Location loc, mlir::Value val, size_t bitsNeeded);
 
+  mlir::Value createAddrVecForMem(mlir::RewriterBase &rewriter, mlir::Operation *op, mlir::Value addrVal);
+
   bool isElementsFullWidth(mlir::OperandRange &vals);
 
   bool isElementsFullWidth(mlir::SmallVector<mlir::Value> &vals);

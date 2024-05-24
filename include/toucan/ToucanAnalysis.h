@@ -94,7 +94,10 @@ namespace toucan {
   };
   struct CGVectorReadOpMetaInfo {
     uint32_t vecBase;
-    uint32_t vecLength;
+    // Note: vecLength is static
+    uint16_t vecLength;
+    // Note: This offset is a static value!!!!
+    uint16_t offset;
     
     // max addr width: 16
     uint32_t index0;
@@ -102,8 +105,6 @@ namespace toucan {
     uint32_t index2;
     uint32_t index3;
     uint32_t outRangeValue;
-    // Note: This offset is a static value!!!!
-    uint16_t offset;
 
     uint32_t result;
   };
@@ -126,42 +127,24 @@ namespace toucan {
     uint32_t dat;
   };
   struct CGMemReadOpMetaInfo {
+    // static
     bool hasMultipleWriter;
-    // Should do boundary check
+    // static
     uint32_t memDepth;
-    
+    // static
     uint64_t memBase;
 
     uint32_t en;
-    // max addr width: 32
-    uint32_t addr0;
-    uint32_t addr1;
-    uint32_t addr2;
-    uint32_t addr3;
-    uint32_t addr4;
-    uint32_t addr5;
-    uint32_t addr6;
-    uint32_t addr7;
+    uint32_t addrVec;
 
     uint32_t result;
   };
   struct CGMemWriteOpMetaInfo {
     bool hasMultipleWriter;
-    // should do boundary check
     uint32_t memDepth;
-
     uint64_t memBase;
 
-    // max addr width: 32
-    uint32_t addr0;
-    uint32_t addr1;
-    uint32_t addr2;
-    uint32_t addr3;
-    uint32_t addr4;
-    uint32_t addr5;
-    uint32_t addr6;
-    uint32_t addr7;
-
+    uint32_t addrVec;
     uint32_t dat;
     uint32_t en;
   };

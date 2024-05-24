@@ -433,6 +433,29 @@ namespace toucan {
   }
 
 
+  mlir::Value createAddrVecForMem(mlir::RewriterBase &rewriter, mlir::Operation *op, mlir::Value addrVal) {
+    auto memAddrAligned = padding_with_0_and_align_4b(op, rewriter, addrVal);
+    auto memAddr4B = split_value_4B(op, memAddrAligned, rewriter);
+    assert(memAddr4B.size() <= 8 && "Memory larger than 4GB is not supported yet!");
+
+    auto constZeroOp = rewriter.create<hw::ConstantOp>(op->getLoc(), rewriter.getI4Type(), 0);
+    auto constZero4BValue = constZeroOp.getResult();
+
+    // pad with 0s
+    mlir::SmallVector<mlir::Value, 8> vecElements;
+    for (int i = 8; i > static_cast<int>(memAddr4B.size()); i--) {
+      vecElements.push_back(constZero4BValue);
+    }
+    vecElements.append(memAddr4B);
+    assert(vecElements.size() == 8);
+
+    auto vecCreateOp = rewriter.create<toucan::DefVectorOp>(op->getLoc(), vecElements);
+    auto vecVal = vecCreateOp.getHandle();
+
+    return vecVal;
+  }
+
+
 
   bool isElementsFullWidth(OperandRange &vals) {
     for (size_t i = 0; i < vals.size(); i++) {

@@ -450,7 +450,7 @@ void SingleRegionScheduler::schedule(DesignGraph &graph, uint32_t partitionRegPa
     mlir::SmallVector<CGOpMetaInfo> currentVecDeclOps;
     std::array<uint32_t, 3> lutOpValueIds;
     std::array<uint32_t, 4> vecReadOpIndexIds;
-    std::array<uint32_t, 8> memReadOpIndexIds;
+    // std::array<uint32_t, 8> memReadOpIndexIds;
 
     for (size_t layerId = 1; layerId < partLevels[partId].size() - 1; layerId++) {
       auto &currentLevel = partLevels[partId][layerId];
@@ -613,35 +613,28 @@ void SingleRegionScheduler::schedule(DesignGraph &graph, uint32_t partitionRegPa
           assert(partInfo.valueToValId.contains(memEnVal));
           auto memEnId = partInfo.valueToValId[memEnVal];
 
-          auto memAddrs = memReadOp.getAddrs();
-          auto numMemAddrs = memAddrs.size();
-          assert(numMemAddrs <= 8 && "Memory address is too long");
+          auto memAddrVec = memReadOp.getAddrVec();
+          assert(memAddrVec.getType().getLength() == 8 && "Memory address should be a 32 bit vector");
+          auto memAddrVecId = partInfo.valueToValId[memAddrVec];
 
-          size_t pos = 0;
-          for (; pos < 8 - numMemAddrs; pos++) {
-            // Note: the first elem in value pool is const 0
-            memReadOpIndexIds[pos] = 0;
-          }
-          for (auto val: memAddrs) {
-            assert(partInfo.valueToValId.contains(val));
-            auto valId = partInfo.valueToValId[val];
-            memReadOpIndexIds[pos] = valId;
-            pos++;
-          }
+          // size_t pos = 0;
+          // for (; pos < 8 - numMemAddrs; pos++) {
+          //   // Note: the first elem in value pool is const 0
+          //   memReadOpIndexIds[pos] = 0;
+          // }
+          // for (auto val: memAddrs) {
+          //   assert(partInfo.valueToValId.contains(val));
+          //   auto valId = partInfo.valueToValId[val];
+          //   memReadOpIndexIds[pos] = valId;
+          //   pos++;
+          // }
 
           opMeta.memRead.hasMultipleWriter = codeGenInfo.memPool[memValId].hasMultipleWriter;
           opMeta.memRead.memBase = codeGenInfo.memPool[memValId].memBase;
           opMeta.memRead.memDepth = codeGenInfo.memPool[memValId].memDepth;
 
           opMeta.memRead.en = memEnId;
-          opMeta.memRead.addr0 = memReadOpIndexIds[0];
-          opMeta.memRead.addr1 = memReadOpIndexIds[1];
-          opMeta.memRead.addr2 = memReadOpIndexIds[2];
-          opMeta.memRead.addr3 = memReadOpIndexIds[3];
-          opMeta.memRead.addr4 = memReadOpIndexIds[4];
-          opMeta.memRead.addr5 = memReadOpIndexIds[5];
-          opMeta.memRead.addr6 = memReadOpIndexIds[6];
-          opMeta.memRead.addr7 = memReadOpIndexIds[7];
+          opMeta.memRead.addrVec = memAddrVecId;
 
           populateOpMetaDebugInfo(opMeta, rawOp);
           
@@ -780,7 +773,7 @@ void SingleRegionScheduler::schedule(DesignGraph &graph, uint32_t partitionRegPa
       mlir::SmallVector<CGOpMetaInfo> printOps;
       mlir::SmallVector<CGOpMetaInfo> stopOps;
 
-      std::array<uint32_t, 8> memReadOpIndexIds;
+      // std::array<uint32_t, 8> memReadOpIndexIds;
 
       currentLevelOps.clear();
       currentLevelOps.reserve(lastLevel.size());
@@ -841,34 +834,27 @@ void SingleRegionScheduler::schedule(DesignGraph &graph, uint32_t partitionRegPa
               assert(partInfo.valueToValId.contains(enVal));
               auto enValId = partInfo.valueToValId[enVal];
 
-              auto memAddrs = memWriteOp.getAddrs();
-              auto numMemAddrs = memAddrs.size();
-              assert(numMemAddrs <= 8 && "Memory address is too long");
+              auto memAddrVec = memWriteOp.getAddrVec();
+              auto memAddrVecId = partInfo.valueToValId[memAddrVec];
+              assert(memAddrVec.getType().getLength() == 8 && "Memory address should be 32 bit vector");
 
-              size_t pos = 0;
-              for (; pos < 8 - numMemAddrs; pos++) {
-                // Note: the first elem in value pool is const 0
-                memReadOpIndexIds[pos] = 0;
-              }
-              for (auto val: memAddrs) {
-                assert(partInfo.valueToValId.contains(val));
-                auto valId = partInfo.valueToValId[val];
-                memReadOpIndexIds[pos] = valId;
-                pos++;
-              }
+              // size_t pos = 0;
+              // for (; pos < 8 - numMemAddrs; pos++) {
+              //   // Note: the first elem in value pool is const 0
+              //   memReadOpIndexIds[pos] = 0;
+              // }
+              // for (auto val: memAddrs) {
+              //   assert(partInfo.valueToValId.contains(val));
+              //   auto valId = partInfo.valueToValId[val];
+              //   memReadOpIndexIds[pos] = valId;
+              //   pos++;
+              // }
 
               mwOpMeta.memWrite.hasMultipleWriter = codeGenInfo.memPool[memValId].hasMultipleWriter;
               mwOpMeta.memWrite.memBase = codeGenInfo.memPool[memValId].memBase;
               mwOpMeta.memWrite.memDepth = codeGenInfo.memPool[memValId].memDepth;
 
-              mwOpMeta.memWrite.addr0 = memReadOpIndexIds[0];
-              mwOpMeta.memWrite.addr1 = memReadOpIndexIds[1];
-              mwOpMeta.memWrite.addr2 = memReadOpIndexIds[2];
-              mwOpMeta.memWrite.addr3 = memReadOpIndexIds[3];
-              mwOpMeta.memWrite.addr4 = memReadOpIndexIds[4];
-              mwOpMeta.memWrite.addr5 = memReadOpIndexIds[5];
-              mwOpMeta.memWrite.addr6 = memReadOpIndexIds[6];
-              mwOpMeta.memWrite.addr7 = memReadOpIndexIds[7];
+              mwOpMeta.memWrite.addrVec = memAddrVecId;
 
               mwOpMeta.memWrite.dat = dataValId;
               mwOpMeta.memWrite.en = enValId;

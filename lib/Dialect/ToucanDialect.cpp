@@ -169,6 +169,24 @@ LogicalResult DefVectorOp::verify() {
   return success();
 }
 
+LogicalResult MemWriteOp::verify() {
+  auto vecLength = getAddrVec().getType().getLength();
+
+  if (vecLength != 8) {
+    return emitError() << "MemWrite addrVec should have length of 8, but got " << vecLength;
+  }
+  return success();
+}
+
+LogicalResult MemReadOp::verify() {
+  auto vecLength = getAddrVec().getType().getLength();
+
+  if (vecLength != 8) {
+    return emitError() << "MemRead addrVec should have length of 8, but got " << vecLength;
+  }
+  return success();
+}
+
 size_t LUTOp::getResultWidth1(toucan::LUTOpName opName, ValueRange inputs) {
   switch (opName) {
     case LUTOpName::LUT_Rep1b: return 4;

@@ -33,6 +33,8 @@ namespace toucanSim {
     uint32_t vecBase;
     // Note: vecLength is static
     uint16_t vecLength;
+    // Note: This offset is a static value!!!!
+    uint16_t offset;
     
     // max addr width: 16
     uint32_t index0;
@@ -40,8 +42,6 @@ namespace toucanSim {
     uint32_t index2;
     uint32_t index3;
     uint32_t outRangeValue;
-    // Note: This offset is a static value!!!!
-    uint16_t offset;
 
     uint32_t result;
   };
@@ -55,15 +55,7 @@ namespace toucanSim {
     uint64_t memBase;
 
     uint32_t en;
-    // max addr width: 32
-    uint32_t addr0;
-    uint32_t addr1;
-    uint32_t addr2;
-    uint32_t addr3;
-    uint32_t addr4;
-    uint32_t addr5;
-    uint32_t addr6;
-    uint32_t addr7;
+    uint32_t addrVec;
 
     uint32_t result;
   };
@@ -95,19 +87,9 @@ namespace toucanSim {
     bool hasMultipleWriter;
     // const
     uint32_t memDepth;
-
     uint64_t memBase;
 
-    // max addr width: 32
-    uint32_t addr0;
-    uint32_t addr1;
-    uint32_t addr2;
-    uint32_t addr3;
-    uint32_t addr4;
-    uint32_t addr5;
-    uint32_t addr6;
-    uint32_t addr7;
-
+    uint32_t addrVec;
     uint32_t dat;
     uint32_t en;
   };
@@ -123,7 +105,14 @@ namespace toucanSim {
   };
 
 
-
+  struct SimDebugInfo {
+    // name -> ((id, wdith), (id, width), ...)
+    std::unordered_map<std::string, std::vector<std::tuple<uint32_t, uint32_t>> > regDebugInfo;
+    // name -> ((part, valId, width), (part, valId, width), ..)
+    std::unordered_map<std::string, std::vector<std::tuple<uint32_t, uint32_t, uint32_t> > > signalDebugInfo;
+    // name -> ((start pos, bit width, length), ...)
+    std::unordered_map<std::string, std::vector<std::tuple<uint32_t, uint32_t, uint32_t>> > memDebugInfo;
+  };
 
   struct SimPartitionInfo {
     // valuePool is filled with consts
@@ -153,16 +142,7 @@ namespace toucanSim {
     // name -> (fragment 0, 1, 2, ...)
 
     void Init();
-    void Randomize(uint32_t seed);
-  };
-
-  struct SimDebugInfo {
-    // name -> ((id, wdith), (id, width), ...)
-    std::unordered_map<std::string, std::vector<std::tuple<uint32_t, uint32_t>> > regDebugInfo;
-    // name -> ((part, valId, width), (part, valId, width), ..)
-    std::unordered_map<std::string, std::vector<std::tuple<uint32_t, uint32_t, uint32_t> > > signalDebugInfo;
-    // name -> ((start pos, bit width, length), ...)
-    std::unordered_map<std::string, std::vector<std::tuple<uint32_t, uint32_t, uint32_t>> > memDebugInfo;
+    void Randomize(uint32_t seed, SimDebugInfo &symbols);
   };
 
 

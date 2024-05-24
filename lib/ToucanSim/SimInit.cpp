@@ -8,7 +8,7 @@ void SimDesignInfo::Init() {
   llvm_unreachable("This procedure should not call from toucan");
 }
 
-void SimDesignInfo::Randomize(uint32_t seed) {
+void SimDesignInfo::Randomize(uint32_t seed, SimDebugInfo &symbols) {
   // Randomize reg and mem
   llvm_unreachable("This procedure should not call from toucan");
 }

@@ -129,14 +129,7 @@ struct CPUSingleThreadCodeGenPass : toucan::impl::CPUSingleThreadCodeGenBase<CPU
             partInfo.ops_exec[execOpsIdx][i].mem.memDepth = opMeta.memRead.memDepth;
             partInfo.ops_exec[execOpsIdx][i].mem.memBase = opMeta.memRead.memBase;
             partInfo.ops_exec[execOpsIdx][i].mem.en = opMeta.memRead.en;
-            partInfo.ops_exec[execOpsIdx][i].mem.addr0 = opMeta.memRead.addr0;
-            partInfo.ops_exec[execOpsIdx][i].mem.addr1 = opMeta.memRead.addr1;
-            partInfo.ops_exec[execOpsIdx][i].mem.addr2 = opMeta.memRead.addr2;
-            partInfo.ops_exec[execOpsIdx][i].mem.addr3 = opMeta.memRead.addr3;
-            partInfo.ops_exec[execOpsIdx][i].mem.addr4 = opMeta.memRead.addr4;
-            partInfo.ops_exec[execOpsIdx][i].mem.addr5 = opMeta.memRead.addr5;
-            partInfo.ops_exec[execOpsIdx][i].mem.addr6 = opMeta.memRead.addr6;
-            partInfo.ops_exec[execOpsIdx][i].mem.addr7 = opMeta.memRead.addr7;
+            partInfo.ops_exec[execOpsIdx][i].mem.addrVec = opMeta.memRead.addrVec;
             partInfo.ops_exec[execOpsIdx][i].mem.result = opMeta.memRead.result;
 
             break;
@@ -172,14 +165,7 @@ struct CPUSingleThreadCodeGenPass : toucan::impl::CPUSingleThreadCodeGenBase<CPU
           partInfo.ops_last[i].memWrite.hasMultipleWriter = opMeta.memWrite.hasMultipleWriter;
           partInfo.ops_last[i].memWrite.memDepth = opMeta.memWrite.memDepth;
           partInfo.ops_last[i].memWrite.memBase = opMeta.memWrite.memBase;
-          partInfo.ops_last[i].memWrite.addr0 = opMeta.memWrite.addr0;
-          partInfo.ops_last[i].memWrite.addr1 = opMeta.memWrite.addr1;
-          partInfo.ops_last[i].memWrite.addr2 = opMeta.memWrite.addr2;
-          partInfo.ops_last[i].memWrite.addr3 = opMeta.memWrite.addr3;
-          partInfo.ops_last[i].memWrite.addr4 = opMeta.memWrite.addr4;
-          partInfo.ops_last[i].memWrite.addr5 = opMeta.memWrite.addr5;
-          partInfo.ops_last[i].memWrite.addr6 = opMeta.memWrite.addr6;
-          partInfo.ops_last[i].memWrite.addr7 = opMeta.memWrite.addr7;
+          partInfo.ops_last[i].memWrite.addrVec = opMeta.memWrite.addrVec;
           partInfo.ops_last[i].memWrite.dat = opMeta.memWrite.dat;
           partInfo.ops_last[i].memWrite.en = opMeta.memWrite.en;
           break;
