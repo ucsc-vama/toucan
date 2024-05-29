@@ -122,6 +122,11 @@ namespace toucanSim {
     std::vector<CGRegReadMetaInfo> ops_l0;
     std::vector<std::vector<CGExecLevelMetaInfo> > ops_exec;
     std::vector<CGLastLevelMetaInfo> ops_last;
+
+    // Within each layer, place memReads first, then vecReads, luts are the last
+    std::vector<std::tuple<uint32_t, uint32_t, uint32_t>> opInfo_exec;
+    // Last level: regWrite, memWrite, print, stop
+    std::tuple<uint32_t, uint32_t, uint32_t, uint32_t> opInfo_last;
   };
   struct SimDesignInfo {
     std::vector<uint8_t> lut;

@@ -138,6 +138,8 @@ void serializeSimPartitionInfo(std::ostream& out, const toucanSim::SimPartitionI
   }
 
   serializeVector(out, info.ops_last);
+  serializeVector(out, info.opInfo_exec);
+  serializePrimitive(out, info.opInfo_last);
 }
 
 void deserializeSimPartitionInfo(std::istream& in, toucanSim::SimPartitionInfo& info) {
@@ -153,6 +155,8 @@ void deserializeSimPartitionInfo(std::istream& in, toucanSim::SimPartitionInfo& 
   }
 
   deserializeVector(in, info.ops_last);
+  deserializeVector(in, info.opInfo_exec);
+  deserializePrimitive(in, info.opInfo_last);
 }
 
 

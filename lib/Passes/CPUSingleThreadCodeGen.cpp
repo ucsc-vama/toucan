@@ -26,6 +26,7 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include <_types/_uint32_t.h>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -139,6 +140,15 @@ struct CPUSingleThreadCodeGenPass : toucan::impl::CPUSingleThreadCodeGenBase<CPU
             llvm_unreachable("Other ops should not appear here");
           }
         }
+
+        partInfo.opInfo_exec.push_back(std::tuple(
+          part.opStatisticsPerLevel[levelId].numMemReads,
+          part.opStatisticsPerLevel[levelId].numVecReads,
+          part.opStatisticsPerLevel[levelId].numLuts));
+        auto numMemReads = std::get<0>(partInfo.opInfo_exec[execOpsIdx]);
+        auto numVecReads = std::get<1>(partInfo.opInfo_exec[execOpsIdx]);
+        auto numLuts = std::get<2>(partInfo.opInfo_exec[execOpsIdx]);
+        assert(partInfo.ops_exec[execOpsIdx].size() == (numMemReads + numVecReads + numLuts));
       }
 
       // ops, last level
@@ -174,6 +184,17 @@ struct CPUSingleThreadCodeGenPass : toucan::impl::CPUSingleThreadCodeGenBase<CPU
           llvm_unreachable("Other type of ops should not appear in last level!");
         }
       }
+
+      partInfo.opInfo_last = std::tuple(
+        part.opStatistics.numRegWrites,
+        part.opStatistics.numMemWrites,
+        part.opStatistics.numPrints,
+        part.opStatistics.numStops
+        );
+      assert(partInfo.ops_last.size() == (part.opStatistics.numRegWrites +
+        part.opStatistics.numMemWrites +
+        part.opStatistics.numPrints +
+        part.opStatistics.numStops));
 
       designInfo.parts.push_back(std::move(partInfo));
     }
