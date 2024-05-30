@@ -95,6 +95,10 @@ struct CPUSingleThreadCodeGenPass : toucan::impl::CPUSingleThreadCodeGenBase<CPU
         auto execOpsIdx = levelId - 1;
         auto &currentLevel = part.opPool[levelId];
 
+        uint32_t numMemReads = 0;
+        uint32_t numVecReads = 0;
+        uint32_t numLuts = 0;
+
         partInfo.ops_exec[execOpsIdx].resize(currentLevel.size());
         for (size_t i = 0; i < currentLevel.size(); i++) {
           auto &opMeta = currentLevel[i];
@@ -108,6 +112,7 @@ struct CPUSingleThreadCodeGenPass : toucan::impl::CPUSingleThreadCodeGenBase<CPU
             partInfo.ops_exec[execOpsIdx][i].lut.op2 = opMeta.lut.op2;
             partInfo.ops_exec[execOpsIdx][i].lut.result = opMeta.lut.result;
 
+            numLuts++;
             break;
           }
           case CGToucanOPName::VecRead: {
@@ -123,6 +128,7 @@ struct CPUSingleThreadCodeGenPass : toucan::impl::CPUSingleThreadCodeGenBase<CPU
             partInfo.ops_exec[execOpsIdx][i].vec.offset = opMeta.vec.offset;
             partInfo.ops_exec[execOpsIdx][i].vec.result = opMeta.vec.result;
 
+            numVecReads++;
             break;
           }
           case CGToucanOPName::MemRead: {
@@ -133,6 +139,7 @@ struct CPUSingleThreadCodeGenPass : toucan::impl::CPUSingleThreadCodeGenBase<CPU
             partInfo.ops_exec[execOpsIdx][i].mem.addrVec = opMeta.memRead.addrVec;
             partInfo.ops_exec[execOpsIdx][i].mem.result = opMeta.memRead.result;
 
+            numMemReads++;
             break;
           }
           default:
@@ -141,17 +148,16 @@ struct CPUSingleThreadCodeGenPass : toucan::impl::CPUSingleThreadCodeGenBase<CPU
           }
         }
 
-        partInfo.opInfo_exec.push_back(std::tuple(
-          part.opStatisticsPerLevel[levelId].numMemReads,
-          part.opStatisticsPerLevel[levelId].numVecReads,
-          part.opStatisticsPerLevel[levelId].numLuts));
-        auto numMemReads = std::get<0>(partInfo.opInfo_exec[execOpsIdx]);
-        auto numVecReads = std::get<1>(partInfo.opInfo_exec[execOpsIdx]);
-        auto numLuts = std::get<2>(partInfo.opInfo_exec[execOpsIdx]);
+        partInfo.opInfo_exec.push_back(std::tuple(numMemReads, numVecReads, numLuts));
         assert(partInfo.ops_exec[execOpsIdx].size() == (numMemReads + numVecReads + numLuts));
       }
 
       // ops, last level
+      uint32_t numRegWrites = 0;
+      uint32_t numMemWrites = 0;
+      uint32_t numPrints = 0;
+      uint32_t numStops = 0;
+
       partInfo.ops_last.resize(part.opPool.back().size());
       for (size_t i = 0; i < part.opPool.back().size(); i++) {
         auto &opMeta = part.opPool.back()[i];
@@ -160,15 +166,18 @@ struct CPUSingleThreadCodeGenPass : toucan::impl::CPUSingleThreadCodeGenBase<CPU
         case CGToucanOPName::Print: {
           partInfo.ops_last[i].print.en = opMeta.print.en;
           partInfo.ops_last[i].print.msg = opMeta.print.msg;
+          numPrints++;
           break;
         }
         case CGToucanOPName::Stop: {
           partInfo.ops_last[i].stop.en = opMeta.stop.en;
+          numStops++;
           break;
         }
         case CGToucanOPName::RegWrite: {
           partInfo.ops_last[i].regWrite.reg = opMeta.regWrite.reg;
           partInfo.ops_last[i].regWrite.dat = opMeta.regWrite.dat;
+          numRegWrites++;
           break;
         }
         case CGToucanOPName::MemWrite: {
@@ -178,6 +187,7 @@ struct CPUSingleThreadCodeGenPass : toucan::impl::CPUSingleThreadCodeGenBase<CPU
           partInfo.ops_last[i].memWrite.addrVec = opMeta.memWrite.addrVec;
           partInfo.ops_last[i].memWrite.dat = opMeta.memWrite.dat;
           partInfo.ops_last[i].memWrite.en = opMeta.memWrite.en;
+          numMemWrites++;
           break;
         }
         default:
@@ -185,16 +195,8 @@ struct CPUSingleThreadCodeGenPass : toucan::impl::CPUSingleThreadCodeGenBase<CPU
         }
       }
 
-      partInfo.opInfo_last = std::tuple(
-        part.opStatistics.numRegWrites,
-        part.opStatistics.numMemWrites,
-        part.opStatistics.numPrints,
-        part.opStatistics.numStops
-        );
-      assert(partInfo.ops_last.size() == (part.opStatistics.numRegWrites +
-        part.opStatistics.numMemWrites +
-        part.opStatistics.numPrints +
-        part.opStatistics.numStops));
+      partInfo.opInfo_last = std::tuple(numRegWrites, numMemWrites, numPrints, numStops);
+      assert(partInfo.ops_last.size() == (numRegWrites + numMemWrites + numPrints + numStops));
 
       designInfo.parts.push_back(std::move(partInfo));
     }
