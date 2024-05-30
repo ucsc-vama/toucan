@@ -26,7 +26,6 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
 
-#include <_types/_uint32_t.h>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
