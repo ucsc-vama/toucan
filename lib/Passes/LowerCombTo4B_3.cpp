@@ -193,10 +193,7 @@ struct LowerCombTo4B_3Pass : toucan::impl::LowerCombTo4B_3Base<LowerCombTo4B_3Pa
 
 
   LogicalResult runOnModule(hw::HWModuleOp mod) {
-    SmallVector<Operation*> toRemove;
-
     return applyFullConversion(mod, *target, *patterns);
-
   }
 
   void runOnOperation() final {
