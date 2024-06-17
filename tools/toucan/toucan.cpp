@@ -122,6 +122,8 @@ static LogicalResult compileAndEmit(
         pm.addPass(toucan::createLowerCombTo4B_2Pass());
         pm.addPass(toucan::createLowerCombTo4B_3Pass());
 
+        // FactorConcatExtract per module (for compilation speedup)
+        pm.addPass(toucan::createFactorConcatExtractPass());
         pm.addPass(toucan::createToucanCanonicalizerPass());
     }
 

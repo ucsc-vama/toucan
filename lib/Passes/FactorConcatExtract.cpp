@@ -7,6 +7,7 @@
 #include "circt/Dialect/Seq/SeqOps.h"
 
 #include "mlir/IR/Builders.h"
+// #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/PatternMatch.h"
@@ -278,6 +279,15 @@ struct LowerCombConcatOp: OpRewritePattern<comb::ConcatOp>, BitsOperations {
     }
 
     auto catInputs = op.getInputs();
+    auto catResult = op.getResult();
+
+    for (const auto &eachInput: catInputs) {
+      auto inputDefOp = eachInput.getDefiningOp();
+      if (inputDefOp == nullptr || isa<hw::InstanceOp>(inputDefOp)) return failure();
+    }
+    for (const auto &eachResultUser: catResult.getUsers()) {
+      if (isa<hw::OutputOp>(eachResultUser)) return failure();
+    }
 
     if (catInputs.size() == 1) {
       // This shouldn't happen
@@ -465,6 +475,11 @@ struct LowerCombExtractOp: OpRewritePattern<comb::ExtractOp>, BitsOperations {
 
     auto inputVal = op.getInput();
     auto outputVal = op.getResult();
+    if (inputVal.getDefiningOp() == nullptr || isa<hw::InstanceOp>(inputVal.getDefiningOp())) return failure();
+    for (const auto &eachResultUser: outputVal.getUsers()) {
+      if (isa<hw::OutputOp>(eachResultUser)) return failure();
+    }
+
     size_t inputValWidth = static_cast<size_t>(hw::getBitWidth(inputVal.getType()));
     size_t outputValWidth = static_cast<size_t>(hw::getBitWidth(outputVal.getType()));
 
@@ -487,6 +502,10 @@ struct LowerCombExtractOp: OpRewritePattern<comb::ExtractOp>, BitsOperations {
     } else if (auto concatOp = dyn_cast<comb::ConcatOp>(inputDefiningOp)) {
       // input is defined by concat
       auto catInputs = concatOp.getInputs();
+      for (const auto &eachInput: catInputs) {
+        auto inputDefOp = eachInput.getDefiningOp();
+        if (inputDefOp == nullptr || isa<hw::InstanceOp>(inputDefOp)) return failure();
+      }
 
       // Require full aligned inputs
       if (!isElementsFullWidth(catInputs) || catInputs.size() == 1) {
@@ -556,50 +575,70 @@ struct FactorConcatExtractPass : toucan::impl::FactorConcatExtractBase<FactorCon
 
 
   std::shared_ptr<FrozenRewritePatternSet> patterns;
-  std::shared_ptr<ConversionTarget> target;
+  // std::shared_ptr<ConversionTarget> target;
 
   LogicalResult initialize(MLIRContext *context) override {
     RewritePatternSet owningPatterns(context);
-    ConversionTarget conversionTarget(*context);
+    // ConversionTarget conversionTarget(*context);
     
     owningPatterns.add<LowerCombConcatOp>(context);
     owningPatterns.add<LowerCombExtractOp>(context);
     owningPatterns.add<RemoveSeqToClockOp>(context);
     owningPatterns.add<LowerHWConstantOp>(context);
 
-    // After conversion, only toucan and hw::Constant should exists
-    conversionTarget.addLegalDialect<toucan::ToucanDialect>();
-    conversionTarget.addLegalDialect<hw::HWDialect>();
+    // // After conversion, only toucan IRs are legal
+    // // conversionTarget.addLegalDialect<mlir::BuiltinDialect>();
+    // conversionTarget.addLegalDialect<toucan::ToucanDialect>();
+    // conversionTarget.addLegalDialect<hw::HWDialect>();
 
-    // After lowering, following ops should no longer appear
-    conversionTarget.addIllegalOp<hw::HWModuleOp>();
-    conversionTarget.addIllegalOp<hw::HWModuleExternOp>();
-    conversionTarget.addIllegalOp<hw::ArrayGetOp>();
-    conversionTarget.addIllegalOp<comb::ConcatOp>();
-    conversionTarget.addIllegalOp<comb::ExtractOp>();
+    // // After lowering, following ops should no longer appear
+    // conversionTarget.addLegalOp<mlir::ModuleOp>();
+    // conversionTarget.addIllegalOp<hw::HWModuleOp>();
+    // conversionTarget.addIllegalOp<hw::HWModuleExternOp>();
+    // conversionTarget.addIllegalOp<hw::ArrayGetOp>();
+    // conversionTarget.addIllegalOp<comb::ConcatOp>();
+    // conversionTarget.addIllegalOp<comb::ExtractOp>();
+    // conversionTarget.addIllegalOp<hw::ConstantOp>();
 
     patterns = std::make_shared<FrozenRewritePatternSet>(std::move(owningPatterns));
-    target = std::make_shared<ConversionTarget>(std::move(
-    conversionTarget));
+    // target = std::make_shared<ConversionTarget>(std::move(conversionTarget));
 
     return success();
   }
 
 
 
-  // LogicalResult runOnModule(hw::HWModuleOp mod) {
-  //   auto converged = applyPatternsAndFoldGreedily(mod, *patterns);
-
-  //   if (succeeded(converged)) return success();
-  //   return success();
-  // }
-
+  LogicalResult runOnModule(hw::HWModuleOp mod) {
+    // Run this pass module by module may not converge (cannot handle module IO before flatten).
+    // Ignore return status
+    auto converged = applyPatternsAndFoldGreedily(mod, *patterns);
+    if (failed(converged)) {
+      ;
+    }
+    return success();
+  }
 
   void runOnOperation() final {
     auto mod = getOperation();
-    auto ret = applyPatternsAndFoldGreedily(mod, *patterns);
-    if (succeeded(ret)) {
-      ;
+
+    SmallVector<hw::HWModuleOp> modulesToProcess;
+    for(auto & inner: mod.getOps()) {
+      if(auto mod = dyn_cast<hw::HWModuleOp>(&inner)) {
+        modulesToProcess.push_back(mod);
+      }
+    }
+
+    if (modulesToProcess.empty()) {
+      // Flatten
+      // Don't applyFullConversion, as some case requires multiple iteration
+      auto ret = applyPatternsAndFoldGreedily(mod, *patterns);
+      if (failed(ret)) signalPassFailure();
+    } else {
+      // Unflatten
+      auto result = mlir::failableParallelForEach(&getContext(), modulesToProcess.begin(), modulesToProcess.end(), [&](auto submodule) {
+        return runOnModule(submodule);
+      });
+      if (failed(result)) return signalPassFailure();
     }
   }
 };
