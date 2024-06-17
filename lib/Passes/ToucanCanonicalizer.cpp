@@ -89,13 +89,12 @@ struct ToucanCanonicalizerPass : toucan::impl::ToucanCanonicalizerBase<ToucanCan
   }
 
 
-  // void runOnOperation() override {
-  //    LogicalResult converged =
-  //        applyPatternsAndFoldGreedily(getOperation(), *patterns, config);
-  //    // Canonicalization is best-effort. Non-convergence is not a pass failure.
-  //    if (testConvergence && failed(converged))
-  //      signalPassFailure();
-  //  }
+  LogicalResult runFlatten() {
+    LogicalResult converged = applyPatternsAndFoldGreedily(getOperation(), *patterns, config);
+    if (succeeded(converged)) return success();
+
+    return success();
+   }
 
   
 
@@ -118,13 +117,18 @@ struct ToucanCanonicalizerPass : toucan::impl::ToucanCanonicalizerBase<ToucanCan
       }
     }
 
-    // Parallel
-    auto result = mlir::failableParallelForEach(&getContext(), modulesToProcess.begin(), modulesToProcess.end(), [&](auto mod) {
+    if (modulesToProcess.size() != 0) {
+      auto result = mlir::failableParallelForEach(&getContext(), modulesToProcess.begin(), modulesToProcess.end(), [&](auto mod) {
       return runOnModule(mod);
-    });
-
-    LLVM_DEBUG(llvm::dbgs() << "Done parallel ToucanCanonicalizer pass\n");
-    if (failed(result)) return signalPassFailure();
+      });
+      LLVM_DEBUG(llvm::dbgs() << "Done parallel ToucanCanonicalizer pass\n");
+      if (failed(result)) return signalPassFailure();
+    } else {
+      // Flatten
+      auto result = runFlatten();
+      LLVM_DEBUG(llvm::dbgs() << "Done flatten ToucanCanonicalizer pass\n");
+      if (failed(result)) return signalPassFailure();
+    }
   }
 
 };

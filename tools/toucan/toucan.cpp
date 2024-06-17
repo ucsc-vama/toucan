@@ -123,14 +123,15 @@ static LogicalResult compileAndEmit(
         pm.addPass(toucan::createLowerCombTo4B_3Pass());
 
         pm.addPass(toucan::createToucanCanonicalizerPass());
-        // Note: Canonicalizer might bring comb::ReplicateOp back (from hw::ConstantOp). Run LowerCombTo4B_1 again to remove them.
-        // pm.addPass(toucan::createLowerCombTo4B_1Pass());
     }
 
     if (inputLevel < ToucanFlattened) {
         // Lower to flattened
         pm.addPass(toucan::createFlattenPass());
         pm.addPass(toucan::createFactorConcatExtractPass());
+        // Canonicalizer also works on flatten design.
+        // Currently no benefits for canonicalization after flatten
+        pm.addPass(toucan::createToucanCanonicalizerPass());
         pm.addPass(toucan::createMergeConstPass());
         pm.addPass(toucan::createEnsureToucanOnlyPass());
     }
