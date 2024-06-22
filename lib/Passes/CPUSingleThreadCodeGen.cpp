@@ -56,7 +56,10 @@ struct CPUSingleThreadCodeGenPass : toucan::impl::CPUSingleThreadCodeGenBase<CPU
     // Mark all analyses as preserved. This is a read only pass
     markAllAnalysesPreserved();
 
-    auto partitionResult = getAnalysis<NaivePartitioner>();
+    auto graph = getAnalysis<DesignGraph>();
+
+    auto p = NaivePartitioner();
+    p.partitionAndSchedule(graph);
 
     toucanSim::SimDesignInfo designInfo;
     toucanSim::SimDebugInfo debugInfo;
@@ -65,11 +68,11 @@ struct CPUSingleThreadCodeGenPass : toucan::impl::CPUSingleThreadCodeGenBase<CPU
     populateLUT();
     designInfo.lut.assign(lutContent.begin(), lutContent.end());
 
-    designInfo.regPoolSize = partitionResult.codeGenInfo.regPool.size();
-    designInfo.memPoolSize = partitionResult.codeGenInfo.totalMemSize;
+    designInfo.regPoolSize = p.codeGenInfo.regPool.size();
+    designInfo.memPoolSize = p.codeGenInfo.totalMemSize;
 
-    for (size_t partId = 0; partId < partitionResult.codeGenInfo.partitionInfo.size(); partId++) {
-      auto &part = partitionResult.codeGenInfo.partitionInfo[partId];
+    for (size_t partId = 0; partId < p.codeGenInfo.partitionInfo.size(); partId++) {
+      auto &part = p.codeGenInfo.partitionInfo[partId];
 
       toucanSim::SimPartitionInfo partInfo;
       partInfo.valuePool.resize(part.numConstsInValuePool);
@@ -200,8 +203,8 @@ struct CPUSingleThreadCodeGenPass : toucan::impl::CPUSingleThreadCodeGenBase<CPU
       designInfo.parts.push_back(std::move(partInfo));
     }
 
-    designInfo.printMsgs.resize(partitionResult.codeGenInfo.printStrings.size());
-    for (auto [k, v]: partitionResult.codeGenInfo.printStrings) {
+    designInfo.printMsgs.resize(p.codeGenInfo.printStrings.size());
+    for (auto [k, v]: p.codeGenInfo.printStrings) {
       assert(designInfo.printMsgs[v].empty());
       designInfo.printMsgs[v] = k;
     }
@@ -211,30 +214,30 @@ struct CPUSingleThreadCodeGenPass : toucan::impl::CPUSingleThreadCodeGenBase<CPU
     std::vector<std::tuple<uint32_t, uint32_t, uint32_t>> eachMemDbgInfo;
     std::vector<std::tuple<uint32_t, uint32_t, uint32_t>> eachSignalDbgInfo;
 
-    for (auto [regNameRef, ids]: partitionResult.codeGenInfo.regDebugInfo) {
+    for (auto [regNameRef, ids]: p.codeGenInfo.regDebugInfo) {
       eachRegDbgInfo.clear();
       for (auto regId: ids) {
-        eachRegDbgInfo.push_back(std::make_tuple(regId, partitionResult.codeGenInfo.regPool[regId].bitWidth));
+        eachRegDbgInfo.push_back(std::make_tuple(regId, p.codeGenInfo.regPool[regId].bitWidth));
       }
       debugInfo.regDebugInfo[regNameRef.str()] = eachRegDbgInfo;
     }
-    for (auto [memNameRef, ids]: partitionResult.codeGenInfo.memDebugInfo) {
+    for (auto [memNameRef, ids]: p.codeGenInfo.memDebugInfo) {
       eachMemDbgInfo.clear();
       for (auto memId: ids) {
-        auto startPos = partitionResult.codeGenInfo.memPool[memId].memBase;
-        auto bitWidth = partitionResult.codeGenInfo.memPool[memId].bitWidth;
-        auto memDepth = partitionResult.codeGenInfo.memPool[memId].memDepth;
+        auto startPos = p.codeGenInfo.memPool[memId].memBase;
+        auto bitWidth = p.codeGenInfo.memPool[memId].bitWidth;
+        auto memDepth = p.codeGenInfo.memPool[memId].memDepth;
         eachMemDbgInfo.push_back(std::make_tuple(startPos, bitWidth, memDepth));
       }
       debugInfo.memDebugInfo[memNameRef.str()] = eachMemDbgInfo;
     }
-    for (auto [sigNameRef, sigLocs]: partitionResult.codeGenInfo.signalDebugInfo) {
+    for (auto [sigNameRef, sigLocs]: p.codeGenInfo.signalDebugInfo) {
       eachSignalDbgInfo.clear();
 
       for (auto sigLoc: sigLocs) {
         auto partId = std::get<0>(sigLoc);
         auto sigId = std::get<1>(sigLoc);
-        auto sigBitWidth = partitionResult.codeGenInfo.partitionInfo[partId].valuePool[sigId].bitWidth;
+        auto sigBitWidth = p.codeGenInfo.partitionInfo[partId].valuePool[sigId].bitWidth;
         eachSignalDbgInfo.push_back(std::make_tuple(partId, sigId, sigBitWidth));
       }
       debugInfo.signalDebugInfo[sigNameRef.str()] = eachSignalDbgInfo;
@@ -259,7 +262,7 @@ struct CPUSingleThreadCodeGenPass : toucan::impl::CPUSingleThreadCodeGenBase<CPU
     debugInfo.signalDebugInfo.clear();
     std::erase_if(debugInfo.regDebugInfo, [&](auto const &item) {
       auto const& [k, v] = item;
-      return !(partitionResult.codeGenInfo.ioSignals.contains(k));
+      return !(p.codeGenInfo.ioSignals.contains(k));
     });
 
     auto outputIOSymbolFileFullName = std::filesystem::path(outputDirectory.getValue()) / outputIOSymbolFilename.getValue();

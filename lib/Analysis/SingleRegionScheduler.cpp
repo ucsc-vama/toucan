@@ -55,8 +55,8 @@ void SingleRegionScheduler::levelizePartitions(DesignGraph &graph) {
     } else if (boost::in_degree(v, graph.g) != 0) {
       uint32_t max_pred_level = 0;
       for (auto ei = boost::in_edges(v, graph.g); ei.first != ei.second; ++ei.first) {
-          auto u = boost::source(*ei.first, graph.g);
-          max_pred_level = std::max(max_pred_level, levels[u]);
+        auto u = boost::source(*ei.first, graph.g);
+        max_pred_level = std::max(max_pred_level, levels[u]);
       }
       auto v_level = max_pred_level + 1;
       levels[v] = v_level;
@@ -103,22 +103,22 @@ void SingleRegionScheduler::levelizePartitions(DesignGraph &graph) {
   }
   
   // debug
-  for (size_t partId = 0; partId < partLevels.size(); partId++) {
-    auto &currentPart = partLevels[partId];
-    llvm::dbgs() << "Partition " << partId << " has " << currentPart.size() << " levels\n";
-    for (size_t levelId = 0; levelId < currentPart.size(); levelId++) {
-      auto &currentLevel = currentPart[levelId];
-      llvm::dbgs() << "  Level " << levelId << " has " << currentLevel.size() << " verticies\n";
+  // for (size_t partId = 0; partId < partLevels.size(); partId++) {
+  //   auto &currentPart = partLevels[partId];
+  //   llvm::dbgs() << "Partition " << partId << " has " << currentPart.size() << " levels\n";
+  //   for (size_t levelId = 0; levelId < currentPart.size(); levelId++) {
+  //     auto &currentLevel = currentPart[levelId];
+  //     llvm::dbgs() << "  Level " << levelId << " has " << currentLevel.size() << " verticies\n";
 
-      // if (currentLevel.size() == 1) {
-      //   // level with only 1 node. 
-      //   auto vtxId = currentLevel.front();
-      //   auto op = graph.g[vtxId].op;
-      //   op->print(llvm::dbgs());
-      //   llvm::dbgs() << "\n";
-      // }
-    }
-  }
+  //     // if (currentLevel.size() == 1) {
+  //     //   // level with only 1 node. 
+  //     //   auto vtxId = currentLevel.front();
+  //     //   auto op = graph.g[vtxId].op;
+  //     //   op->print(llvm::dbgs());
+  //     //   llvm::dbgs() << "\n";
+  //     // }
+  //   }
+  // }
   return;
 }
 
@@ -240,24 +240,6 @@ void SingleRegionScheduler::generateRegMemLayout(DesignGraph &graph, uint32_t pa
   codeGenInfo.totalMemSize = memBaseAddr;
 }
 
-void SingleRegionScheduler::collectPrintString(DesignGraph &graph) {
-  uint32_t stringId = 0;
-
-  for (uint32_t vtxId = 0; vtxId < boost::num_vertices(graph.g); vtxId++) {
-    auto vtxOpName = graph.g[vtxId].toucanOpName;
-    if (vtxOpName == CGToucanOPName::Print) {
-      auto printOp = cast<toucan::PrintOp>(graph.g[vtxId].op);
-
-      auto printStr = printOp.getMsg();
-      if (!codeGenInfo.printStrings.contains(printStr)) {
-        // a new string
-        codeGenInfo.printStrings[printStr] = stringId;
-        stringId++;
-      }
-    }
-  }
-}
-
 void SingleRegionScheduler::collectConstant(DesignGraph &graph, CGPartitionMetaInfo &partInfo, uint32_t partId) {
   // Collect all consts, populate value pool
   for (uint32_t vtxId = 0; vtxId < boost::num_vertices(graph.g); vtxId++) {
@@ -328,14 +310,13 @@ static void populateOpMetaDebugInfo(CGOpMetaInfo &opMeta, Operation *op) {
 }
 
 void SingleRegionScheduler::schedule(DesignGraph &graph, uint32_t partitionRegPaddingSpace, uint32_t memPaddingSpace) {
-  // TODO: parallelize for each partition
 
   // Collect information for code gen
   // This function also determines register layout
   generateRegMemLayout(graph, partitionRegPaddingSpace, memPaddingSpace);
 
   // dedup strings
-  collectPrintString(graph);
+  collectPrintString(graph, codeGenInfo.printStrings);
 
 
   // Temporary storage for operations inside current level

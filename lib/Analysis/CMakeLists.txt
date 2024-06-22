@@ -4,9 +4,13 @@ add_circt_dialect_library(
 
   IsLegalToucan4B.cpp
   DesignGraph.cpp
+  SchedulerBase.cpp
   SingleRegionScheduler.cpp
+  TwoRegionScheduler.cpp
   NaivePartitioner.cpp
   RepCutPartitioner.cpp
+  GraphUtils.cpp
+  ToucanAnalysis.cpp
 
 
   DEPENDS

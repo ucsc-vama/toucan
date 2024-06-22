@@ -39,6 +39,7 @@ std::unique_ptr<mlir::Pass> createEnsureToucanOnlyPass();
 std::unique_ptr<mlir::Pass> createMergeConstPass();
 
 std::unique_ptr<mlir::Pass> createCPUSingleThreadCodeGenPass(CPUSingleThreadCodeGenOptions options);
+std::unique_ptr<mlir::Pass> createGPUCodeGenPass(GPUCodeGenOptions options);
 
 #define GEN_PASS_REGISTRATION
 #include "toucan/ToucanPasses.h.inc"

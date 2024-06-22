@@ -60,8 +60,17 @@ static cl::opt<Levels> inputLevel("inputLevel", cl::desc("Input file level"), Le
 static cl::opt<std::string> inputFilename(cl::Positional, cl::desc("<input file>"), cl::init("-"), cl::cat(mainCategory));
 static cl::opt<std::string> outputDirectory("o", cl::desc("Output directory"), cl::value_desc("directory"), cl::init("./"), cl::cat(mainCategory));
 static cl::opt<bool> verbose("v", cl::desc("verbose"), cl::init(false), cl::cat(mainCategory));
+static cl::opt<bool> gpuCodeGen("gpu", cl::desc("Generate GPU code"), cl::init(false), cl::cat(mainCategory));
+static cl::opt<bool> cpuCodeGen("cpu", cl::desc("Generate CPU code (single thread)"), cl::init(false), cl::cat(mainCategory));
+static cl::opt<bool> dumpOutputMLIR("dump", cl::desc("Dump output.mlir"), cl::init(false), cl::cat(mainCategory));
 
 
+void checkArgs() {
+    if (!cpuCodeGen && !gpuCodeGen) {
+        llvm::outs() << "Please specify at least one code gen type (-cpu or -gpu)\n";
+        exit(-1);
+    }
+}
 
 static LogicalResult compileAndEmit(
         MLIRContext &context, TimingScope &ts, llvm::SourceMgr &sourceMgr, std::filesystem::path &outputDir) {
@@ -138,14 +147,30 @@ static LogicalResult compileAndEmit(
         pm.addPass(toucan::createEnsureToucanOnlyPass());
     }
 
-    auto cpuCodeGenOptions = toucan::CPUSingleThreadCodeGenOptions();
-    cpuCodeGenOptions.outputDirectory = outputDir.string();
-    cpuCodeGenOptions.outputDesignFilename = "CPUSimDesign.bin";
-    cpuCodeGenOptions.outputSymbolFilename = "CPUSimSymbols.bin";
-    cpuCodeGenOptions.outputIOSymbolFilename = "CPUSimIOSymbols.bin";
-    cpuCodeGenOptions.temporaryDirectory = outputDir.string();
+    if (cpuCodeGen) {
+        auto cpuCodeGenOptions = toucan::CPUSingleThreadCodeGenOptions();
+        cpuCodeGenOptions.outputDirectory = outputDir.string();
+        cpuCodeGenOptions.outputDesignFilename = "CPUSimDesign.bin";
+        cpuCodeGenOptions.outputSymbolFilename = "CPUSimSymbols.bin";
+        cpuCodeGenOptions.outputIOSymbolFilename = "CPUSimIOSymbols.bin";
+        cpuCodeGenOptions.temporaryDirectory = outputDir.string();
 
-    pm.addPass(toucan::createCPUSingleThreadCodeGenPass(cpuCodeGenOptions));
+        pm.addPass(toucan::createCPUSingleThreadCodeGenPass(cpuCodeGenOptions));
+        llvm::outs() << "CPU Code gen\n";
+    }
+
+    if (gpuCodeGen) {
+        auto gpuCodeGenOptions = toucan::GPUCodeGenOptions();
+        gpuCodeGenOptions.outputDirectory = outputDir.string();
+        gpuCodeGenOptions.outputDesignFilename = "GPUSimDesign.bin";
+        gpuCodeGenOptions.outputSymbolFilename = "GPUSimSymbols.bin";
+        gpuCodeGenOptions.outputIOSymbolFilename = "GPUSimIOSymbols.bin";
+        gpuCodeGenOptions.temporaryDirectory = outputDir.string();
+
+        pm.addPass(toucan::createGPUCodeGenPass(gpuCodeGenOptions));
+        llvm::outs() << "GPU code gen\n";
+    }
+
 
 
     if(failed(pm.run(mod.get()))) {
@@ -156,15 +181,14 @@ static LogicalResult compileAndEmit(
     llvm::outs() << "Passes done\n";
 
     // print output
-    auto outputTimer = ts.nest("Write MLIR output");
-    mlir::OpPrintingFlags flags;
-    flags.enableDebugInfo(true, true);
-    flags.useLocalScope();
-    mod->print(output->os());
-    output->keep();
-    return success();
-
-    // TODO: Output to GPU code
+    if (dumpOutputMLIR) {
+        auto outputTimer = ts.nest("Write MLIR output");
+        mlir::OpPrintingFlags flags;
+        flags.enableDebugInfo(true, true);
+        flags.useLocalScope();
+        mod->print(output->os());
+        output->keep();
+    }
 
     return success();
 }
@@ -220,6 +244,7 @@ int main(int argc, char ** argv) {
     mlir::registerDefaultTimingManagerCLOptions();
 
     cl::ParseCommandLineOptions(argc, argv);
+    checkArgs();
     auto result = toucanMain(context);
     exit(failed(result));
 }

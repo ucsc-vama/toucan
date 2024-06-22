@@ -22,6 +22,7 @@ add_circt_dialect_library(
   EnsureToucanOnly.cpp
   MergeConst.cpp
   CPUSingleThreadCodeGen.cpp
+  GPUCodeGen.cpp
 
   DEPENDS
   ToucanPassesIncGen

@@ -96,6 +96,7 @@ DesignGraph::DesignGraph(Operation *op, AnalysisManager &am) {
       vp.weight = 1;
     }
     vp.toucanOpName = getOpName(&stmt);
+    vp.exchangeValId = 0;
     auto newVertex = boost::add_vertex(vp, rawGraph);
 
     rawOpToId[&stmt] = newVertex;

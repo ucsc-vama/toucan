@@ -30,6 +30,7 @@
 #include <boost/graph/adjacency_list.hpp>
 
 #include <unordered_map>
+#include <filesystem>
 
 namespace toucan {
 
@@ -44,10 +45,15 @@ namespace toucan {
     RegWrite,
     MemRead,
     MemWrite,
-    ShouldNotAppear
+    ShouldNotAppear,
+    // Note: Exchange between 2 regions in TwoRegionScheduler.
+    ExchangeRead,
+    ExchangeWrite
     // Constant,
     // ConstVec
   };
+
+  std::string stringifyCGToucanOPName(CGToucanOPName val);
 
   struct PartitioningGraphNodeProperty {
     public:
@@ -55,6 +61,7 @@ namespace toucan {
     mlir::Operation *op;
     // weight is actually number of ops in this node
     uint32_t weight;
+    uint32_t exchangeValId;
     
     CGToucanOPName toucanOpName;
   };
@@ -149,6 +156,16 @@ namespace toucan {
     uint32_t en;
   };
 
+  struct ExchangeReadMetaInfo {
+    uint32_t exchangeVal;
+    uint32_t localVal;
+  };
+
+  struct ExchangeWriteMetaInfo {
+    uint32_t localVal;
+    uint32_t exchangeVal;
+  };
+
 
   struct CGOpMetaInfo {
     CGToucanOPName opName;
@@ -206,6 +223,10 @@ namespace toucan {
           llvm::dbgs() << "Error: should not have result\n";
           assert(false);
         }
+        default: {
+          llvm::dbgs() << "Error: Unknow codegen op name " << static_cast<uint32_t>(opName) << "\n";
+          llvm_unreachable("Unsupported op");
+        }
       }
       llvm_unreachable("Should not reach here");
     }
@@ -228,8 +249,11 @@ namespace toucan {
           llvm::dbgs() << "Error: should not have result\n";
           assert(false);
         }
+        default: {
+          llvm::dbgs() << "Error: Unknow codegen op name " << static_cast<uint32_t>(opName) << "\n";
+          llvm_unreachable("Unsupported op");
+        }
       }
-      llvm_unreachable("Should not reach here");
     }
     bool hasResult() {
       switch (opName) {
@@ -258,6 +282,14 @@ namespace toucan {
     uint32_t fragment_id;
     bool hasMultipleWriter;
     uint64_t memBase;
+  };
+
+
+
+  struct CGExchangeValueMetaInfo {
+    // value is valid if isConst
+    uint32_t writerId;
+    mlir::SmallVector<uint32_t> readerIds;
   };
 
   struct CGLayerValueStatistics {
@@ -305,6 +337,11 @@ namespace toucan {
     mlir::SmallVector<CGRegMetaInfo> regPool;
     // Memories
     mlir::SmallVector<CGMemMetaInfo> memPool;
+    // Exchange values
+    mlir::SmallVector<CGExchangeValueMetaInfo> exchangePool;
+
+    mlir::SmallVector<uint32_t> r1Partitions, r2Partitions;
+
     uint64_t totalMemSize;
 
     mlir::DenseMap<mlir::StringRef, uint32_t> printStrings;
@@ -355,11 +392,18 @@ namespace toucan {
     static bool opShouldRemoveInGraph(mlir::Operation *op);
   private:
 
+    // TODO: Move levelize to here
   
   };
 
 
-  class SingleRegionScheduler {
+  class SchedulerBase {
+  public:
+    void collectPrintString(DesignGraph &graph, mlir::DenseMap<mlir::StringRef, uint32_t>  &printStrings);
+  };
+
+
+  class SingleRegionScheduler: SchedulerBase {
   public:
     mlir::SmallVector<mlir::BitVector> partitions;
     mlir::SmallVector<uint32_t> vtxIdToPartId;
@@ -379,18 +423,51 @@ namespace toucan {
     void collectConstant(DesignGraph &graph, CGPartitionMetaInfo &partInfo, uint32_t partId);
     // void collectPrintMsgs(DesignGraph &graph);
     void generateRegMemLayout(DesignGraph &graph, uint32_t partitionRegPaddingSpace = 32, uint32_t memPaddingSpace = 32);
-    void collectPrintString(DesignGraph &graph);
+
+  };
+
+
+
+  class TwoRegionScheduler: SchedulerBase {
+  public:
+    PartitioningGraph r1Graph;
+    PartitioningGraph r2Graph;
+    mlir::SmallVector<mlir::BitVector> r1Partitions;
+    mlir::SmallVector<mlir::BitVector> r2Partitions;
+    mlir::SmallVector<mlir::SmallVector<mlir::SmallVector<uint32_t>>> r1PartLevels;
+    mlir::SmallVector<mlir::SmallVector<mlir::SmallVector<uint32_t>>> r2PartLevels;
+
+    mlir::SmallVector<mlir::SmallVector<uint32_t>> graphLevels;
+
+    CGInfo codeGenInfo;
+
+    void levelizeGraph(DesignGraph &graph);
+    uint32_t findCutPoint(DesignGraph &graph, float r1Weight = 0.5);
+    void cutGraph(DesignGraph &graph, uint32_t cutLevel = 10);
+    // void generateCutGraph(uint32_t cutPoint);
+    // void splitTwoRegion();
+  
+  private:
+
+
   };
 
 
   class NaivePartitioner: public SingleRegionScheduler {
     public:
-    NaivePartitioner(mlir::Operation *op, mlir::AnalysisManager &am);
+    // NaivePartitioner();
+    void partitionAndSchedule(DesignGraph &graph);
   };
 
-  class RepCutPartitioner: public SingleRegionScheduler {
+  class RepCutPartitioner: public TwoRegionScheduler {
     public:
-    RepCutPartitioner(mlir::Operation *op, mlir::AnalysisManager &am);
+    RepCutPartitioner(std::filesystem::path outputDirectory) : outputDirectory(outputDirectory) {};
+    void partitionAndSchedule(DesignGraph &graph);
+
+    private:
+    std::filesystem::path outputDirectory;
+    
+    void dumpGraphToFile(const PartitioningGraph &g, std::string fileName) const;
   };
 
 }

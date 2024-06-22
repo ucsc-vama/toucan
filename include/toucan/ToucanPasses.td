@@ -236,4 +236,17 @@ def CPUSingleThreadCodeGen: Pass<"cpu-singhe-thread-codegen", "circt::ModuleOp">
   ];
 }
 
+def GPUCodeGen: Pass<"gpu-codegen", "circt::ModuleOp"> {
+  let summary = "Code generation, GPU, parallel";
+  let description = summary;
+  let constructor = "toucan::createGPUCodeGenPass(toucan::GPUCodeGenOptions())";
+  let options = [
+    Option<"outputDirectory", "outputDirectory", "std::string", "", "Directory for output">,
+    Option<"outputDesignFilename", "outputDesignFilename", "std::string", "", "output design file name">,
+    Option<"outputSymbolFilename", "outputSymbolFilename", "std::string", "", "output symbol file name">,
+    Option<"outputIOSymbolFilename", "outputIOSymbolFilename", "std::string", "", "output IO symbol file name">,
+    Option<"temporaryDirectory", "temporaryDirectory", "std::string", "", "Directory for temp files">,
+  ];
+}
+
 #endif

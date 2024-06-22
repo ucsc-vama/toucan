@@ -18,9 +18,8 @@ using namespace mlir;
 using namespace llvm;
 using namespace circt;
 
-NaivePartitioner::NaivePartitioner(mlir::Operation *op, mlir::AnalysisManager &am) {
+void NaivePartitioner::partitionAndSchedule(DesignGraph &graph) {
 
-  auto graph = am.getAnalysis<DesignGraph>();
   auto numVtxes = boost::num_vertices(graph.g);
 
   // A simple partitioner that put all vtxes into 1 partition (part 0)
@@ -34,7 +33,6 @@ NaivePartitioner::NaivePartitioner(mlir::Operation *op, mlir::AnalysisManager &a
   schedule(graph);
 
   fillDebugInfo();
-
 }
 
 
