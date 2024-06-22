@@ -7,6 +7,32 @@ fi
 INSTALL_PREFIX=$(realpath ../install)
 [ -d $INSTALL_PREFIX ] || mkdir $INSTALL_PREFIX
 
+
+# build KaHyPar
+pushd kahypar
+
+git apply ../KaHyPar_cmake.diff || true
+[ -d build ] || mkdir build
+cd build
+cmake .. \
+    -DCMAKE_INSTALL_PREFIX=$INSTALL_PREFIX \
+    -DCMAKE_BUILD_TYPE=$BUILD_TYPE
+make -j$(nproc) install
+
+popd
+
+# build rcp
+pushd RepCut-Partitioner
+
+[ -d build ] || mkdir build
+cd build
+cmake .. \
+    -DCMAKE_INSTALL_PREFIX=$INSTALL_PREFIX \
+    -DCMAKE_BUILD_TYPE=$BUILD_TYPE
+make -j$(nproc) install
+
+popd
+
 cd circt
 
 # build llvm

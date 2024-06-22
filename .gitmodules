@@ -1,3 +1,9 @@
 [submodule "external/circt"]
 	path = external/circt
 	url = https://github.com/llvm/circt.git
+[submodule "external/kahypar"]
+	path = external/kahypar
+	url = https://github.com/kahypar/kahypar.git
+[submodule "external/RepCut-Partitioner"]
+	path = external/RepCut-Partitioner
+	url = git@github.com:ucsc-vama/RepCut-Partitioner.git
