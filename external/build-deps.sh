@@ -14,20 +14,20 @@ pushd RepCut-Partitioner
 cd build
 cmake .. \
     -DCMAKE_INSTALL_PREFIX=$INSTALL_PREFIX \
-    -DCMAKE_BUILD_TYPE=$BUILD_TYPE
+    -DCMAKE_BUILD_TYPE=RELEASE
 make -j$(nproc) install
 
 popd
 
 # build KaHyPar
+# Note: Use RELEASE build type for kahypar to avoid bug. Kahypar might not correctly finish when using DEBUG build type.
 pushd kahypar
 
-git apply ../KaHyPar_cmake.diff || true
 [ -d build ] || mkdir build
 cd build
 cmake .. \
     -DCMAKE_INSTALL_PREFIX=$INSTALL_PREFIX \
-    -DCMAKE_BUILD_TYPE=$BUILD_TYPE
+    -DCMAKE_BUILD_TYPE=RELEASE
 make -j$(nproc) KaHyPar
 
 cp ./kahypar/application/KaHyPar $INSTALL_PREFIX/bin/
