@@ -59,7 +59,8 @@ struct CPUSingleThreadCodeGenPass : toucan::impl::CPUSingleThreadCodeGenBase<CPU
     auto graph = getAnalysis<DesignGraph>();
 
     auto p = NaivePartitioner();
-    p.partitionAndSchedule(graph);
+    auto result = p.partitionAndSchedule(graph);
+    assert(succeeded(result));
 
     toucanSim::SimDesignInfo designInfo;
     toucanSim::SimDebugInfo debugInfo;

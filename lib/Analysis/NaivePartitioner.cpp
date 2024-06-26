@@ -18,7 +18,7 @@ using namespace mlir;
 using namespace llvm;
 using namespace circt;
 
-void NaivePartitioner::partitionAndSchedule(DesignGraph &graph) {
+LogicalResult NaivePartitioner::partitionAndSchedule(DesignGraph &graph) {
 
   auto numVtxes = boost::num_vertices(graph.g);
 
@@ -33,6 +33,8 @@ void NaivePartitioner::partitionAndSchedule(DesignGraph &graph) {
   schedule(graph);
 
   fillDebugInfo();
+
+  return success();
 }
 
 

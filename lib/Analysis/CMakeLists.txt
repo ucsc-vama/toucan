@@ -6,7 +6,7 @@ add_circt_dialect_library(
   DesignGraph.cpp
   SchedulerBase.cpp
   SingleRegionScheduler.cpp
-  TwoRegionScheduler.cpp
+  MultiRegionScheduler.cpp
   NaivePartitioner.cpp
   RepCutPartitioner.cpp
   GraphUtils.cpp

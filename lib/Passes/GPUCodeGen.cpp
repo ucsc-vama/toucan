@@ -60,7 +60,11 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
 
     auto p = RepCutPartitioner(outputDirectory.getValue());
 
-    p.partitionAndSchedule(graph);
+    auto result = p.partitionAndSchedule(&getContext(), graph);
+
+    if (failed(result)) {
+      return signalPassFailure();
+    }
 
   }
 

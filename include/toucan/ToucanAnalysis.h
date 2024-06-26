@@ -31,6 +31,7 @@
 
 #include <unordered_map>
 #include <filesystem>
+#include <format>
 
 namespace toucan {
 
@@ -46,7 +47,7 @@ namespace toucan {
     MemRead,
     MemWrite,
     ShouldNotAppear,
-    // Note: Exchange between 2 regions in TwoRegionScheduler.
+    // Note: Exchange between regions in MultiRegionScheduler.
     ExchangeRead,
     ExchangeWrite
     // Constant,
@@ -289,7 +290,7 @@ namespace toucan {
   struct CGExchangeValueMetaInfo {
     // value is valid if isConst
     uint32_t writerId;
-    mlir::SmallVector<uint32_t> readerIds;
+    mlir::SmallVector<std::tuple<uint32_t, uint32_t>> readerIds;
   };
 
   struct CGLayerValueStatistics {
@@ -340,7 +341,7 @@ namespace toucan {
     // Exchange values
     mlir::SmallVector<CGExchangeValueMetaInfo> exchangePool;
 
-    mlir::SmallVector<uint32_t> r1Partitions, r2Partitions;
+    mlir::SmallVector<mlir::SmallVector<uint32_t>> regionPartitionIds;
 
     uint64_t totalMemSize;
 
@@ -428,46 +429,99 @@ namespace toucan {
 
 
 
-  class TwoRegionScheduler: SchedulerBase {
-  public:
-    PartitioningGraph r1Graph;
-    PartitioningGraph r2Graph;
-    mlir::SmallVector<mlir::BitVector> r1Partitions;
-    mlir::SmallVector<mlir::BitVector> r2Partitions;
-    mlir::SmallVector<mlir::SmallVector<mlir::SmallVector<uint32_t>>> r1PartLevels;
-    mlir::SmallVector<mlir::SmallVector<mlir::SmallVector<uint32_t>>> r2PartLevels;
+  // class TwoRegionScheduler: SchedulerBase {
+  // public:
+  //   PartitioningGraph r1Graph;
+  //   PartitioningGraph r2Graph;
+  //   // mlir::SmallVector<mlir::BitVector> r1Partitions;
+  //   // mlir::SmallVector<mlir::BitVector> r2Partitions;
+  //   mlir::SmallVector<mlir::SmallVector<uint32_t>> r1Partitions;
+  //   mlir::SmallVector<mlir::SmallVector<uint32_t>> r2Partitions;
+  //   mlir::SmallVector<mlir::SmallVector<mlir::SmallVector<uint32_t>>> r1PartLevels;
+  //   mlir::SmallVector<mlir::SmallVector<mlir::SmallVector<uint32_t>>> r2PartLevels;
+
+  //   mlir::SmallVector<mlir::SmallVector<uint32_t>> graphLevels;
+
+  //   CGInfo codeGenInfo;
+
+  //   void levelizeGraph(DesignGraph &graph);
+  //   uint32_t findCutPoint(DesignGraph &graph, float r1Weight = 0.5);
+  //   void cutGraph(DesignGraph &graph, uint32_t cutLevel = 10);
+  //   // void generateCutGraph(uint32_t cutPoint);
+  //   // void splitTwoRegion();
+  
+  // private:
+  // };
+
+  class MultiRegionScheduler: public SchedulerBase {
+    public:
+
+    mlir::SmallVector<PartitioningGraph> regionGraphs;
+    // regionId -> partitionId -> vtxes
+    mlir::SmallVector<mlir::SmallVector<mlir::SmallVector<uint32_t>>> regionPartitions;
+    // regionId -> partitionId -> levelId -> vtxes
+    mlir::SmallVector<mlir::SmallVector<mlir::SmallVector<mlir::SmallVector<uint32_t>>>> regionPartLevels;
 
     mlir::SmallVector<mlir::SmallVector<uint32_t>> graphLevels;
+
+    mlir::SmallVector<uint32_t> cutPoints;
 
     CGInfo codeGenInfo;
 
     void levelizeGraph(DesignGraph &graph);
-    uint32_t findCutPoint(DesignGraph &graph, float r1Weight = 0.5);
-    void cutGraph(DesignGraph &graph, uint32_t cutLevel = 10);
-    // void generateCutGraph(uint32_t cutPoint);
-    // void splitTwoRegion();
-  
-  private:
+    void findCutPoints(DesignGraph &graph);
+    void cutGraph(DesignGraph &graph);
 
 
+    private:
   };
 
 
   class NaivePartitioner: public SingleRegionScheduler {
     public:
     // NaivePartitioner();
-    void partitionAndSchedule(DesignGraph &graph);
+    mlir::LogicalResult partitionAndSchedule(DesignGraph &graph);
   };
 
-  class RepCutPartitioner: public TwoRegionScheduler {
+
+
+  class RepCutPartitioningStatistics {
     public:
-    RepCutPartitioner(std::filesystem::path outputDirectory) : outputDirectory(outputDirectory) {};
-    void partitionAndSchedule(DesignGraph &graph);
+    mlir::SmallVector<uint32_t> partSize;
+    uint32_t graphSize;
+    float replicationRate, ibFactor;
+  };
+
+  class RepCutPartitioner: public MultiRegionScheduler {
+    public:
+    RepCutPartitioner(std::filesystem::path outputDirectory) : outputDirectory(outputDirectory) {
+      wholeGraphPath = outputDirectory / "design_before_cut.graph";
+    };
+    mlir::LogicalResult partitionAndSchedule(mlir::MLIRContext *context, DesignGraph &graph);
+    mlir::SmallVector<uint32_t> regionPartitionNumbers;
 
     private:
     std::filesystem::path outputDirectory;
+    mlir::SmallVector<std::filesystem::path> regionWorkDirectory;
+    std::filesystem::path wholeGraphPath;
+
+    const char* graphFileName = "region.graph";
+    const char* repcutOutputFileName = "rcp_output.txt";
+    const char* repcutConsoleLogFileName = "repcut_print.txt";
+
+    float targetIb = 0.2;
+    // float cutR1Weight = 0.4;
     
     void dumpGraphToFile(const PartitioningGraph &g, std::string fileName) const;
+
+    mlir::LogicalResult callRepCutAndWait(uint32_t nParts, float target_ib, const std::string &graphFile, const std::filesystem::path &workingDirectory);
+
+    mlir::LogicalResult parseRepCutResult(uint32_t nParts, const std::string &resultFile, mlir::SmallVector<mlir::SmallVector<uint32_t>> &partitions);
+
+    RepCutPartitioningStatistics getPartitionStatistics(const mlir::SmallVector<mlir::SmallVector<uint32_t>> &parts, uint32_t graphSize);
+    void printPartitionStatistics(const RepCutPartitioningStatistics &stats);
+
+    mlir::LogicalResult workerFunc(const PartitioningGraph &graph, std::filesystem::path workDirectory, mlir::SmallVector<mlir::SmallVector<uint32_t>> &partOutput, uint32_t nParts);
   };
 
 }
