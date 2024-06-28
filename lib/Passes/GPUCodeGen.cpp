@@ -60,6 +60,8 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
 
     auto p = RepCutPartitioner(outputDirectory.getValue());
 
+    p.setPartitionTarget();
+
     auto result = p.partitionAndSchedule(&getContext(), graph);
 
     if (failed(result)) {

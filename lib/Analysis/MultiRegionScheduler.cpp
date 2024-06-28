@@ -143,7 +143,6 @@ void MultiRegionScheduler::cutGraph(DesignGraph &graph) {
   }
 
 
-
   // Add edges
   auto numRegions = regionGraphs.size();
 
@@ -187,7 +186,6 @@ void MultiRegionScheduler::cutGraph(DesignGraph &graph) {
         uint32_t valId = codeGenInfo.exchangePool.size();
         codeGenInfo.exchangePool.push_back(valInfo);
         writerToExchangeValId[edgeSource] = valId;
-
 
         // Create ExchangeWrite for srcRegion
         PartitioningGraphNodeProperty vp;
@@ -260,9 +258,7 @@ void MultiRegionScheduler::levelizeAllPartitions(mlir::MLIRContext *context) {
     }
   }
 
-
   auto ret = mlir::failableParallelForEach(context, regionIds.begin(), regionIds.end(), [&](uint32_t regionId) {
-
     // levelize region graph
     mlir::SmallVector<mlir::SmallVector<uint32_t>> regionLevels;
     levelizeWorker(regionGraphs[regionId], regionLevels);
@@ -280,6 +276,7 @@ void MultiRegionScheduler::levelizeAllPartitions(mlir::MLIRContext *context) {
         assert(regionGraphs[regionId][vtx].toucanOpName == CGToucanOPName::ExchangeWrite);
       }
     }
+  
     auto &currentRegionPartitions = regionPartitions[regionId];
     auto &currentRegionPartLevels = regionPartLevels[regionId];
 
@@ -300,7 +297,6 @@ void MultiRegionScheduler::levelizeAllPartitions(mlir::MLIRContext *context) {
       // reserve space for all levels
       currentRegionPartLevels[partId].resize(regionLevels.size());
     }
-
 
     // levelize
     for (uint32_t levelId = 0; levelId < regionLevels.size(); levelId++) {
@@ -340,5 +336,10 @@ void MultiRegionScheduler::levelizeAllPartitions(mlir::MLIRContext *context) {
     }
   }
 
+  return;
+}
+
+
+void MultiRegionScheduler::schedule(DesignGraph &graph) {
   return;
 }

@@ -18,7 +18,6 @@
 #include <chrono>
 
 #include <thread>
-#include <future>
 #include <format>
 
 #include <numeric>
@@ -29,8 +28,15 @@ using namespace mlir;
 using namespace llvm;
 using namespace circt;
 
+void RepCutPartitioner::setPartitionTarget() {
+  auto numRegions = 3;
+
+  // TODO: for now, simply use fixed number of partitions
+  regionPartitionNumbers.resize(numRegions, 4);
+}
 
 LogicalResult RepCutPartitioner::partitionAndSchedule(mlir::MLIRContext *context, DesignGraph &graph) {
+  assert(regionPartitionNumbers.size() == numRegions);
 
   // Levelize
   levelizeGraph(graph);
@@ -48,9 +54,7 @@ LogicalResult RepCutPartitioner::partitionAndSchedule(mlir::MLIRContext *context
     regionWorkDirectory.push_back(outputDirectory / dirName);
   }
 
-  // TODO: for now, simply use fixed number of partitions
-  regionPartitionNumbers.resize(numRegions, 4);
-
+  assert(numRegions == regionPartitionNumbers.size());
   regionPartitions.clear();
   regionPartitions.resize(numRegions);
 
@@ -58,6 +62,18 @@ LogicalResult RepCutPartitioner::partitionAndSchedule(mlir::MLIRContext *context
   std::iota(regionIds.begin(), regionIds.end(), 0);
 
   // llvm::outs() << "Start partitioning\n";
+
+  // Save graph to file for debug purpose.
+  std::thread bgDumpThread([&]() {
+    auto start = std::chrono::high_resolution_clock::now();
+    dumpGraphToFile(graph.g, wholeGraphPath);
+    
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+
+    auto msg = std::format("(Optionally) Dump the whole graph spend {}ms\n", duration);
+    llvm::outs() << msg;
+  });
 
   auto ret = mlir::failableParallelForEach(context, regionIds.begin(), regionIds.end(), [&](uint32_t regionId) {
     auto start = std::chrono::high_resolution_clock::now();
@@ -77,8 +93,7 @@ LogicalResult RepCutPartitioner::partitionAndSchedule(mlir::MLIRContext *context
     return ret;
   });
 
-  // Save graph to file for debug purpose. Can be removed later.
-  // dumpGraphToFile(graph.g, wholeGraphPath);
+  bgDumpThread.join();
 
   if (failed(ret)) return ret;
 
