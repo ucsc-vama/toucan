@@ -49,7 +49,7 @@ LogicalResult RepCutPartitioner::partitionAndSchedule(mlir::MLIRContext *context
   }
 
   // TODO: for now, simply use fixed number of partitions
-  regionPartitionNumbers.resize(numRegions, 16);
+  regionPartitionNumbers.resize(numRegions, 4);
 
   regionPartitions.clear();
   regionPartitions.resize(numRegions);
@@ -57,9 +57,7 @@ LogicalResult RepCutPartitioner::partitionAndSchedule(mlir::MLIRContext *context
   mlir::SmallVector<uint32_t> regionIds(numRegions);
   std::iota(regionIds.begin(), regionIds.end(), 0);
 
-  llvm::dbgs() << "Start partitioning\n";
-
-
+  // llvm::outs() << "Start partitioning\n";
 
   auto ret = mlir::failableParallelForEach(context, regionIds.begin(), regionIds.end(), [&](uint32_t regionId) {
     auto start = std::chrono::high_resolution_clock::now();
@@ -85,11 +83,13 @@ LogicalResult RepCutPartitioner::partitionAndSchedule(mlir::MLIRContext *context
   if (failed(ret)) return ret;
 
   for (size_t regionId = 0; regionId < numRegions; regionId++) {
-    auto stat = getPartitionStatistics(regionPartitions[regionId], boost::num_vertices(regionGraphs[regionId]));
+    auto stat = getPartitionStatistics(regionId);
 
     llvm::outs() << "Statistics for region " << regionId << ":\n";
     printPartitionStatistics(stat);
   }
+
+  levelizeAllPartitions(context);
 
   return success();
 }
@@ -179,14 +179,32 @@ static float calculate_ib_factor(mlir::SmallVector<uint32_t>& dat) {
   return static_cast<float>(max - avg) / static_cast<float>(avg);
 }
 
-RepCutPartitioningStatistics RepCutPartitioner::getPartitionStatistics(const mlir::SmallVector<mlir::SmallVector<uint32_t>> &parts, uint32_t graphSize) {
+RepCutPartitioningStatistics RepCutPartitioner::getPartitionStatistics(uint32_t regionId) {
+  auto parts = regionPartitions[regionId];
+  auto &g = regionGraphs[regionId];
+  auto graphSize = boost::num_vertices(regionGraphs[regionId]);
+  uint32_t graphWeight = 0;
+
+  for (auto vi = boost::vertices(g); vi.first != vi.second; ++vi.first) {
+    graphWeight += g[*vi.first].weight;
+  }
+
   RepCutPartitioningStatistics stats;
   for (auto &ep: parts) {
     stats.partSize.push_back(ep.size());
+    uint32_t partWeight = 0;
+    for (auto &ev: ep) {
+      partWeight += g[ev].weight;
+    }
+    stats.partWeight.push_back(partWeight);
   }
   stats.graphSize = graphSize;
-  stats.ibFactor = calculate_ib_factor(stats.partSize);
-  stats.replicationRate = static_cast<float>(std::accumulate(stats.partSize.begin(), stats.partSize.end(), static_cast<uint32_t>(0)) - graphSize) / static_cast<float>(graphSize);
+  stats.graphWeight = graphWeight;
+
+  stats.sizeIBFactor = calculate_ib_factor(stats.partSize);
+  stats.weightIBFactor = calculate_ib_factor(stats.partWeight);
+  stats.sizeReplicationRate = static_cast<float>(std::accumulate(stats.partSize.begin(), stats.partSize.end(), static_cast<uint32_t>(0)) - graphSize) / static_cast<float>(graphSize);
+  stats.weightReplicationRate = static_cast<float>(std::accumulate(stats.partWeight.begin(), stats.partWeight.end(), static_cast<uint32_t>(0)) - graphWeight) / static_cast<float>(graphWeight);
 
   return stats;
 }
@@ -196,7 +214,11 @@ void RepCutPartitioner::printPartitionStatistics(const RepCutPartitioningStatist
   for (auto &es: stats.partSize) {
     llvm::outs() << " " << es;
   }
-  auto formatStr = std::format(", replication rate {:.3f}, ib factor {:.3f}\n", stats.replicationRate, stats.ibFactor);
+  llvm::outs() << "\nPartition weight:";
+  for (auto &es: stats.partWeight) {
+    llvm::outs() << " " << es;
+  }
+  auto formatStr = std::format("\nSize replication rate {:.3f}, ib factor {:.3f}\nWeight replication rate {:.3f}, ib factor {:.3f}\n", stats.sizeReplicationRate, stats.sizeIBFactor, stats.weightReplicationRate, stats.weightIBFactor);
   llvm::outs() << formatStr;
 }
 

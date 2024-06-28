@@ -37,6 +37,59 @@ using namespace llvm;
 using namespace circt;
 
 
+void SchedulerBase::levelizeWorker(const PartitioningGraph &g, mlir::SmallVector<mlir::SmallVector<uint32_t>> &graphLevels) {
+  std::vector<uint32_t> topo_order;
+  topo_order.reserve(boost::num_vertices(g));
+  boost::topological_sort(g, std::back_inserter(topo_order));
+  std::reverse(topo_order.begin(), topo_order.end());
+
+  // Initialize levels
+  std::vector<uint32_t> levels(boost::num_vertices(g), 0);
+  std::vector<uint32_t> sinkVtxes;
+
+  // Assign levels based on dependencies. Ignore sink vtxes
+  for (auto v : topo_order) {
+    if (boost::out_degree(v, g) == 0) {
+      // a sink node
+      sinkVtxes.push_back(v);
+      levels[v] = UINT32_MAX;
+    } else if (boost::in_degree(v, g) != 0) {
+      uint32_t max_pred_level = 0;
+      for (auto ei = boost::in_edges(v, g); ei.first != ei.second; ++ei.first) {
+          auto u = boost::source(*ei.first, g);
+          max_pred_level = std::max(max_pred_level, levels[u]);
+      }
+      uint32_t v_level = max_pred_level + 1;
+      levels[v] = v_level;
+      assert(v_level < UINT32_MAX);
+    }
+  }
+
+  assert(!sinkVtxes.empty());
+
+
+  for (uint32_t vtx = 0; vtx < levels.size(); vtx++) {
+    uint32_t vtxLevel = levels[vtx];
+    if (vtxLevel == UINT32_MAX) continue;
+    while (graphLevels.size() <= vtxLevel) {
+      graphLevels.emplace_back();
+    }
+    graphLevels[vtxLevel].push_back(vtx);
+  }
+
+  // Every level should have at least 1 nodes
+  for (const auto &eachLevel: graphLevels) {
+    assert(!eachLevel.empty());
+  }
+
+  // Move all sink vtx to last level
+  assert(!sinkVtxes.empty());
+  graphLevels.emplace_back();
+  for (auto sinkVtx: sinkVtxes) {
+    graphLevels.back().push_back(sinkVtx);
+  }
+}
+
 void SchedulerBase::collectPrintString(DesignGraph &graph, mlir::DenseMap<mlir::StringRef, uint32_t> &printStrings) {
   uint32_t stringId = 0;
 

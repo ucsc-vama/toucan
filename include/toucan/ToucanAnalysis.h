@@ -401,6 +401,7 @@ namespace toucan {
   class SchedulerBase {
   public:
     void collectPrintString(DesignGraph &graph, mlir::DenseMap<mlir::StringRef, uint32_t>  &printStrings);
+    void levelizeWorker(const PartitioningGraph &g, mlir::SmallVector<mlir::SmallVector<uint32_t>> &graphLevels);
   };
 
 
@@ -429,30 +430,6 @@ namespace toucan {
 
 
 
-  // class TwoRegionScheduler: SchedulerBase {
-  // public:
-  //   PartitioningGraph r1Graph;
-  //   PartitioningGraph r2Graph;
-  //   // mlir::SmallVector<mlir::BitVector> r1Partitions;
-  //   // mlir::SmallVector<mlir::BitVector> r2Partitions;
-  //   mlir::SmallVector<mlir::SmallVector<uint32_t>> r1Partitions;
-  //   mlir::SmallVector<mlir::SmallVector<uint32_t>> r2Partitions;
-  //   mlir::SmallVector<mlir::SmallVector<mlir::SmallVector<uint32_t>>> r1PartLevels;
-  //   mlir::SmallVector<mlir::SmallVector<mlir::SmallVector<uint32_t>>> r2PartLevels;
-
-  //   mlir::SmallVector<mlir::SmallVector<uint32_t>> graphLevels;
-
-  //   CGInfo codeGenInfo;
-
-  //   void levelizeGraph(DesignGraph &graph);
-  //   uint32_t findCutPoint(DesignGraph &graph, float r1Weight = 0.5);
-  //   void cutGraph(DesignGraph &graph, uint32_t cutLevel = 10);
-  //   // void generateCutGraph(uint32_t cutPoint);
-  //   // void splitTwoRegion();
-  
-  // private:
-  // };
-
   class MultiRegionScheduler: public SchedulerBase {
     public:
 
@@ -466,11 +443,19 @@ namespace toucan {
 
     mlir::SmallVector<uint32_t> cutPoints;
 
+
     CGInfo codeGenInfo;
+
+    uint32_t partitionRegPaddingSpace = 32;
+    uint32_t memPaddingSpace = 32;
 
     void levelizeGraph(DesignGraph &graph);
     void findCutPoints(DesignGraph &graph);
     void cutGraph(DesignGraph &graph);
+
+    //
+    void levelizeAllPartitions(mlir::MLIRContext *context);
+    void schedule(DesignGraph &graph);
 
 
     private:
@@ -488,8 +473,9 @@ namespace toucan {
   class RepCutPartitioningStatistics {
     public:
     mlir::SmallVector<uint32_t> partSize;
-    uint32_t graphSize;
-    float replicationRate, ibFactor;
+    mlir::SmallVector<uint32_t> partWeight;
+    uint32_t graphSize, graphWeight;
+    float sizeReplicationRate, weightReplicationRate, sizeIBFactor, weightIBFactor;
   };
 
   class RepCutPartitioner: public MultiRegionScheduler {
@@ -518,7 +504,7 @@ namespace toucan {
 
     mlir::LogicalResult parseRepCutResult(uint32_t nParts, const std::string &resultFile, mlir::SmallVector<mlir::SmallVector<uint32_t>> &partitions);
 
-    RepCutPartitioningStatistics getPartitionStatistics(const mlir::SmallVector<mlir::SmallVector<uint32_t>> &parts, uint32_t graphSize);
+    RepCutPartitioningStatistics getPartitionStatistics(uint32_t regionId);
     void printPartitionStatistics(const RepCutPartitioningStatistics &stats);
 
     mlir::LogicalResult workerFunc(const PartitioningGraph &graph, std::filesystem::path workDirectory, mlir::SmallVector<mlir::SmallVector<uint32_t>> &partOutput, uint32_t nParts);

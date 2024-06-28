@@ -37,70 +37,17 @@ using namespace llvm;
 using namespace circt;
 
 void SingleRegionScheduler::levelizePartitions(DesignGraph &graph) {
-  std::vector<uint32_t> topo_order;
-  topo_order.reserve(boost::num_vertices(graph.g));
-  boost::topological_sort(graph.g, std::back_inserter(topo_order));
-  std::reverse(topo_order.begin(), topo_order.end());
-
-  // Initialize levels
-  std::vector<uint32_t> levels(boost::num_vertices(graph.g), 0);
-  std::vector<uint32_t> sinkVtxes;
-
-  // Assign levels based on dependencies
-  for (auto v : topo_order) {
-    if (boost::out_degree(v, graph.g) == 0) {
-      // a sink node
-      sinkVtxes.push_back(v);
-      levels[v] = UINT32_MAX;
-    } else if (boost::in_degree(v, graph.g) != 0) {
-      uint32_t max_pred_level = 0;
-      for (auto ei = boost::in_edges(v, graph.g); ei.first != ei.second; ++ei.first) {
-        auto u = boost::source(*ei.first, graph.g);
-        max_pred_level = std::max(max_pred_level, levels[u]);
-      }
-      auto v_level = max_pred_level + 1;
-      levels[v] = v_level;
-      assert(v_level < UINT32_MAX);
-    }
-  }
-
-  assert(!sinkVtxes.empty());
 
   // init
   for (size_t partId = 0; partId < partitions.size(); ++partId) {
     partLevels.emplace_back();
   }
 
-  // save level in partition
-  for (uint32_t vtx = 0; vtx < boost::num_vertices(graph.g); ++vtx) {
-    auto vtxLevel = levels[vtx];
-    if (vtxLevel == UINT32_MAX) continue;
+  assert(partitions.size() == 1);
 
-    auto vtxPartition = vtxIdToPartId[vtx];
-    // grow container if needed
-    for (size_t levelId = partLevels[vtxPartition].size(); levelId <= vtxLevel; levelId++) {
-      partLevels[vtxPartition].emplace_back();
-    }
-    partLevels[vtxPartition][vtxLevel].push_back(vtx);
-  }
+  levelizeWorker(graph.g, partLevels[0]);
 
-  // Condense, remove empty levels
-  partLevels.erase(std::remove_if(partLevels.begin(), partLevels.end(), [](auto innerVec) {
-    return innerVec.empty();
-  }), partLevels.end());
 
-  // push all sink vtx to last level
-  for (auto &eachPart: partLevels) {
-    eachPart.emplace_back();
-  }
-
-  assert(!sinkVtxes.empty());
-  for (auto sinkVtx: sinkVtxes) {
-    auto partId = vtxIdToPartId[sinkVtx];
-    auto numParts = partLevels.size();
-    assert(partId < numParts);
-    partLevels[partId].back().push_back(sinkVtx);
-  }
   
   // debug
   // for (size_t partId = 0; partId < partLevels.size(); partId++) {

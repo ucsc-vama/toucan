@@ -29,7 +29,7 @@
 #include <optional>
 #include <tuple>
 #include <vector>
-
+#include <numeric>
 
 using namespace toucan;
 
@@ -38,57 +38,10 @@ using namespace llvm;
 using namespace circt;
 
 
+
+
 void MultiRegionScheduler::levelizeGraph(DesignGraph &graph) {
-  std::vector<uint32_t> topo_order;
-  topo_order.reserve(boost::num_vertices(graph.g));
-  boost::topological_sort(graph.g, std::back_inserter(topo_order));
-  std::reverse(topo_order.begin(), topo_order.end());
-
-  // Initialize levels
-  std::vector<uint32_t> levels(boost::num_vertices(graph.g), 0);
-  std::vector<uint32_t> sinkVtxes;
-
-  // Assign levels based on dependencies. Ignore sink vtxes
-  for (auto v : topo_order) {
-    if (boost::out_degree(v, graph.g) == 0) {
-      // a sink node
-      sinkVtxes.push_back(v);
-      levels[v] = UINT32_MAX;
-    } else if (boost::in_degree(v, graph.g) != 0) {
-      uint32_t max_pred_level = 0;
-      for (auto ei = boost::in_edges(v, graph.g); ei.first != ei.second; ++ei.first) {
-          auto u = boost::source(*ei.first, graph.g);
-          max_pred_level = std::max(max_pred_level, levels[u]);
-      }
-      uint32_t v_level = max_pred_level + 1;
-      levels[v] = v_level;
-      assert(v_level < UINT32_MAX);
-    }
-  }
-
-  assert(!sinkVtxes.empty());
-
-
-  for (uint32_t vtx = 0; vtx < levels.size(); vtx++) {
-    uint32_t vtxLevel = levels[vtx];
-    if (vtxLevel == UINT32_MAX) continue;
-    while (graphLevels.size() <= vtxLevel) {
-      graphLevels.emplace_back();
-    }
-    graphLevels[vtxLevel].push_back(vtx);
-  }
-
-  // Every level should have at least 1 nodes
-  for (const auto &eachLevel: graphLevels) {
-    assert(!eachLevel.empty());
-  }
-
-  // Move all sink vtx to last level
-  assert(!sinkVtxes.empty());
-  graphLevels.emplace_back();
-  for (auto sinkVtx: sinkVtxes) {
-    graphLevels.back().push_back(sinkVtx);
-  }
+  levelizeWorker(graph.g, graphLevels);
 
   // debug print
 
@@ -144,12 +97,12 @@ void MultiRegionScheduler::cutGraph(DesignGraph &graph) {
 
   // Map between old vertex to vertex in every region.
   // A node can be in only 1 region, thus mixing them together is fine.
-  SmallVector<uint32_t> vtxIdToNewId;
-  SmallVector<uint32_t> vtxIdToRegionId;
+  mlir::SmallVector<uint32_t> vtxIdToNewId;
+  mlir::SmallVector<uint32_t> vtxIdToRegionId;
+  mlir::SmallVector<mlir::SmallVector<uint32_t>> regionVtxes;
+
   vtxIdToNewId.assign(graphSize, UINT32_MAX);
   vtxIdToRegionId.assign(graphSize, UINT32_MAX);
-
-  SmallVector<SmallVector<uint32_t>> regionVtxes;
   regionVtxes.emplace_back();
 
 
@@ -198,8 +151,16 @@ void MultiRegionScheduler::cutGraph(DesignGraph &graph) {
   mlir::SmallVector<mlir::DenseMap<uint32_t, uint32_t>> exchangeValIdToReader(numRegions);
   uint32_t numExchangeWrite = 0;
   uint32_t numExchangeRead = 0;
-  mlir::SmallVector<uint32_t> numExgWriteInRegion(numRegions);
-  mlir::SmallVector<uint32_t> numExgReadInRegion(numRegions);
+  // mlir::SmallVector<uint32_t> numExgWriteInRegion(numRegions);
+  // mlir::SmallVector<uint32_t> numExgReadInRegion(numRegions);
+
+  mlir::SmallVector<mlir::SmallVector<uint32_t>> exgWriteInRegion(numRegions);
+  mlir::SmallVector<mlir::SmallVector<uint32_t>> exgReadInRegion(numRegions);
+
+  for (size_t i = 0; i < numRegions; i++) {
+    exgWriteInRegion.emplace_back();
+    exgReadInRegion.emplace_back();
+  }
 
 
   auto rawEdges = boost::edges(graph.g);
@@ -238,7 +199,8 @@ void MultiRegionScheduler::cutGraph(DesignGraph &graph) {
         auto exchangeWriteVtxId = boost::add_vertex(vp, regionGraphs[srcRegion]);
         boost::add_edge(srcNewId, exchangeWriteVtxId, regionGraphs[srcRegion]);
         numExchangeWrite++;
-        numExgWriteInRegion[srcRegion]++;
+        exgWriteInRegion[srcRegion].push_back(exchangeWriteVtxId);
+        // numExgWriteInRegion[srcRegion]++;
       }
 
       auto exchangeValId = writerToExchangeValId[edgeSource];
@@ -258,7 +220,8 @@ void MultiRegionScheduler::cutGraph(DesignGraph &graph) {
         codeGenInfo.exchangePool[exchangeValId].readerIds.push_back(std::make_tuple(dstRegion, dstNewId));
         exchangeValIdToReader[dstRegion][exchangeValId] = exchangeReadVtxId;
         numExchangeRead++;
-        numExgReadInRegion[dstRegion]++;
+        exgReadInRegion[dstRegion].push_back(exchangeReadVtxId);
+        // numExgReadInRegion[dstRegion]++;
       } else {
         auto exchangeReadVtxId = exchangeValIdToReader[dstRegion][exchangeValId];
         boost::add_edge(exchangeReadVtxId, dstNewId, regionGraphs[dstRegion]);
@@ -271,12 +234,97 @@ void MultiRegionScheduler::cutGraph(DesignGraph &graph) {
   llvm::outs() << "Add " << codeGenInfo.exchangePool.size() << " exchange values, " << numExchangeWrite << " ExchangeWrite and " << numExchangeRead << " ExchangeRead\n";
 
   for (size_t rid = 0; rid < numRegions; rid++) {
-    llvm::outs() << "Region " << rid << " has " << numExgWriteInRegion[rid] << " ExchangeWrite and " << numExgReadInRegion[rid] << " ExchangeRead\n";
+    llvm::outs() << "Region " << rid << " has " << exgWriteInRegion[rid].size() << " ExchangeWrite and " << exgReadInRegion[rid].size() << " ExchangeRead\n";
   }
 
   for (size_t rid = 0; rid < numRegions; rid++) {
     llvm::outs() << "Region " << rid << " has " << boost::num_vertices(regionGraphs[rid]) << " vertices and " << boost::num_edges(regionGraphs[rid]) << " edges\n";
   }
   
+  return;
+}
+
+void MultiRegionScheduler::levelizeAllPartitions(mlir::MLIRContext *context) {
+  assert(!regionPartitions.empty());
+  assert(regionPartLevels.empty());
+
+  auto numRegions = regionGraphs.size();
+  
+  mlir::SmallVector<uint32_t> regionIds(numRegions);
+  std::iota(regionIds.begin(), regionIds.end(), 0);
+
+  for (auto regionId = 0; regionId < numRegions; regionId++) {
+    regionPartLevels.emplace_back();
+    for (uint32_t partId = 0; partId < regionPartitions[regionId].size(); partId++) {
+      regionPartLevels.back().emplace_back();
+    }
+  }
+
+
+  auto ret = mlir::failableParallelForEach(context, regionIds.begin(), regionIds.end(), [&](uint32_t regionId) {
+
+    // levelize region graph
+    mlir::SmallVector<mlir::SmallVector<uint32_t>> regionLevels;
+    levelizeWorker(regionGraphs[regionId], regionLevels);
+    auto &currentRegionPartitions = regionPartitions[regionId];
+    auto &currentRegionPartLevels = regionPartLevels[regionId];
+
+    uint32_t numPartitions = currentRegionPartitions.size();
+    uint32_t regionNumVtxes = boost::num_vertices(regionGraphs[regionId]);
+
+    mlir::SmallVector<mlir::SmallVector<uint32_t, 1>> vtxIdToPartIds;
+    vtxIdToPartIds.resize(regionNumVtxes, {});
+
+    // reserve space for each partitions
+    currentRegionPartLevels.resize(numPartitions);
+
+    for (uint32_t partId = 0; partId < numPartitions; partId++) {
+      // maintain map from vtx id to partition ids
+      for (auto &vtx: currentRegionPartitions[partId]) {
+        vtxIdToPartIds[vtx].push_back(partId);
+      }
+      // reserve space for all levels
+      currentRegionPartLevels[partId].resize(regionLevels.size());
+    }
+
+
+    // levelize
+    for (uint32_t levelId = 0; levelId < regionLevels.size(); levelId++) {
+      for (auto vtx: regionLevels[levelId]) {
+        for (auto partId: vtxIdToPartIds[vtx]) {
+          currentRegionPartLevels[partId][levelId].push_back(vtx);
+        }
+      }
+    }
+
+    // remove empty layers
+    for (auto &eachPart: currentRegionPartLevels) {
+      eachPart.erase(std::remove_if(eachPart.begin(), eachPart.end(), [](auto levelVec) { return levelVec.empty(); }), eachPart.end());
+    }
+
+    return success();
+  });
+
+  
+  // debug: report
+  bool printLevelStat = false;
+
+  if (printLevelStat) {
+    for (auto regionId = 0; regionId < numRegions; regionId++) {
+      llvm::dbgs() << "Region " << regionId << "\n";
+      for (uint32_t partId = 0; partId < regionPartitions[regionId].size(); partId++) {
+        llvm::dbgs() << "  Partition " << partId << "\n";
+        auto &currentPartLevels = regionPartLevels[regionId][partId];
+        for (size_t levelId = 0; levelId < currentPartLevels.size(); levelId++) {
+          uint32_t levelWeight = 0;
+          for (auto vtx: currentPartLevels[levelId]) {
+            levelWeight += regionGraphs[regionId][vtx].weight;
+          }
+          llvm::dbgs() << "    Level " << levelId << " has size of " << currentPartLevels[levelId].size() << ", weight of " << levelWeight << "\n";
+        }
+      }
+    }
+  }
+
   return;
 }
