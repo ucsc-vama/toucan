@@ -47,25 +47,6 @@ void SingleRegionScheduler::levelizePartitions(DesignGraph &graph) {
 
   levelizeWorker(graph.g, partLevels[0]);
 
-
-  
-  // debug
-  // for (size_t partId = 0; partId < partLevels.size(); partId++) {
-  //   auto &currentPart = partLevels[partId];
-  //   llvm::dbgs() << "Partition " << partId << " has " << currentPart.size() << " levels\n";
-  //   for (size_t levelId = 0; levelId < currentPart.size(); levelId++) {
-  //     auto &currentLevel = currentPart[levelId];
-  //     llvm::dbgs() << "  Level " << levelId << " has " << currentLevel.size() << " verticies\n";
-
-  //     // if (currentLevel.size() == 1) {
-  //     //   // level with only 1 node. 
-  //     //   auto vtxId = currentLevel.front();
-  //     //   auto op = graph.g[vtxId].op;
-  //     //   op->print(llvm::dbgs());
-  //     //   llvm::dbgs() << "\n";
-  //     // }
-  //   }
-  // }
   return;
 }
 
