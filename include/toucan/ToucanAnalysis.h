@@ -480,11 +480,14 @@ namespace toucan {
 
   class RepCutPartitioner: public MultiRegionScheduler {
     public:
+    mlir::SmallVector<uint32_t> regionPartitionNumbers;
+
     RepCutPartitioner(std::filesystem::path outputDirectory) : outputDirectory(outputDirectory) {
       wholeGraphPath = outputDirectory / "design_before_cut.graph";
     };
     mlir::LogicalResult partitionAndSchedule(mlir::MLIRContext *context, DesignGraph &graph);
-    mlir::SmallVector<uint32_t> regionPartitionNumbers;
+
+    void setPartitionTarget();
 
     private:
     std::filesystem::path outputDirectory;
