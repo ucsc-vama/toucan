@@ -266,6 +266,20 @@ void MultiRegionScheduler::levelizeAllPartitions(mlir::MLIRContext *context) {
     // levelize region graph
     mlir::SmallVector<mlir::SmallVector<uint32_t>> regionLevels;
     levelizeWorker(regionGraphs[regionId], regionLevels);
+
+    // assertions
+    if (regionId != 0) {
+      // has ExchangeRead, then the first level must be exchange reads
+      for (auto vtx: regionLevels[0]) {
+        assert(regionGraphs[regionId][vtx].toucanOpName == CGToucanOPName::ExchangeRead);
+      }
+    }
+    if (regionId != numRegions - 1) {
+      // has ExchangeWrite, then the last level must be exchange writes
+      for (auto vtx: regionLevels.back()) {
+        assert(regionGraphs[regionId][vtx].toucanOpName == CGToucanOPName::ExchangeWrite);
+      }
+    }
     auto &currentRegionPartitions = regionPartitions[regionId];
     auto &currentRegionPartLevels = regionPartLevels[regionId];
 
