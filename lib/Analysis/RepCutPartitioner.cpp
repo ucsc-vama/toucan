@@ -36,7 +36,6 @@ void RepCutPartitioner::setPartitionTarget() {
 }
 
 LogicalResult RepCutPartitioner::partitionAndSchedule(mlir::MLIRContext *context, DesignGraph &graph) {
-  assert(regionPartitionNumbers.size() == numRegions);
 
   // Levelize
   levelizeGraph(graph);
@@ -48,6 +47,7 @@ LogicalResult RepCutPartitioner::partitionAndSchedule(mlir::MLIRContext *context
 
   auto numVtxes = boost::num_vertices(graph.g);
   auto numRegions = regionGraphs.size();
+  assert(regionPartitionNumbers.size() == numRegions);
 
   for (size_t rid = 0; rid < numRegions; rid++) {
     std::string dirName = std::format("region{}", rid);
@@ -105,6 +105,8 @@ LogicalResult RepCutPartitioner::partitionAndSchedule(mlir::MLIRContext *context
   }
 
   levelizeAllPartitions(context);
+
+  schedule(graph);
 
   return success();
 }

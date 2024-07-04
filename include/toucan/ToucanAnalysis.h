@@ -288,8 +288,10 @@ namespace toucan {
 
 
   struct CGExchangeValueMetaInfo {
-    // value is valid if isConst
+    bool isPadding;
     uint32_t writerId;
+    uint32_t writerRegionId;
+    // region, vtxId (new)
     mlir::SmallVector<std::tuple<uint32_t, uint32_t>> readerIds;
   };
 
@@ -392,8 +394,6 @@ namespace toucan {
 
     static bool opShouldRemoveInGraph(mlir::Operation *op);
   private:
-
-    // TODO: Move levelize to here
   
   };
 
@@ -423,7 +423,6 @@ namespace toucan {
   private:
 
     void collectConstant(DesignGraph &graph, CGPartitionMetaInfo &partInfo, uint32_t partId);
-    // void collectPrintMsgs(DesignGraph &graph);
     void generateRegMemLayout(DesignGraph &graph, uint32_t partitionRegPaddingSpace = 32, uint32_t memPaddingSpace = 32);
 
   };
@@ -443,6 +442,16 @@ namespace toucan {
 
     mlir::SmallVector<uint32_t> cutPoints;
 
+    // vtx id in graph -> vtx id in region graph
+    // Map between old vertex to vertex in every region.
+    // A node can be in only 1 region, thus mixing them together is fine.
+    mlir::SmallVector<uint32_t> vtxIdToNewId;
+    mlir::SmallVector<uint32_t> vtxIdToRegionId;
+    // region -> newIdToOldId
+    // UINT32_MAX means no corresponding vtx id in old graph
+    mlir::SmallVector<mlir::SmallVector<uint32_t>> regionNewIdToVtxId;
+    mlir::SmallVector<mlir::SmallVector<uint32_t>> regionNewIdToPartId;
+
 
     CGInfo codeGenInfo;
 
@@ -459,6 +468,12 @@ namespace toucan {
 
 
     private:
+
+    // void collectConstant(DesignGraph &graph, CGPartitionMetaInfo &partInfo, uint32_t partId);
+    void sortRegistersForLocality(const PartitioningGraph &graph,  mlir::SmallVector<mlir::SmallVector<mlir::Value>> &regOrdered);
+    void sortOpsAndExchangeValsForLocality(const mlir::SmallVector<mlir::SmallVector<mlir::Value>> &regPoolOrdered, mlir::SmallVector<mlir::SmallVector<mlir::SmallVector<uint32_t>>> &exchangeValIdOrdered);
+    void sortEveryLevelForLocality(uint32_t regionId);
+    void generateRegMemLayout(DesignGraph &graph);
   };
 
 
