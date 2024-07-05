@@ -658,7 +658,7 @@ void MultiRegionScheduler::generateRegMemLayout(DesignGraph &graph) {
 
   auto numRegions = regionGraphs.size();
 
-  // regionNewIdToPartId
+  // 0. initialize regionNewIdToPartId
   regionNewIdToPartId.resize(numRegions);
   for (uint32_t regionId = 0; regionId < numRegions; regionId++) {
     regionNewIdToPartId[regionId].resize(boost::num_vertices(regionGraphs[regionId]), UINT32_MAX);
@@ -672,6 +672,7 @@ void MultiRegionScheduler::generateRegMemLayout(DesignGraph &graph) {
   }
 
 
+  // 1. sort registers and exchange vals.
   // Writer part -> val. Needs padding
   mlir::SmallVector<mlir::SmallVector<mlir::TypedValue<toucan::RegType>>> regPoolOrdered;
   // order to exchangeValId
@@ -687,7 +688,7 @@ void MultiRegionScheduler::generateRegMemLayout(DesignGraph &graph) {
   // Now, registers and exchangeVal location and ops are sorted
   // Allocate space
 
-  // Allocate storage for all registers
+  // 2. Allocate storage for all registers
   for (auto &eachSection: regPoolOrdered) {
     for (auto &regVal: eachSection) {
       // allocate storate for every register
@@ -724,7 +725,7 @@ void MultiRegionScheduler::generateRegMemLayout(DesignGraph &graph) {
     }
   }
   
-  // collect all reg and memory, generate layout
+  // 3. Allocate storage for all memories
   // Here we assume each memory has at least 1 writer
   uint64_t memBaseAddr = 0;
   for (size_t vtxId = 0; vtxId < boost::num_vertices(graph.g); vtxId++) {
@@ -765,7 +766,7 @@ void MultiRegionScheduler::generateRegMemLayout(DesignGraph &graph) {
 
 
 
-  // Reorder exchangePool
+  // 4. Reorder exchangePool
   // old Id -> new Id
   mlir::SmallVector<uint32_t> exchangePoolReorderIdMap;
   uint32_t expectedExchangePoolSize = 0;
@@ -833,7 +834,6 @@ void MultiRegionScheduler::schedule(DesignGraph &graph) {
   auto numRegions = regionGraphs.size();
 
   generateRegMemLayout(graph);
-
 
   // dedup strings
   collectPrintString(graph, codeGenInfo.printStrings);
