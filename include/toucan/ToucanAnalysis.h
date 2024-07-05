@@ -455,8 +455,12 @@ namespace toucan {
 
     CGInfo codeGenInfo;
 
-    uint32_t partitionRegPaddingSpace = 32;
+    uint32_t partitionPaddingSpace = 32;
     uint32_t memPaddingSpace = 32;
+    // if a memory has multiple writer, add extra padding to avoid possible write conflict. 
+    // 4 => each memory element (4bits) takes 32 bits (4B)
+    // Warning: Change this number also requires change in CodeGen and simulator!!
+    uint32_t multiWriterMemElemBytes = 4;
 
     void levelizeGraph(DesignGraph &graph);
     void findCutPoints(DesignGraph &graph);
@@ -470,9 +474,8 @@ namespace toucan {
     private:
 
     // void collectConstant(DesignGraph &graph, CGPartitionMetaInfo &partInfo, uint32_t partId);
-    void sortRegistersForLocality(const PartitioningGraph &graph,  mlir::SmallVector<mlir::SmallVector<mlir::Value>> &regOrdered);
-    void sortOpsAndExchangeValsForLocality(const mlir::SmallVector<mlir::SmallVector<mlir::Value>> &regPoolOrdered, mlir::SmallVector<mlir::SmallVector<mlir::SmallVector<uint32_t>>> &exchangeValIdOrdered);
-    void sortEveryLevelForLocality(uint32_t regionId);
+    void sortRegistersForLocality(const PartitioningGraph &graph,  mlir::SmallVector<mlir::SmallVector<mlir::TypedValue<toucan::RegType>>> &regOrdered);
+    void sortOpsAndExchangeValsForLocality(const mlir::SmallVector<mlir::SmallVector<mlir::TypedValue<toucan::RegType>>> &regPoolOrdered, mlir::SmallVector<mlir::SmallVector<mlir::SmallVector<uint32_t>>> &exchangeValIdOrdered);
     void generateRegMemLayout(DesignGraph &graph);
   };
 

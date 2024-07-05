@@ -351,7 +351,7 @@ void MultiRegionScheduler::levelizeAllPartitions(mlir::MLIRContext *context) {
 
 
 
-void MultiRegionScheduler::sortRegistersForLocality(const PartitioningGraph &graph,  mlir::SmallVector<mlir::SmallVector<mlir::Value>> &regOrdered) {
+void MultiRegionScheduler::sortRegistersForLocality(const PartitioningGraph &graph,  mlir::SmallVector<mlir::SmallVector<mlir::TypedValue<toucan::RegType>>> &regOrdered) {
   regOrdered.clear();
 
   mlir::SmallVector<mlir::SmallVector<uint32_t>> partToRegReads;
@@ -390,9 +390,9 @@ void MultiRegionScheduler::sortRegistersForLocality(const PartitioningGraph &gra
   // Sort by reader: shared read, read by p0, p1, p2, ...
 
   // Here we assume replication rate is relatively small
-  mlir::DenseSet<mlir::Value> replicatedRegReadVals;
-  mlir::DenseMap<mlir::Value, uint32_t> regReadValToPartId;
-  mlir::DenseSet<mlir::Value> regValRead, regValWrite;
+  mlir::DenseSet<mlir::TypedValue<toucan::RegType>> replicatedRegReadVals;
+  mlir::DenseMap<mlir::TypedValue<toucan::RegType>, uint32_t> regReadValToPartId;
+  mlir::DenseSet<mlir::TypedValue<toucan::RegType>> regValRead, regValWrite;
 
   for (size_t partId = 0; partId < partToRegReads.size(); partId++) {
     for (auto vtxId: partToRegReads[partId]) {
@@ -413,12 +413,12 @@ void MultiRegionScheduler::sortRegistersForLocality(const PartitioningGraph &gra
   }
 
   // reg vals that read by multiple partitions (multiple reader)
-  mlir::SmallVector<mlir::Value> sharedVals;
+  mlir::SmallVector<mlir::TypedValue<toucan::RegType>> sharedVals;
   // reg vals that has only 1 reader
-  mlir::SmallVector<mlir::SmallVector<mlir::Value>> groupedVals;
+  mlir::SmallVector<mlir::SmallVector<mlir::TypedValue<toucan::RegType>>> groupedVals;
   // reg vals with no reader
-  // mlir::SmallVector<mlir::Value> readOnlyRegVals;
-  mlir::SmallVector<mlir::Value> writeOnlyRegVals;
+  // mlir::SmallVector<mlir::TypedValue<toucan::RegType>> readOnlyRegVals;
+  mlir::SmallVector<mlir::TypedValue<toucan::RegType>> writeOnlyRegVals;
 
   // auto numReadParts = partToRegReads.size();
   groupedVals.resize(partToRegReads.size());
@@ -471,8 +471,8 @@ void MultiRegionScheduler::sortRegistersForLocality(const PartitioningGraph &gra
 }
 
 
-void MultiRegionScheduler::sortOpsAndExchangeValsForLocality(const mlir::SmallVector<mlir::SmallVector<mlir::Value>> &regPoolOrdered, mlir::SmallVector<mlir::SmallVector<mlir::SmallVector<uint32_t>>> &exchangeValIdOrdered) {
-  mlir::DenseMap<mlir::Value, uint32_t> regValToOrder;
+void MultiRegionScheduler::sortOpsAndExchangeValsForLocality(const mlir::SmallVector<mlir::SmallVector<mlir::TypedValue<toucan::RegType>>> &regPoolOrdered, mlir::SmallVector<mlir::SmallVector<mlir::SmallVector<uint32_t>>> &exchangeValIdOrdered) {
+  mlir::DenseMap<mlir::TypedValue<toucan::RegType>, uint32_t> regValToOrder;
   mlir::SmallVector<uint32_t> vtxIdToLevelOrder;
   mlir::SmallVector<uint32_t> exchangeValIdToOrder;
 
@@ -651,6 +651,9 @@ void MultiRegionScheduler::sortOpsAndExchangeValsForLocality(const mlir::SmallVe
 
 void MultiRegionScheduler::generateRegMemLayout(DesignGraph &graph) {
   // collect all reg and memory, generate layout
+  codeGenInfo.regPool.clear();
+  codeGenInfo.memPool.clear();
+
   assert(regionPartLevels.size() > 0);
 
   auto numRegions = regionGraphs.size();
@@ -670,7 +673,7 @@ void MultiRegionScheduler::generateRegMemLayout(DesignGraph &graph) {
 
 
   // Writer part -> val. Needs padding
-  mlir::SmallVector<mlir::SmallVector<mlir::Value>> regPoolOrdered;
+  mlir::SmallVector<mlir::SmallVector<mlir::TypedValue<toucan::RegType>>> regPoolOrdered;
   // order to exchangeValId
   // region -> writer part -> valId. Needs padding
   mlir::SmallVector<mlir::SmallVector<mlir::SmallVector<uint32_t>>> exchangeValIdOrdered;
@@ -684,7 +687,141 @@ void MultiRegionScheduler::generateRegMemLayout(DesignGraph &graph) {
   // Now, registers and exchangeVal location and ops are sorted
   // Allocate space
 
+  // Allocate storage for all registers
+  for (auto &eachSection: regPoolOrdered) {
+    for (auto &regVal: eachSection) {
+      // allocate storate for every register
+      auto regDefiningOp = regVal.getDefiningOp();
 
+      CGRegMetaInfo regMeta;
+
+      regMeta.namehint = getSVNameHintAttr(regDefiningOp);
+      auto fragmentIdAttr = getSignalFragmentIDAttr(regDefiningOp);
+      if (fragmentIdAttr) {
+        regMeta.fragment_id = fragmentIdAttr->getInt();
+      } else {
+        regMeta.fragment_id = UINT32_MAX;
+      }
+      regMeta.bitWidth = regVal.getType().getElementWidth();
+      regMeta.isPadding = false;
+      regMeta.isIO = hasIOSignalMarker(regDefiningOp);
+
+      auto regId = codeGenInfo.regPool.size();
+      codeGenInfo.regPool.push_back(regMeta);
+      codeGenInfo.toucanRegToId[regVal] = regId;
+    }
+    // add padding regs
+    for (size_t i = 0; i < partitionPaddingSpace; i++) {
+      CGRegMetaInfo paddingRegMeta;
+
+      paddingRegMeta.isPadding = true;
+      paddingRegMeta.bitWidth = 0;
+      paddingRegMeta.fragment_id = 0;
+      paddingRegMeta.isIO = false;
+
+      // auto regId = codeGenInfo.regPool.size();
+      codeGenInfo.regPool.push_back(paddingRegMeta);
+    }
+  }
+  
+  // collect all reg and memory, generate layout
+  // Here we assume each memory has at least 1 writer
+  uint64_t memBaseAddr = 0;
+  for (size_t vtxId = 0; vtxId < boost::num_vertices(graph.g); vtxId++) {
+    // for each mem write
+    auto vtxOpName = graph.g[vtxId].toucanOpName;
+    if (vtxOpName == CGToucanOPName::MemWrite) {
+      // Note: For now, mems with multiple write ports are still merged, so at this time, each memory will only have 1 writer.
+      auto memWriteOp = cast<toucan::MemWriteOp>(graph.g[vtxId].op);
+      auto memVal = memWriteOp.getMem();
+      auto memDefiningOp = memVal.getDefiningOp();
+
+      CGMemMetaInfo memMeta;
+
+      memMeta.namehint = getSVNameHintAttr(memDefiningOp);
+      auto fragmentIdAttr = getSignalFragmentIDAttr(memDefiningOp);
+      if (fragmentIdAttr) {
+        memMeta.fragment_id = fragmentIdAttr->getInt();
+      } else {
+        memMeta.fragment_id = UINT32_MAX;
+      }
+      memMeta.bitWidth = memVal.getType().getElementWidth();
+      memMeta.memDepth = memVal.getType().getDepth();
+      memMeta.hasMultipleWriter = (graph.g[vtxId].weight > 1);
+
+      // if a memory has multiple writer, add extra padding to avoid possible write conflict
+      assert(memMeta.bitWidth <= 4);
+      uint64_t memCapacity = (memMeta.hasMultipleWriter) ? memMeta.memDepth * multiWriterMemElemBytes : memMeta.memDepth;
+      memMeta.memBase = memBaseAddr;
+      memBaseAddr += (memCapacity + memPaddingSpace);
+
+      auto memId = codeGenInfo.memPool.size();
+      codeGenInfo.memPool.push_back(memMeta);
+      codeGenInfo.toucanMemToId[memVal] = memId;
+    }
+  }
+  codeGenInfo.totalMemSize = memBaseAddr;
+
+
+
+
+  // Reorder exchangePool
+  // old Id -> new Id
+  mlir::SmallVector<uint32_t> exchangePoolReorderIdMap;
+  uint32_t expectedExchangePoolSize = 0;
+  for (const auto &eachRegion: exchangeValIdOrdered) {
+    for (const auto &eachWriterPart: eachRegion) {
+      expectedExchangePoolSize += eachWriterPart.size();
+      expectedExchangePoolSize += partitionPaddingSpace;
+    }
+  }
+  exchangePoolReorderIdMap.resize(expectedExchangePoolSize, UINT32_MAX);
+
+  // region -> writer part -> valId. Needs padding
+  uint32_t nextValId = 0;
+  for (const auto &eachRegion: exchangeValIdOrdered) {
+    for (const auto &eachWriterPart: eachRegion) {
+      for (const auto eachExchangeValId: eachWriterPart) {
+        exchangePoolReorderIdMap[eachExchangeValId] = nextValId;
+        nextValId++;
+      }
+      // add padding
+      for (size_t i = 0; i < partitionPaddingSpace; i++) {
+        CGExchangeValueMetaInfo paddingValMeta;
+        paddingValMeta.isPadding = true;
+        paddingValMeta.writerId = UINT32_MAX;
+        paddingValMeta.writerRegionId = UINT32_MAX;
+
+        uint32_t paddingValOldId = codeGenInfo.exchangePool.size();
+        codeGenInfo.exchangePool.push_back(paddingValMeta);
+        exchangePoolReorderIdMap[paddingValOldId] = nextValId;
+        nextValId++;
+      }
+    }
+  }
+  assert(nextValId == expectedExchangePoolSize);
+
+  // sort exchangePool
+  mlir::SmallVector<CGExchangeValueMetaInfo> exchangePoolOrdered;
+  exchangePoolOrdered.resize(codeGenInfo.exchangePool.size());
+  for (uint32_t oldId = 0; oldId < exchangePoolReorderIdMap.size(); oldId++) {
+    auto newId = exchangePoolReorderIdMap[oldId];
+    assert(newId != UINT32_MAX);
+    exchangePoolOrdered[newId] = codeGenInfo.exchangePool[oldId];
+  }
+  std::swap(exchangePoolOrdered, codeGenInfo.exchangePool);
+
+  // modify all references
+  for (auto &eachRegionGraph: regionGraphs) {
+    for (uint32_t vtxId = 0; vtxId < boost::num_vertices(eachRegionGraph); vtxId++) {
+      auto opName = eachRegionGraph[vtxId].toucanOpName;
+      if ((opName == CGToucanOPName::ExchangeRead) || (opName == CGToucanOPName::ExchangeWrite)) {
+        auto oldValId = eachRegionGraph[vtxId].exchangeValId;
+        auto newValId = exchangePoolReorderIdMap[oldValId];
+        eachRegionGraph[vtxId].exchangeValId = newValId;
+      }
+    }
+  }
 
 
   return;
