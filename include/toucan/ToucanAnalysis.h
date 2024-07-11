@@ -26,6 +26,7 @@
 #include "toucan/ToucanDialect.h"
 #include "toucan/ToucanOps.h"
 #include "toucan/ToucanTypes.h"
+#include "toucan/PartitioningGraph.h"
 
 #include <boost/graph/adjacency_list.hpp>
 
@@ -34,42 +35,6 @@
 #include <format>
 
 namespace toucan {
-
-  enum class CGToucanOPName {
-    ConstDecl,
-    LUT,
-    VecRead,
-    VecDecl,
-    Print,
-    Stop,
-    RegRead,
-    RegWrite,
-    MemRead,
-    MemWrite,
-    ShouldNotAppear,
-    // Note: Exchange between regions in MultiRegionScheduler.
-    ExchangeRead,
-    ExchangeWrite
-    // Constant,
-    // ConstVec
-  };
-
-  std::string stringifyCGToucanOPName(CGToucanOPName val);
-
-  struct PartitioningGraphNodeProperty {
-    public:
-    // LUTOpName opName;
-    mlir::Operation *op;
-    // weight is actually number of ops in this node
-    uint32_t weight;
-    uint32_t exchangeValId;
-    
-    CGToucanOPName toucanOpName;
-  };
-
-  // Note: use boost::vecS (std::vector) to ensure vertex_descriptor is integer and also incremental
-
-  typedef boost::adjacency_list<boost::vecS, boost::vecS, boost::bidirectionalS, PartitioningGraphNodeProperty, boost::no_property, boost::no_property, boost::listS> PartitioningGraph;
 
 
 
@@ -81,7 +46,7 @@ namespace toucan {
     mlir::Operation *definingOp;
 
     uint32_t levelId;
-    uint32_t opId;
+    // uint32_t opId;
     uint8_t bitWidth;
 
     std::optional<mlir::StringRef> namehint;
@@ -157,12 +122,12 @@ namespace toucan {
     uint32_t en;
   };
 
-  struct ExchangeReadMetaInfo {
+  struct CGExchangeReadMetaInfo {
     uint32_t exchangeVal;
     uint32_t localVal;
   };
 
-  struct ExchangeWriteMetaInfo {
+  struct CGExchangeWriteMetaInfo {
     uint32_t localVal;
     uint32_t exchangeVal;
   };
@@ -175,6 +140,7 @@ namespace toucan {
       // top level
       CGMemReadOpMetaInfo memRead;
       CGRegReadOpMetaInfo regRead;
+      CGExchangeReadMetaInfo exgRead;
 
       // middle levels, exec
       CGLUTOpMetaInfo lut;
@@ -185,6 +151,7 @@ namespace toucan {
       CGRegWriteOpMetaInfo regWrite;
       CGPrintOpMetaInfo print;
       CGStopOpMetaInfo stop;
+      CGExchangeWriteMetaInfo exgWrite;
     };
 
     std::optional<mlir::StringRef> namehint;
@@ -211,6 +178,14 @@ namespace toucan {
           memRead.result = result;
           return;
         }
+        case CGToucanOPName::ExchangeRead: {
+          exgRead.localVal = result;
+          return;
+        }
+        case CGToucanOPName::ExchangeWrite: {
+          exgWrite.exchangeVal = result;
+          return;
+        }
 
         // ConstDecl & VecDecl: Should not have any op with such type
         case CGToucanOPName::ConstDecl:
@@ -224,11 +199,8 @@ namespace toucan {
           llvm::dbgs() << "Error: should not have result\n";
           assert(false);
         }
-        default: {
-          llvm::dbgs() << "Error: Unknow codegen op name " << static_cast<uint32_t>(opName) << "\n";
-          llvm_unreachable("Unsupported op");
-        }
       }
+      llvm::dbgs() << "Error: Unknow codegen op name " << static_cast<uint32_t>(opName) << "\n";
       llvm_unreachable("Should not reach here");
     }
     uint32_t getResult() {
@@ -237,6 +209,8 @@ namespace toucan {
         case CGToucanOPName::VecRead: return vec.result;
         case CGToucanOPName::RegRead: return regRead.result;
         case CGToucanOPName::MemRead: return memRead.result;
+        case CGToucanOPName::ExchangeRead: return exgRead.localVal;
+        case CGToucanOPName::ExchangeWrite: return exgWrite.exchangeVal;
 
         // ConstDecl & VecDecl: Should not have any op with such type
         case CGToucanOPName::ConstDecl:
@@ -250,18 +224,19 @@ namespace toucan {
           llvm::dbgs() << "Error: should not have result\n";
           assert(false);
         }
-        default: {
-          llvm::dbgs() << "Error: Unknow codegen op name " << static_cast<uint32_t>(opName) << "\n";
-          llvm_unreachable("Unsupported op");
-        }
       }
+      llvm::dbgs() << "Error: Unknow codegen op name " << static_cast<uint32_t>(opName) << "\n";
+      llvm_unreachable("Unsupported op");
     }
     bool hasResult() {
       switch (opName) {
         case CGToucanOPName::LUT:
         case CGToucanOPName::VecRead:
         case CGToucanOPName::RegRead:
-        case CGToucanOPName::MemRead: return true;
+        case CGToucanOPName::MemRead: 
+        case CGToucanOPName::ExchangeRead:
+        case CGToucanOPName::ExchangeWrite:
+          return true;
 
         default: return false;
       }
@@ -291,6 +266,7 @@ namespace toucan {
     bool isPadding;
     uint32_t writerId;
     uint32_t writerRegionId;
+    mlir::Value val;
     // region, vtxId (new)
     mlir::SmallVector<std::tuple<uint32_t, uint32_t>> readerIds;
   };
@@ -307,6 +283,8 @@ namespace toucan {
     uint32_t numMemWrites;
     uint32_t numPrints;
     uint32_t numStops;
+    uint32_t numExchangeReads;
+    uint32_t numExchangeWrites;
   };
 
   struct CGOpStatistics {
@@ -319,6 +297,8 @@ namespace toucan {
     uint32_t numMemWrites;
     uint32_t numPrints;
     uint32_t numStops;
+    uint32_t numExchangeReads;
+    uint32_t numExchangeWrites;
   };
 
   // Information needed for code gen, each level
@@ -400,8 +380,10 @@ namespace toucan {
 
   class SchedulerBase {
   public:
-    void collectPrintString(DesignGraph &graph, mlir::DenseMap<mlir::StringRef, uint32_t>  &printStrings);
-    void levelizeWorker(const PartitioningGraph &g, mlir::SmallVector<mlir::SmallVector<uint32_t>> &graphLevels);
+    static void getVtxToLevel(const PartitioningGraph &g, mlir::SmallVector<uint32_t> &levels, uint32_t maxVtxId);
+    static void collectPrintString(DesignGraph &graph, mlir::DenseMap<mlir::StringRef, uint32_t>  &printStrings);
+    static void levelizeWorker(const PartitioningGraph &g, mlir::SmallVector<mlir::SmallVector<uint32_t>> &graphLevels);
+    static void populateOpMetaDebugInfo(CGOpMetaInfo &opMeta, mlir::Operation *op);
   };
 
 
@@ -462,12 +444,12 @@ namespace toucan {
     // Warning: Change this number also requires change in CodeGen and simulator!!
     uint32_t multiWriterMemElemBytes = 4;
 
-    void levelizeGraph(DesignGraph &graph);
+    void levelizeGraphForCut(DesignGraph &graph);
     void findCutPoints(DesignGraph &graph);
     void cutGraph(DesignGraph &graph);
 
     //
-    void levelizeAllPartitions(mlir::MLIRContext *context);
+    mlir::LogicalResult levelizeAllPartitions(mlir::MLIRContext *context);
     void schedule(DesignGraph &graph);
 
 
@@ -477,6 +459,15 @@ namespace toucan {
     void sortRegistersForLocality(const PartitioningGraph &graph,  mlir::SmallVector<mlir::SmallVector<mlir::TypedValue<toucan::RegType>>> &regOrdered);
     void sortOpsAndExchangeValsForLocality(const mlir::SmallVector<mlir::SmallVector<mlir::TypedValue<toucan::RegType>>> &regPoolOrdered, mlir::SmallVector<mlir::SmallVector<mlir::SmallVector<uint32_t>>> &exchangeValIdOrdered);
     void generateRegMemLayout(DesignGraph &graph);
+    void collectConstant(PartitioningGraph &graph, CGPartitionMetaInfo &partInfo, const mlir::SmallVector<uint32_t> firstLevelOps);
+
+    // TODO: Share those infrastructure with SingleRegionScheduler
+    static void scheduleFirstLevel(PartitioningGraph &graph, CGPartitionMetaInfo &partInfo, CGInfo &codeGenInfo, const mlir::SmallVector<uint32_t> &firstLevelOps);
+    static void scheduleMiddleLevel(PartitioningGraph &graph, CGPartitionMetaInfo &partInfo, CGInfo &codeGenInfo, const mlir::SmallVector<uint32_t> &currentLevel, uint32_t levelId);
+    static void scheduleLastLevel(PartitioningGraph &graph, CGPartitionMetaInfo &partInfo, CGInfo &codeGenInfo, const mlir::SmallVector<uint32_t> &lastLevel);
+
+    static void scheduleExchangeReads(PartitioningGraph &graph, CGPartitionMetaInfo &partInfo, CGInfo &codeGenInfo, const mlir::SmallVector<uint32_t> &firstLevel);
+    static void scheduleExchangeWrites(PartitioningGraph &graph, CGPartitionMetaInfo &partInfo, CGInfo &codeGenInfo, const mlir::SmallVector<uint32_t> &lastLevel);
   };
 
 

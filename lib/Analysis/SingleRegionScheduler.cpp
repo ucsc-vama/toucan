@@ -196,7 +196,7 @@ void SingleRegionScheduler::collectConstant(DesignGraph &graph, CGPartitionMetaI
           assert(!partInfo.valueToValId.contains(constResultVal));
           partInfo.valueToValId[constResultVal] = valId;
 
-          partInfo.valuePool.push_back({true, false, rawVal, op, 0, 0, static_cast<uint8_t>(bitWidth), std::nullopt, 0});
+          partInfo.valuePool.push_back({true, false, rawVal, op, 0, static_cast<uint8_t>(bitWidth), std::nullopt, 0});
         } else {
           // it must be a vector const
           auto defConstVecOp = cast<toucan::DefConstVectorOp>(op);
@@ -218,7 +218,7 @@ void SingleRegionScheduler::collectConstant(DesignGraph &graph, CGPartitionMetaI
 
             auto elemValMask = static_cast<uint8_t>((1 << elemValWidth) - 1);
             uint8_t rawVal = elemValMask & static_cast<uint8_t>(elemVal.getZExtValue());
-            partInfo.valuePool.push_back({true, false, rawVal, op, 0, 0, static_cast<uint8_t>(bitWidth), std::nullopt, 0});
+            partInfo.valuePool.push_back({true, false, rawVal, op, 0, static_cast<uint8_t>(bitWidth), std::nullopt, 0});
           }
         }
       }
@@ -226,16 +226,6 @@ void SingleRegionScheduler::collectConstant(DesignGraph &graph, CGPartitionMetaI
   }
 }
 
-static void populateOpMetaDebugInfo(CGOpMetaInfo &opMeta, Operation *op) {
-  opMeta.namehint = getSVNameHintAttr(op);
-
-  auto fragmentIdAttr = getSignalFragmentIDAttr(op);
-  if (fragmentIdAttr) {
-    opMeta.fragment_id = fragmentIdAttr->getInt();
-  } else {
-    opMeta.fragment_id = UINT32_MAX;
-  }
-}
 
 void SingleRegionScheduler::schedule(DesignGraph &graph, uint32_t partitionRegPaddingSpace, uint32_t memPaddingSpace) {
 
@@ -255,7 +245,7 @@ void SingleRegionScheduler::schedule(DesignGraph &graph, uint32_t partitionRegPa
     std::memset(&partInfo.opStatistics, 0, sizeof(CGOpStatistics));
 
     // A const zero for all luts
-    CGValueMetaInfo zeroConst = {true, false, 0, nullptr, 0, 0, 0, std::nullopt, 0};
+    CGValueMetaInfo zeroConst = {true, false, 0, nullptr, 0, 0, std::nullopt, 0};
     partInfo.valuePool.push_back(zeroConst);
 
     // Collect all constants
@@ -297,6 +287,7 @@ void SingleRegionScheduler::schedule(DesignGraph &graph, uint32_t partitionRegPa
         } else if (tOpName == CGToucanOPName::ConstDecl) {
           // A constant decl. Do nothing.
         } else {
+          llvm::errs() << "Unknow op type " << stringifyCGToucanOPName(tOpName) << " at first level\n";
           assert(false && "Should not reach here");
         }
       }
@@ -314,7 +305,7 @@ void SingleRegionScheduler::schedule(DesignGraph &graph, uint32_t partitionRegPa
         valMeta.value = 0;
         valMeta.definingOp = opMeta.op;
         valMeta.levelId = 0;
-        valMeta.opId = opId;
+        // valMeta.opId = opId;
         valMeta.bitWidth = static_cast<uint8_t>(hw::getBitWidth(opMeta.op->getResult(0).getType()));
         valMeta.namehint = opMeta.namehint;
         valMeta.fragment_id = opMeta.fragment_id;
@@ -603,7 +594,7 @@ void SingleRegionScheduler::schedule(DesignGraph &graph, uint32_t partitionRegPa
         valMeta.value = 0;
         valMeta.definingOp = opMeta.op;
         valMeta.levelId = layerId;
-        valMeta.opId = currentLevelOps.size();
+        // valMeta.opId = currentLevelOps.size();
         valMeta.bitWidth = static_cast<uint8_t>(hw::getBitWidth(opMeta.op->getResult(0).getType()));
         valMeta.namehint = opMeta.namehint;
         valMeta.fragment_id = opMeta.fragment_id;
@@ -653,7 +644,7 @@ void SingleRegionScheduler::schedule(DesignGraph &graph, uint32_t partitionRegPa
           valMeta.value = 0;
           valMeta.definingOp = opMeta.op;
           valMeta.levelId = layerId;
-          valMeta.opId = currentLevelOps.size();
+          // valMeta.opId = currentLevelOps.size();
           valMeta.namehint = opMeta.namehint;
           valMeta.bitWidth = bitWidth;
           valMeta.fragment_id = opMeta.fragment_id;
@@ -836,10 +827,6 @@ void SingleRegionScheduler::schedule(DesignGraph &graph, uint32_t partitionRegPa
       partInfo.opStatistics.numPrints = stats.numPrints;
       partInfo.opStatistics.numStops = stats.numStops;
     }
-
-    // TODO: check correctness
-
-
 
     codeGenInfo.partitionInfo.push_back(std::move(partInfo));
   }

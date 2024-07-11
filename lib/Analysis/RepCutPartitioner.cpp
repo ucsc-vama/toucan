@@ -38,11 +38,13 @@ void RepCutPartitioner::setPartitionTarget() {
 LogicalResult RepCutPartitioner::partitionAndSchedule(mlir::MLIRContext *context, DesignGraph &graph) {
 
   // Levelize
-  levelizeGraph(graph);
+  levelizeGraphForCut(graph);
 
   // Cut into 2 subgraph
   findCutPoints(graph);
   cutGraph(graph);
+  // Clear unneeded data
+  graphLevels.clear();
 
 
   auto numVtxes = boost::num_vertices(graph.g);

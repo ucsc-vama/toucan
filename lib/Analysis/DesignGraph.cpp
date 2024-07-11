@@ -31,27 +31,6 @@ bool DesignGraph::opShouldRemoveInGraph(mlir::Operation *op) {
   return false;
 }
 
-static void mergeVerticies(uint32_t dst, mlir::SmallVector<uint32_t> &toMerge, PartitioningGraph &g) {
-  // Merge!
-  // update edge
-  for (auto vtxToMerge: toMerge) {
-    auto out_edges = boost::out_edges(vtxToMerge, g);
-    for(auto ei = out_edges.first; ei != out_edges.second; ++ei) {
-      auto target = boost::target(*ei, g);
-      assert(target != dst);
-      boost::add_edge(dst, target, g);
-    }
-    auto in_edges = boost::in_edges(vtxToMerge, g);
-    for (auto ei = in_edges.first; ei != in_edges.second; ++ei) {
-      auto source = boost::source(*ei, g);
-      if (source != dst) {
-        boost::add_edge(source, dst, g);
-      }
-    }
-  }
-  // update weight
-  g[dst].weight += toMerge.size();
-}
 
 static CGToucanOPName getOpName(Operation* op) {
   if (isa<toucan::ConstantOp>(op) || isa<toucan::DefConstVectorOp>(op)) return CGToucanOPName::ConstDecl;
