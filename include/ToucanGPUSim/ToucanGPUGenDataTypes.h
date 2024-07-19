@@ -135,10 +135,15 @@ namespace toucanGPUSim {
     // Leave randomization to simulator.
     std::vector<uint8_t> regPool;
     std::vector<uint8_t> memPool;
+    std::vector<uint8_t> exchangePool;
+
     uint32_t regPoolSize;
     uint32_t memPoolSize;
+    uint32_t exchangePoolSize;
 
     std::vector<SimPartitionInfo> parts;
+
+    std::vector<std::vector<uint32_t>> regionPartitionIds;
 
     bool shouldStop;
 
@@ -155,8 +160,8 @@ namespace toucanGPUSim {
   // Because I cannot find any serialize lib that don't require RTTI and exception, which are disabled by llvm
   void serializeSimDesignInfo(std::ostream& out, const SimDesignInfo& info);
   void deserializeSimDesignInfo(std::istream& in, SimDesignInfo& info);
-  void serializeSimDebugInfo(std::ostream& out, const toucanSim::SimDebugInfo& info);
-  void deserializeSimDebugInfo(std::istream& in, toucanSim::SimDebugInfo& info);
+  void serializeSimDebugInfo(std::ostream& out, const toucanGPUSim::SimDebugInfo& info);
+  void deserializeSimDebugInfo(std::istream& in, toucanGPUSim::SimDebugInfo& info);
   
 
 

@@ -39,7 +39,7 @@
 #include "toucan/ToucanPassCommon.h"
 
 #include "toucan/CodeGenCommon.h"
-#include "ToucanSim/ToucanGenDataTypes.h"
+#include "ToucanGPUSim/ToucanGPUGenDataTypes.h"
 
 using namespace toucan;
 using namespace circt;
@@ -67,6 +67,16 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     if (failed(result)) {
       return signalPassFailure();
     }
+
+
+    toucanGPUSim::SimDesignInfo designInfo;
+    toucanGPUSim::SimDebugInfo debugInfo;
+
+    populateLUT();
+    designInfo.lut.assign(lutContent.begin(), lutContent.end());
+
+    designInfo.regPoolSize = p.codeGenInfo.regPool.size();
+    designInfo.memPoolSize = p.codeGenInfo.totalMemSize;
 
   }
 
