@@ -264,6 +264,7 @@ namespace toucan {
 
   struct CGExchangeValueMetaInfo {
     bool isPadding;
+    // write id (new)
     uint32_t writerId;
     uint32_t writerRegionId;
     mlir::Value val;
@@ -463,7 +464,7 @@ namespace toucan {
 
     // TODO: Share those infrastructure with SingleRegionScheduler
     static void scheduleFirstLevel(PartitioningGraph &graph, CGPartitionMetaInfo &partInfo, CGInfo &codeGenInfo, const mlir::SmallVector<uint32_t> &firstLevelOps);
-    static void scheduleMiddleLevel(PartitioningGraph &graph, CGPartitionMetaInfo &partInfo, CGInfo &codeGenInfo, const mlir::SmallVector<uint32_t> &currentLevel, uint32_t levelId);
+    void scheduleMiddleLevel(PartitioningGraph &graph, CGPartitionMetaInfo &partInfo, CGInfo &codeGenInfo, const mlir::SmallVector<uint32_t> &currentLevel, uint32_t levelId);
     static void scheduleLastLevel(PartitioningGraph &graph, CGPartitionMetaInfo &partInfo, CGInfo &codeGenInfo, const mlir::SmallVector<uint32_t> &lastLevel);
 
     static void scheduleExchangeReads(PartitioningGraph &graph, CGPartitionMetaInfo &partInfo, CGInfo &codeGenInfo, const mlir::SmallVector<uint32_t> &firstLevel);

@@ -47,7 +47,7 @@ LogicalResult RepCutPartitioner::partitionAndSchedule(mlir::MLIRContext *context
   graphLevels.clear();
 
 
-  auto numVtxes = boost::num_vertices(graph.g);
+  // auto numVtxes = boost::num_vertices(graph.g);
   auto numRegions = regionGraphs.size();
   assert(regionPartitionNumbers.size() == numRegions);
 
@@ -106,9 +106,14 @@ LogicalResult RepCutPartitioner::partitionAndSchedule(mlir::MLIRContext *context
     printPartitionStatistics(stat);
   }
 
-  levelizeAllPartitions(context);
+  auto levelize_stat = levelizeAllPartitions(context);
+  assert(succeeded(levelize_stat));
 
+  auto schedule_start = std::chrono::high_resolution_clock::now();
   schedule(graph);
+  auto schedule_end = std::chrono::high_resolution_clock::now();
+  auto schedule_duration = std::chrono::duration_cast<std::chrono::milliseconds>(schedule_end - schedule_start).count();
+  llvm::outs() << "Scheduling took " << schedule_duration << "ms\n";
 
   return success();
 }

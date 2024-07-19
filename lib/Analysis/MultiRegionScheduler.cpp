@@ -102,6 +102,9 @@ void MultiRegionScheduler::cutGraph(DesignGraph &graph) {
   vtxIdToRegionId.assign(graphSize, UINT32_MAX);
   regionVtxes.emplace_back();
 
+  mlir::DenseMap<mlir::Operation*, uint32_t> opToVtxId;
+  opToVtxId.reserve(graphSize);
+
 
   size_t currentRegionId = 0;
   auto nextCutPoint = cutPoints[0];
@@ -115,16 +118,59 @@ void MultiRegionScheduler::cutGraph(DesignGraph &graph) {
 
     if (isLastLevelInRegion) {
       currentRegionId++;
-      regionVtxes.emplace_back();
+      // regionVtxes.emplace_back();
       nextCutPoint = (currentRegionId >= cutPoints.size()) ? graphLevels.size() : cutPoints[currentRegionId];
     }
     
-    regionVtxes.back().insert(regionVtxes.back().end(), currentLevel.begin(), currentLevel.end());
-    assert(currentRegionId + 1 == regionVtxes.size());
+    for (auto ev: currentLevel) {
+      vtxIdToRegionId[ev] = currentRegionId;
+    }
+    // regionVtxes.back().insert(regionVtxes.back().end(), currentLevel.begin(), currentLevel.end());
+    // assert(currentRegionId + 1 == regionVtxes.size());
     // llvm::dbgs() << "Put level " << levelId << " to region " << currentRegionId << "\n";
   }
+  regionVtxes.resize(currentRegionId + 1);
 
-  // TODO: Move VecDecl to its user region (backwards)
+  // Move VecDecl to its user region (backwards)
+  mlir::SmallVector<uint32_t> vecUserRegions;
+  for (uint32_t vtxId = 0; vtxId < graphSize; vtxId++) {
+    auto tOpName = graph.g[vtxId].toucanOpName;
+    auto opPtr = graph.g[vtxId].op;
+    assert(opPtr != nullptr);
+    assert(!opToVtxId.contains(opPtr));
+    opToVtxId[opPtr] = vtxId;
+
+    if (tOpName == CGToucanOPName::VecDecl) {
+      auto vecDeclRegion = vtxIdToRegionId[vtxId];
+
+      vecUserRegions.clear();
+      auto vecUserEdges = boost::out_edges(vtxId, graph.g);
+      for (auto ei = vecUserEdges.first; ei != vecUserEdges.second; ei++) {
+        auto userVtxId = boost::target(*ei, graph.g);
+        auto userVtxRegion = vtxIdToRegionId[userVtxId];
+        vecUserRegions.push_back(userVtxRegion);
+      }
+
+      assert(!vecUserRegions.empty());
+      auto vecUserRegion = vecUserRegions[0];
+      for (auto eachUserRegion: vecUserRegions) {
+        assert(vecUserRegion == eachUserRegion && "All VecDecl users should be in same region!");
+      }
+
+      if (vecDeclRegion != vecUserRegion) {
+        assert(vecUserRegion > vecDeclRegion);
+        // move VecDecl to user region
+        // llvm::dbgs() << "Move vtx " << vtxId << " from region " << vecDeclRegion << " to region " << vecUserRegion << "\n";
+        vtxIdToRegionId[vtxId] = vecUserRegion;
+      }
+    }
+  }
+
+  for (uint32_t vtxId = 0; vtxId < graphSize; vtxId++) {
+    auto regionId = vtxIdToRegionId[vtxId];
+    assert(regionId != UINT32_MAX);
+    regionVtxes[regionId].push_back(vtxId);
+  }
   
 
   // copy nodes for every new graph
@@ -137,12 +183,23 @@ void MultiRegionScheduler::cutGraph(DesignGraph &graph) {
       auto newVertex = boost::add_vertex(graph.g[ev], rg);
 
       assert(vtxIdToNewId[ev] == UINT32_MAX);
-      assert(vtxIdToRegionId[ev] == UINT32_MAX);
+      // assert(vtxIdToRegionId[ev] == UINT32_MAX);
       vtxIdToNewId[ev] = newVertex;
-      vtxIdToRegionId[ev] = regionId;
+      // vtxIdToRegionId[ev] = regionId;
 
       assert(newVertex == regionNewIdToVtxId.back().size());
       regionNewIdToVtxId.back().push_back(ev);
+
+      // if (graph.g[ev].toucanOpName == CGToucanOPName::VecDecl) {
+      //   int numInputs = cast<toucan::DefVectorOp>(graph.g[ev].op).getInputs().size();
+      //   auto inEdgeRange = boost::in_edges(ev, graph.g);
+      //   auto inEdges = std::distance(inEdgeRange.first, inEdgeRange.second);
+      //   if (numInputs != inEdges) {
+
+      //   llvm::dbgs() << "VecDecl has " << numInputs << " IR inputs, " << inEdges << " in edges\n";
+      //   }
+      //   assert(numInputs == inEdges);
+      // }
     }
 
     llvm::outs() << "Before add extra IO, region " << regionId << " has " << boost::num_vertices(rg) << " verticies\n";
@@ -155,6 +212,7 @@ void MultiRegionScheduler::cutGraph(DesignGraph &graph) {
   auto numRegions = regionGraphs.size();
 
   mlir::DenseMap<uint32_t, uint32_t> writerToExchangeValId;
+  mlir::DenseSet<uint32_t> processedVecDeclVtxes;
   mlir::SmallVector<mlir::DenseMap<uint32_t, uint32_t>> exchangeValIdToReader(numRegions);
   uint32_t numExchangeWrite = 0;
   uint32_t numExchangeRead = 0;
@@ -163,12 +221,24 @@ void MultiRegionScheduler::cutGraph(DesignGraph &graph) {
 
   mlir::SmallVector<mlir::SmallVector<uint32_t>> exgWriteInRegion(numRegions);
   mlir::SmallVector<mlir::SmallVector<uint32_t>> exgReadInRegion(numRegions);
+          
+  mlir::DenseMap<mlir::Value, uint32_t> vecReadValToExchangeId;
+  mlir::SmallVector<uint32_t> vecReadValUsersInOtherRegion;
 
   for (size_t i = 0; i < numRegions; i++) {
     exgWriteInRegion.emplace_back();
     exgReadInRegion.emplace_back();
   }
 
+  auto opResultValUsedByOtherRegion = [&](const mlir::Value &val, uint32_t currentRegion) {
+    for (const auto &eachUserOp: val.getUsers()) {
+      assert(opToVtxId.contains(eachUserOp));
+      auto userVtxId = opToVtxId[eachUserOp];
+      auto userRegionId = vtxIdToRegionId[userVtxId];
+      if (userRegionId != currentRegion) return true;
+    }
+    return false;
+  };
 
   auto rawEdges = boost::edges(graph.g);
   for (auto ei = rawEdges.first; ei != rawEdges.second; ++ei) {
@@ -186,69 +256,209 @@ void MultiRegionScheduler::cutGraph(DesignGraph &graph) {
       // An edge that cross (possibly multipe) regions
       assert(srcRegion < dstRegion);
 
-      if (!writerToExchangeValId.contains(edgeSource)) {
-        // Allocate a new exchange val, if it's not already exist
-        CGExchangeValueMetaInfo valInfo;
-        valInfo.isPadding = false;
-        auto writerOp = graph.g[edgeSource].op;
-        assert(writerOp->getNumResults() == 1);
-        valInfo.val = writerOp->getResult(0);
-        valInfo.writerId = edgeSource;
-        valInfo.writerRegionId = srcRegion;
+      auto srcOpName = graph.g[edgeSource].toucanOpName;
+      auto srcWeight = graph.g[edgeSource].weight;
 
-        uint32_t valId = codeGenInfo.exchangePool.size();
-        codeGenInfo.exchangePool.push_back(valInfo);
-        writerToExchangeValId[edgeSource] = valId;
+      if (srcWeight == 1) {
+        // unmerged vtx: lut, mem, etc, and vecDecl with only 1 user
+        if (!writerToExchangeValId.contains(edgeSource)) {
+          // Allocate a new exchange val, if it's not already exist
+          CGExchangeValueMetaInfo valInfo;
+          valInfo.isPadding = false;
+          auto writerOp = graph.g[edgeSource].op;
+          assert(writerOp->getNumResults() == 1);
+          valInfo.val = writerOp->getResult(0);
+          valInfo.writerId = srcNewId;
+          valInfo.writerRegionId = srcRegion;
 
-        // Create ExchangeWrite for srcRegion
-        PartitioningGraphNodeProperty vp;
-        vp.op = nullptr;
-        vp.weight = 1;
-        vp.exchangeValId = valId;
-        vp.toucanOpName = CGToucanOPName::ExchangeWrite;
+          uint32_t valId = codeGenInfo.exchangePool.size();
+          codeGenInfo.exchangePool.push_back(valInfo);
+          writerToExchangeValId[edgeSource] = valId;
 
-        auto exchangeWriteVtxId = boost::add_vertex(vp, regionGraphs[srcRegion]);
-        boost::add_edge(srcNewId, exchangeWriteVtxId, regionGraphs[srcRegion]);
+          // Create ExchangeWrite for srcRegion
+          PartitioningGraphNodeProperty vp;
+          vp.op = nullptr;
+          vp.weight = 1;
+          vp.exchangeValId = valId;
+          vp.toucanOpName = CGToucanOPName::ExchangeWrite;
 
-        assert(exchangeWriteVtxId == regionNewIdToVtxId[srcRegion].size());
-        regionNewIdToVtxId[srcRegion].push_back(UINT32_MAX);
+          auto exchangeWriteVtxId = boost::add_vertex(vp, regionGraphs[srcRegion]);
+          boost::add_edge(srcNewId, exchangeWriteVtxId, regionGraphs[srcRegion]);
 
-        numExchangeWrite++;
-        exgWriteInRegion[srcRegion].push_back(exchangeWriteVtxId);
-        // numExgWriteInRegion[srcRegion]++;
-      }
+          assert(exchangeWriteVtxId == regionNewIdToVtxId[srcRegion].size());
+          regionNewIdToVtxId[srcRegion].push_back(UINT32_MAX);
 
-      auto exchangeValId = writerToExchangeValId[edgeSource];
+          numExchangeWrite++;
+          exgWriteInRegion[srcRegion].push_back(exchangeWriteVtxId);
+          // numExgWriteInRegion[srcRegion]++;
+        }
 
-      if (!exchangeValIdToReader[dstRegion].contains(exchangeValId)) {
-        // A new value that never read
-        // Create ExchangeRead
-        PartitioningGraphNodeProperty vp;
-        vp.op = nullptr;
-        vp.weight = 1;
-        vp.exchangeValId = exchangeValId;
-        vp.toucanOpName = CGToucanOPName::ExchangeRead;
+        auto exchangeValId = writerToExchangeValId[edgeSource];
 
-        auto exchangeReadVtxId = boost::add_vertex(vp, regionGraphs[dstRegion]);
-        boost::add_edge(exchangeReadVtxId, dstNewId, regionGraphs[dstRegion]);
+        if (!exchangeValIdToReader[dstRegion].contains(exchangeValId)) {
+          // A new value that never read
+          // Create ExchangeRead
+          PartitioningGraphNodeProperty vp;
+          vp.op = nullptr;
+          vp.weight = 1;
+          vp.exchangeValId = exchangeValId;
+          vp.toucanOpName = CGToucanOPName::ExchangeRead;
 
-        assert(exchangeReadVtxId == regionNewIdToVtxId[dstRegion].size());
-        regionNewIdToVtxId[dstRegion].push_back(UINT32_MAX);
+          auto exchangeReadVtxId = boost::add_vertex(vp, regionGraphs[dstRegion]);
+          // boost::add_edge(exchangeReadVtxId, dstNewId, regionGraphs[dstRegion]);
 
-        // update reader
-        codeGenInfo.exchangePool[exchangeValId].readerIds.push_back(std::make_tuple(dstRegion, dstNewId));
-        exchangeValIdToReader[dstRegion][exchangeValId] = exchangeReadVtxId;
-        numExchangeRead++;
-        exgReadInRegion[dstRegion].push_back(exchangeReadVtxId);
-        // numExgReadInRegion[dstRegion]++;
-      } else {
+          assert(exchangeReadVtxId == regionNewIdToVtxId[dstRegion].size());
+          regionNewIdToVtxId[dstRegion].push_back(UINT32_MAX);
+
+          // update reader
+          codeGenInfo.exchangePool[exchangeValId].readerIds.push_back(std::make_tuple(dstRegion, exchangeReadVtxId));
+          exchangeValIdToReader[dstRegion][exchangeValId] = exchangeReadVtxId;
+          numExchangeRead++;
+          exgReadInRegion[dstRegion].push_back(exchangeReadVtxId);
+          // numExgReadInRegion[dstRegion]++;
+        }
         auto exchangeReadVtxId = exchangeValIdToReader[dstRegion][exchangeValId];
+        assert(regionGraphs[dstRegion][exchangeReadVtxId].toucanOpName == CGToucanOPName::ExchangeRead);
+        assert(exchangeReadVtxId < boost::num_vertices(regionGraphs[dstRegion]));
+        assert(dstNewId < boost::num_vertices(regionGraphs[dstRegion]));
         boost::add_edge(exchangeReadVtxId, dstNewId, regionGraphs[dstRegion]);
+      } else {
+        // Even though it's possible for a VecDecl to have weight more than 1,
+        // VecDecl and its user should not cross region boundary
+        // Thus VecDecl should NOT appear here
+        assert(srcOpName != CGToucanOPName::VecDecl);
+        // MemWrite should not cross region (and only appears in last region, last level)
+        // MemRead exclusively owns a vector
+        // The only possible case is VecRead
+        assert(srcOpName == CGToucanOPName::VecRead);
+
+
+        // Note: this process partially expands VecReads, thus only need to run once for each VecDecl
+        // After this process, VecReads are still merged, but users in another region is splitted: edges are connected to different ExchangeReads
+        if (!processedVecDeclVtxes.contains(edgeSource)) {
+          processedVecDeclVtxes.insert(edgeSource);
+                  
+          assert(!writerToExchangeValId.contains(edgeSource));
+
+          auto vecReadOp = cast<toucan::VectorReadOp>(graph.g[edgeSource].op);
+          auto vecHandle = vecReadOp.getHandle();
+          auto vecUsers = vecHandle.getUsers();
+
+          assert(llvm::range_size(vecUsers) == srcWeight);
+
+          vecReadValToExchangeId.clear();
+          vecReadValUsersInOtherRegion.clear();
+
+          auto out_edge_range = boost::out_edges(edgeSource, graph.g);
+          for (auto ei = out_edge_range.first; ei != out_edge_range.second; ei++) {
+            auto vecReadResultUserVtx = boost::target(*ei, graph.g);
+            auto vecReadResultUserRegion = vtxIdToRegionId[vecReadResultUserVtx];
+
+            // If the user is in different region with VecRead, save it.
+            if (vecReadResultUserRegion != srcRegion) {
+              vecReadValUsersInOtherRegion.push_back(vecReadResultUserVtx);
+            }
+          }
+
+          // Allocate an ExchangeVal slot if the VecRead result is used by other regions
+          for (auto eachVecUser: vecUsers) {
+            auto vecReadOp = cast<toucan::VectorReadOp>(eachVecUser);
+            // llvm::dbgs() << "A new VecRead IR\n";
+            // vecReadOp.print(llvm::dbgs());
+            // llvm::dbgs() << "\n";
+            // Note: Dont insert to writerToExchangeValId, as this vtx creates multiple exchange vals
+            // Allocate exchange val
+            auto resultVal = vecReadOp.getResult();
+
+            if (!opResultValUsedByOtherRegion(resultVal, srcRegion)) continue;
+
+            CGExchangeValueMetaInfo valInfo;
+            valInfo.isPadding = false;
+            valInfo.val = resultVal;
+            valInfo.writerId = srcNewId;
+            valInfo.writerRegionId = srcRegion;
+
+            uint32_t valId = codeGenInfo.exchangePool.size();
+            codeGenInfo.exchangePool.push_back(valInfo);
+            assert(!vecReadValToExchangeId.contains(resultVal));
+            vecReadValToExchangeId[resultVal] = valId;
+
+            // Create ExchangeWrite for srcRegion
+            PartitioningGraphNodeProperty vp;
+            vp.op = nullptr;
+            vp.weight = 1;
+            vp.exchangeValId = valId;
+            vp.toucanOpName = CGToucanOPName::ExchangeWrite;
+
+            auto exchangeWriteVtxId = boost::add_vertex(vp, regionGraphs[srcRegion]);
+            assert(srcNewId < boost::num_vertices(regionGraphs[srcRegion]));
+            boost::add_edge(srcNewId, exchangeWriteVtxId, regionGraphs[srcRegion]);
+
+            assert(exchangeWriteVtxId == regionNewIdToVtxId[srcRegion].size());
+            regionNewIdToVtxId[srcRegion].push_back(UINT32_MAX);
+
+            numExchangeWrite++;
+            exgWriteInRegion[srcRegion].push_back(exchangeWriteVtxId);
+          }
+
+          // Create ExchangeRead for VecRead result users, if necessary
+          // Also create edges.
+          for (auto vecReadResultUserVtx: vecReadValUsersInOtherRegion) {
+            auto vecReadResultUserRegion = vtxIdToRegionId[vecReadResultUserVtx];
+
+            assert(vecReadResultUserRegion != srcRegion);
+
+            auto readUserOp = graph.g[vecReadResultUserVtx].op;
+            // llvm::dbgs() << " New VecRead result user\n";
+            // readUserOp->print(llvm::dbgs());
+            // llvm::dbgs() << "\n";
+            auto inputVals = readUserOp->getOperands();
+            for (auto eachInputVal: inputVals) {
+              if (vecReadValToExchangeId.contains(eachInputVal)) {
+                // llvm::dbgs() << " Read the vec result!\n";
+                // It's a result of previous VecRead
+                auto exchangeValId = vecReadValToExchangeId[eachInputVal];
+                if (!exchangeValIdToReader[vecReadResultUserRegion].contains(exchangeValId)) {
+                  // llvm::dbgs() << "Create new ExchangeReadVtx\n";
+                  // A new value that never read
+                  // Create ExchangeRead
+                  PartitioningGraphNodeProperty vp;
+                  vp.op = nullptr;
+                  vp.weight = 1;
+                  vp.exchangeValId = exchangeValId;
+                  vp.toucanOpName = CGToucanOPName::ExchangeRead;
+
+                  auto exchangeReadVtxId = boost::add_vertex(vp, regionGraphs[vecReadResultUserRegion]);
+
+                  assert(exchangeReadVtxId == regionNewIdToVtxId[vecReadResultUserRegion].size());
+                  regionNewIdToVtxId[vecReadResultUserRegion].push_back(UINT32_MAX);
+
+                  // update reader
+                  codeGenInfo.exchangePool[exchangeValId].readerIds.push_back(std::make_tuple(vecReadResultUserRegion, exchangeReadVtxId));
+                  exchangeValIdToReader[vecReadResultUserRegion][exchangeValId] = exchangeReadVtxId;
+                  numExchangeRead++;
+                  exgReadInRegion[vecReadResultUserRegion].push_back(exchangeReadVtxId);
+                  // numExgReadInRegion[dstRegion]++;
+                }
+                auto exchangeReadVtxId = exchangeValIdToReader[vecReadResultUserRegion][exchangeValId];
+                assert(regionGraphs[vecReadResultUserRegion][exchangeReadVtxId].toucanOpName == CGToucanOPName::ExchangeRead);
+                auto vecReadResultUserNewId = vtxIdToNewId[vecReadResultUserVtx];
+                assert(vecReadResultUserNewId != UINT32_MAX);
+                // llvm::dbgs() << "Add edge from " << exchangeReadVtxId << " to " << vecReadResultUserNewId << "\n";
+                auto numRegionVertices = boost::num_vertices(regionGraphs[vecReadResultUserRegion]);
+                assert(vecReadResultUserRegion > srcRegion);
+                assert(exchangeReadVtxId < numRegionVertices);
+                assert(vecReadResultUserNewId < numRegionVertices);
+                boost::add_edge(exchangeReadVtxId, vecReadResultUserNewId, regionGraphs[vecReadResultUserRegion]);
+              }
+            }
+          }
+
+        }
       }
+
     }
   }
-
-  assert(codeGenInfo.exchangePool.size() == writerToExchangeValId.size());
 
   llvm::outs() << "Add " << codeGenInfo.exchangePool.size() << " exchange values, " << numExchangeWrite << " ExchangeWrite and " << numExchangeRead << " ExchangeRead\n";
 
@@ -290,6 +500,10 @@ LogicalResult MultiRegionScheduler::levelizeAllPartitions(mlir::MLIRContext *con
       for (auto vtx: regionLevels[0]) {
         assert(regionGraphs[regionId][vtx].toucanOpName == CGToucanOPName::ExchangeRead);
       }
+    } else {
+      for (auto vtx: regionLevels[0]) {
+        assert(vtx != UINT32_MAX);
+      }
     }
     if (regionId != numRegions - 1) {
       // has ExchangeWrite, then the last level must be exchange writes
@@ -323,6 +537,7 @@ LogicalResult MultiRegionScheduler::levelizeAllPartitions(mlir::MLIRContext *con
     for (uint32_t levelId = 0; levelId < regionLevels.size(); levelId++) {
       for (auto vtx: regionLevels[levelId]) {
         for (auto partId: vtxIdToPartIds[vtx]) {
+          assert(vtx != UINT32_MAX);
           currentRegionPartLevels[partId][levelId].push_back(vtx);
         }
       }
@@ -380,6 +595,7 @@ void MultiRegionScheduler::sortRegistersForLocality(const PartitioningGraph &gra
 
     for (auto newVtxId: currentPartFirstLevel) {
       auto mainGraphVtxId = regionNewIdToVtxId[0][newVtxId];
+      assert(mainGraphVtxId != UINT32_MAX);
       // Note: ConstDecl may also present in first level
       if (graph[mainGraphVtxId].toucanOpName == CGToucanOPName::RegRead) {
         partToRegReads.back().push_back(mainGraphVtxId);
@@ -469,19 +685,18 @@ void MultiRegionScheduler::sortRegistersForLocality(const PartitioningGraph &gra
       std::copy(eachGroupVals.begin(), eachGroupVals.end(), std::back_inserter(regOrdered.back()));
     }
     std::copy(writeOnlyRegVals.begin(), writeOnlyRegVals.end(), std::back_inserter(regOrdered.back()));
-    // std::copy(readOnlyRegVals.begin(), readOnlyRegVals.end(), std::back_inserter(regOrdered.back()));
   }
 
   // Read only vals. Push them to last section.
-  uint32_t numReadOnlyVals = 0;
+  // uint32_t numReadOnlyVals = 0;
   for (auto eachVal: regValRead) {
     if (!regValWrite.contains(eachVal)) {
       regOrdered.back().push_back(eachVal);
-      numReadOnlyVals ++;
+      // numReadOnlyVals ++;
     }
   }
 
-  llvm::dbgs() << "Found " << numReadOnlyVals << " read only values\n";
+  // llvm::dbgs() << "Found " << numReadOnlyVals << " read only values\n";
 
   return;
 }
@@ -513,10 +728,6 @@ void MultiRegionScheduler::sortOpsAndExchangeValsForLocality(const mlir::SmallVe
   }
 
   auto numRegions = regionGraphs.size();
-  // uint32_t totalParts = 0;
-  // for (const auto &er: regionPartLevels) {
-  //   totalParts += er.size();
-  // }
 
   for (size_t regionId = 0; regionId < regionGraphs.size(); regionId++) {
     auto numParts = regionPartLevels[regionId].size();
@@ -526,16 +737,13 @@ void MultiRegionScheduler::sortOpsAndExchangeValsForLocality(const mlir::SmallVe
     for (size_t partId = 0; partId < regionPartLevels[regionId].size(); partId++) {
       // llvm::dbgs() <<"Working on part " << partId << "\n";
 
-      auto numLevels = regionPartLevels[regionId][partId].size();
       vtxIdToLevelOrder.resize(boost::num_vertices(currentRegionGraph), UINT32_MAX);
 
       uint32_t levelOrder = 0;
 
 
       for (size_t levelId = 0; levelId < regionPartLevels[regionId][partId].size(); levelId++) {
-
         // llvm::dbgs() <<"Working on level " << levelId << "\n";
-
         auto &currentLevelVtxes = regionPartLevels[regionId][partId][levelId];
 
         if (levelId == 0) {
@@ -576,11 +784,9 @@ void MultiRegionScheduler::sortOpsAndExchangeValsForLocality(const mlir::SmallVe
             
           }
         } else {
-          
           // levelId != 0
           // Not first level, sort by last reference
 
-          // TODO: group by type, then sort
 
           // Find order of last inNeight
           currentLevelVtxSortKey.clear();
@@ -1017,10 +1223,6 @@ void MultiRegionScheduler::scheduleMiddleLevel(PartitioningGraph &graph, CGParti
         lutOpValueIds[pos] = 0;
       }
       for (auto val: lutOp.getInputs()) {
-        if (!partInfo.valueToValId.contains(val)) {
-          llvm::dbgs() << "Missing value!\n";
-          val.getDefiningOp()->print(llvm::dbgs());
-        }
         assert(partInfo.valueToValId.contains(val));
         auto valId = partInfo.valueToValId[val];
         lutOpValueIds[pos] = valId;
@@ -1509,7 +1711,6 @@ void MultiRegionScheduler::scheduleExchangeWrites(PartitioningGraph &graph, CGPa
   mlir::SmallVector<CGOpMetaInfo> currentLevelOps;
   currentLevelOps.reserve(lastLevel.size());
 
-  // uint32_t opId = 0;
   for (auto vtxId: lastLevel) {
     auto tOpName = graph[vtxId].toucanOpName;
     auto vtxWeight = graph[vtxId].weight;
@@ -1548,6 +1749,7 @@ void MultiRegionScheduler::scheduleExchangeWrites(PartitioningGraph &graph, CGPa
 
 // Scheduler entry point
 void MultiRegionScheduler::schedule(DesignGraph &graph) {
+  bool printLevelStat = false;
 
   auto numRegions = regionGraphs.size();
 
@@ -1557,8 +1759,12 @@ void MultiRegionScheduler::schedule(DesignGraph &graph) {
   // dedup strings
   collectPrintString(graph, codeGenInfo.printStrings);
 
+  // llvm::dbgs() << "Verifying original graph\n";
+
   for (uint32_t regionId = 0; regionId < numRegions; regionId++) {
-    llvm::dbgs() << "Region " << regionId << "\n";
+    if (printLevelStat) {
+      llvm::dbgs() << "Region " << regionId << "\n";
+    }
 
     codeGenInfo.regionPartitionIds.emplace_back();
 
@@ -1568,7 +1774,9 @@ void MultiRegionScheduler::schedule(DesignGraph &graph) {
     auto numPartitions = currentRegionPartitions.size();
 
     for (uint32_t partId = 0; partId < numPartitions; partId++) {
-      llvm::dbgs() << "Partition " << partId << "\n";
+      if (printLevelStat) {
+        llvm::dbgs() << "Partition " << partId << "\n";
+      }
 
       auto &currentPartLevels = regionPartLevels[regionId][partId];
       auto &firstLevel = currentPartLevels[0];
@@ -1592,7 +1800,9 @@ void MultiRegionScheduler::schedule(DesignGraph &graph) {
       }
 
 
-      llvm::dbgs() << "Level 0\n";
+      if (printLevelStat) {
+        llvm::dbgs() << "Level 0 has size of " << firstLevel.size() << "\n";
+      }
       if (regionId == 0) {
         scheduleFirstLevel(currentRegionGraph, partInfo, codeGenInfo, firstLevel);
       } else {
@@ -1601,12 +1811,16 @@ void MultiRegionScheduler::schedule(DesignGraph &graph) {
 
       for (uint32_t levelId = 1; levelId < numLevels - 1; levelId++) {
         // for each middle level
-        llvm::dbgs() << "Level " << levelId << "\n";
+        if (printLevelStat) {
+          llvm::dbgs() << "Level " << levelId << " has size of " << currentPartLevels[levelId].size() << "\n";
+        }
         auto &currentLevel = currentPartLevels[levelId];
         scheduleMiddleLevel(currentRegionGraph, partInfo, codeGenInfo, currentLevel, levelId);
       }
 
-      llvm::dbgs() << "Last level\n";
+      if (printLevelStat) {
+        llvm::dbgs() << "Last level has size of " << lastLevel.size() << "\n";
+      }
       if (regionId < (numRegions - 1)) {
         scheduleExchangeWrites(currentRegionGraph, partInfo, codeGenInfo, lastLevel);
       } else {
