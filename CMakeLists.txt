@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.13.4)
 
 cmake_policy(SET CMP0116 NEW)
+# Introduced after cmake 3.30. Both NEW and OLD works, prefer NEW behavior as OLD behavior is deprecated.
+if(POLICY CMP0167)
+    cmake_policy(SET CMP0167 NEW)
+endif()
 
 project(toucan 
     VERSION 0.0.0 
