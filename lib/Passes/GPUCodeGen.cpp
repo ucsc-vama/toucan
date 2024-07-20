@@ -61,9 +61,6 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
 
     partInfo.valuePool.resize(part.numConstsInValuePool);
     for (size_t i = 0; i < part.numConstsInValuePool; i++) {
-      if (!part.valuePool[i].isConst) {
-        llvm::dbgs() << part.numConstsInValuePool << ", failed in " << i << "\n";
-      }
       assert(part.valuePool[i].isConst);
       partInfo.valuePool[i] = part.valuePool[i].value;
     } 

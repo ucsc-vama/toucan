@@ -1795,9 +1795,9 @@ void MultiRegionScheduler::schedule(DesignGraph &graph) {
       if (regionId == 0) {
       // constant only exists in first region. collect them.
         collectConstant(currentRegionGraph, partInfo, firstLevel);
-        partInfo.numConstsInValuePool = partInfo.valuePool.size();
-        // llvm::dbgs() << "Const pool size " << partInfo.numConstsInValuePool << "\n";
       }
+      partInfo.numConstsInValuePool = partInfo.valuePool.size();
+      // llvm::dbgs() << "Const pool size " << partInfo.numConstsInValuePool << "\n";
 
 
       if (printLevelStat) {
