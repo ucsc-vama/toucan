@@ -1,4 +1,4 @@
-#include "ToucanGPUSim/ToucanGenDataTypes.h"
+#include "ToucanGPUSim/ToucanGPUGenDataTypes.h"
 #include "llvm/Support/ErrorHandling.h"
 
 using namespace toucanGPUSim;

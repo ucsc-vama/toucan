@@ -1,4 +1,4 @@
-#include "ToucanGPUSim/ToucanGenDataTypes.h"
+#include "ToucanGPUSim/ToucanGPUGenDataTypes.h"
 #include <fstream>
 
 #include <iostream>
@@ -22,18 +22,18 @@ using namespace toucanGPUSim;
 
 // Primitive type serialization
 template<typename T>
-void serializePrimitive(std::ostream& out, const T& value) {
+static void serializePrimitive(std::ostream& out, const T& value) {
   out.write(reinterpret_cast<const char*>(&value), sizeof(value));
 }
 
 template<typename T>
-void deserializePrimitive(std::istream& in, T& value) {
+static void deserializePrimitive(std::istream& in, T& value) {
   in.read(reinterpret_cast<char*>(&value), sizeof(value));
 }
 
 // Vector serialization
 template<typename T>
-void serializeVector(std::ostream& out, const std::vector<T>& vec) {
+static void serializeVector(std::ostream& out, const std::vector<T>& vec) {
   serializePrimitive(out, vec.size());
   for (const auto& item : vec) {
     serializePrimitive(out, item);
@@ -41,7 +41,7 @@ void serializeVector(std::ostream& out, const std::vector<T>& vec) {
 }
 
 template<typename T>
-void deserializeVector(std::istream& in, std::vector<T>& vec) {
+static void deserializeVector(std::istream& in, std::vector<T>& vec) {
   size_t size;
   deserializePrimitive(in, size);
   vec.resize(size);
@@ -51,11 +51,11 @@ void deserializeVector(std::istream& in, std::vector<T>& vec) {
 }
 
 // String serialization
-void serializeString(std::ostream& out, const std::string& str) {
+static void serializeString(std::ostream& out, const std::string& str) {
   serializeVector(out, std::vector<char>(str.begin(), str.end()));
 }
 
-void deserializeString(std::istream& in, std::string& str) {
+static void deserializeString(std::istream& in, std::string& str) {
   std::vector<char> vec;
   deserializeVector(in, vec);
   str.assign(vec.begin(), vec.end());
@@ -64,13 +64,13 @@ void deserializeString(std::istream& in, std::string& str) {
 
 
 template<typename T1, typename T2>
-void serializeTuple(std::ostream& out, const std::tuple<T1, T2>& value) {
+static void serializeTuple(std::ostream& out, const std::tuple<T1, T2>& value) {
   serializePrimitive(out, std::get<0>(value));
   serializePrimitive(out, std::get<1>(value));
 }
 
 template<typename T1, typename T2>
-void deserializeTuple(std::istream& in, std::tuple<T1, T2>& value) {
+static void deserializeTuple(std::istream& in, std::tuple<T1, T2>& value) {
   T1 first;
   T2 second;
   deserializePrimitive(in, first);
@@ -79,14 +79,14 @@ void deserializeTuple(std::istream& in, std::tuple<T1, T2>& value) {
 }
 
 template<typename T1, typename T2, typename T3>
-void serializeTuple(std::ostream& out, const std::tuple<T1, T2, T3>& value) {
+static void serializeTuple(std::ostream& out, const std::tuple<T1, T2, T3>& value) {
   serializePrimitive(out, std::get<0>(value));
   serializePrimitive(out, std::get<1>(value));
   serializePrimitive(out, std::get<2>(value));
 }
 
 template<typename T1, typename T2, typename T3>
-void deserializeTuple(std::istream& in, std::tuple<T1, T2, T3>& value) {
+static void deserializeTuple(std::istream& in, std::tuple<T1, T2, T3>& value) {
   T1 first;
   T2 second;
   T3 third;
@@ -100,7 +100,7 @@ void deserializeTuple(std::istream& in, std::tuple<T1, T2, T3>& value) {
 
 
 template<typename K, typename V>
-void serializeMap(std::ostream& out, const std::unordered_map<K, std::vector<V>>& map) {
+static void serializeMap(std::ostream& out, const std::unordered_map<K, std::vector<V>>& map) {
   size_t mapSize = map.size();
   serializePrimitive(out, mapSize);
   for (const auto& pair : map) {
@@ -110,7 +110,7 @@ void serializeMap(std::ostream& out, const std::unordered_map<K, std::vector<V>>
 }
 
 template<typename K, typename V>
-void deserializeMap(std::istream& in, std::unordered_map<K, std::vector<V>>& map) {
+static void deserializeMap(std::istream& in, std::unordered_map<K, std::vector<V>>& map) {
   size_t mapSize;
   deserializePrimitive(in, mapSize);
   for (size_t i = 0; i < mapSize; ++i) {
@@ -126,7 +126,7 @@ void deserializeMap(std::istream& in, std::unordered_map<K, std::vector<V>>& map
 
 
 
-void serializeSimPartitionInfo(std::ostream& out, const toucanSim::SimPartitionInfo& info) {
+static void serializeSimPartitionInfo(std::ostream& out, const toucanGPUSim::SimPartitionInfo& info) {
   serializeVector(out, info.valuePool);
   out.write(reinterpret_cast<const char*>(&info.valuePoolSize), sizeof(info.valuePoolSize));
 
@@ -142,7 +142,7 @@ void serializeSimPartitionInfo(std::ostream& out, const toucanSim::SimPartitionI
   serializePrimitive(out, info.opInfo_last);
 }
 
-void deserializeSimPartitionInfo(std::istream& in, toucanSim::SimPartitionInfo& info) {
+static void deserializeSimPartitionInfo(std::istream& in, toucanGPUSim::SimPartitionInfo& info) {
   deserializeVector(in, info.valuePool);
   in.read(reinterpret_cast<char*>(&info.valuePoolSize), sizeof(info.valuePoolSize));
 
@@ -161,7 +161,7 @@ void deserializeSimPartitionInfo(std::istream& in, toucanSim::SimPartitionInfo& 
 
 
 
-void toucanSim::serializeSimDesignInfo(std::ostream& out, const toucanSim::SimDesignInfo& info) {
+void toucanGPUSim::serializeSimDesignInfo(std::ostream& out, const toucanGPUSim::SimDesignInfo& info) {
   // Serialize lut and lutIndex vectors
   serializeVector(out, info.lut);
 
@@ -192,7 +192,7 @@ void toucanSim::serializeSimDesignInfo(std::ostream& out, const toucanSim::SimDe
   }
 }
 
-void toucanSim::deserializeSimDesignInfo(std::istream& in, toucanSim::SimDesignInfo& info) {
+void toucanGPUSim::deserializeSimDesignInfo(std::istream& in, toucanGPUSim::SimDesignInfo& info) {
   // Deserialize lut and lutIndex vectors
   deserializeVector(in, info.lut);
 
@@ -232,7 +232,7 @@ void toucanSim::deserializeSimDesignInfo(std::istream& in, toucanSim::SimDesignI
 
 
 
-void toucanSim::serializeSimDebugInfo(std::ostream& out, const toucanSim::SimDebugInfo& info) {
+void toucanGPUSim::serializeSimDebugInfo(std::ostream& out, const toucanGPUSim::SimDebugInfo& info) {
   // Serialize regDebugInfo
   size_t regMapSize = info.regDebugInfo.size();
   serializePrimitive(out, regMapSize);
@@ -271,7 +271,7 @@ void toucanSim::serializeSimDebugInfo(std::ostream& out, const toucanSim::SimDeb
 }
 
 
-void toucanSim::deserializeSimDebugInfo(std::istream& in, toucanSim::SimDebugInfo& info) {
+void toucanGPUSim::deserializeSimDebugInfo(std::istream& in, toucanGPUSim::SimDebugInfo& info) {
   // Deserialize regDebugInfo
   size_t regMapSize;
   deserializePrimitive(in, regMapSize);
