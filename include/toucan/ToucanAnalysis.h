@@ -381,6 +381,10 @@ namespace toucan {
 
   class SchedulerBase {
   public:
+    CGInfo codeGenInfo;
+
+    void fillDebugInfo();
+
     static void getVtxToLevel(const PartitioningGraph &g, mlir::SmallVector<uint32_t> &levels, uint32_t maxVtxId);
     static void collectPrintString(DesignGraph &graph, mlir::DenseMap<mlir::StringRef, uint32_t>  &printStrings);
     static void levelizeWorker(const PartitioningGraph &g, mlir::SmallVector<mlir::SmallVector<uint32_t>> &graphLevels);
@@ -388,14 +392,13 @@ namespace toucan {
   };
 
 
-  class SingleRegionScheduler: SchedulerBase {
+  class SingleRegionScheduler: public SchedulerBase {
   public:
     mlir::SmallVector<mlir::BitVector> partitions;
     mlir::SmallVector<uint32_t> vtxIdToPartId;
     // partition i -> level j -> elem k
     mlir::SmallVector<mlir::SmallVector<mlir::SmallVector<uint32_t>>> partLevels;
 
-    CGInfo codeGenInfo;
 
     void levelizePartitions(DesignGraph &graph);
 
@@ -436,7 +439,7 @@ namespace toucan {
     mlir::SmallVector<mlir::SmallVector<uint32_t>> regionNewIdToPartId;
 
 
-    CGInfo codeGenInfo;
+    // CGInfo codeGenInfo;
 
     uint32_t partitionPaddingSpace = 32;
     uint32_t memPaddingSpace = 32;

@@ -115,6 +115,8 @@ LogicalResult RepCutPartitioner::partitionAndSchedule(mlir::MLIRContext *context
   auto schedule_duration = std::chrono::duration_cast<std::chrono::milliseconds>(schedule_end - schedule_start).count();
   llvm::outs() << "Scheduling took " << schedule_duration << "ms\n";
 
+  SchedulerBase::fillDebugInfo();
+
   return success();
 }
 

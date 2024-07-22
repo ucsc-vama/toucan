@@ -128,3 +128,100 @@ void SchedulerBase::populateOpMetaDebugInfo(CGOpMetaInfo &opMeta, mlir::Operatio
   }
 }
 
+void SchedulerBase::fillDebugInfo() {
+  // Consider parallel
+
+  // Collect io signals and extern module signals
+  for (size_t regId = 0; regId < codeGenInfo.regPool.size(); regId++) {
+    auto &regMeta = codeGenInfo.regPool[regId];
+    if (regMeta.isIO) {
+      assert(regMeta.namehint && "An io signal must have a name");
+      auto namehint = regMeta.namehint.value();
+      codeGenInfo.ioSignals.insert(namehint);
+    }
+  }
+
+
+  // collect reg info
+  for (size_t regId = 0; regId < codeGenInfo.regPool.size(); regId++) {
+    auto &regMeta = codeGenInfo.regPool[regId];
+    if (regMeta.namehint) {
+      // has name hint
+      auto namehint = regMeta.namehint.value();
+      // auto fragment_id = regMeta.fragment_id;
+      if (!codeGenInfo.regDebugInfo.contains(namehint)) {
+        codeGenInfo.regDebugInfo.try_emplace(namehint);
+      }
+      codeGenInfo.regDebugInfo[namehint].push_back(regId);
+    }
+  }
+  // sort by fragment id
+  for (auto &elem: codeGenInfo.regDebugInfo) {
+    auto &v = elem.getSecond();
+    std::sort(v.begin(), v.end(), [=](const uint32_t a, const uint32_t b) {
+      return codeGenInfo.regPool[a].fragment_id > codeGenInfo.regPool[b].fragment_id;
+    });
+  }
+
+
+
+  // collect mem info
+  for (size_t memId = 0; memId < codeGenInfo.memPool.size(); memId++) {
+    auto &memMeta = codeGenInfo.memPool[memId];
+    if (memMeta.namehint) {
+      // has name hint
+      auto namehint = memMeta.namehint.value();
+      if (!codeGenInfo.memDebugInfo.contains(namehint)) {
+        codeGenInfo.memDebugInfo.try_emplace(namehint);
+      }
+      codeGenInfo.memDebugInfo[namehint].push_back(memId);
+    }
+  }
+  // sort by fragment id
+  for (auto &elem: codeGenInfo.memDebugInfo) {
+    auto &v = elem.getSecond();
+    std::sort(v.begin(), v.end(), [=](const uint32_t a, const uint32_t b) {
+      return codeGenInfo.memPool[a].fragment_id > codeGenInfo.memPool[b].fragment_id;
+    });
+  }
+
+
+  // collect signal info
+  for (size_t partId = 0; partId < codeGenInfo.partitionInfo.size(); partId++) {
+    auto &partOpPool = codeGenInfo.partitionInfo[partId].opPool;
+
+    for (size_t levelId = 0; levelId < partOpPool.size(); levelId++) {
+      auto &currentLevelOps = partOpPool[levelId];
+      for (auto &opMeta: currentLevelOps) {
+        if (opMeta.hasResult()) {
+          if (opMeta.namehint) {
+            auto namehint = opMeta.namehint.value();
+            if (!codeGenInfo.signalDebugInfo.contains(namehint)) {
+              codeGenInfo.signalDebugInfo.try_emplace(namehint);
+            }
+            auto resultValId = opMeta.getResult();
+            codeGenInfo.signalDebugInfo[namehint].push_back({partId, resultValId});
+          }
+        }
+      }
+    }
+  }
+
+  // sort by fragment_id
+  for (auto &elem: codeGenInfo.signalDebugInfo) {
+    auto &v = elem.getSecond();
+    std::sort(v.begin(), v.end(), [=](const std::tuple<uint32_t, uint32_t>& a, const std::tuple<uint32_t, uint32_t> &b) {
+      auto a_partId = std::get<0>(a);
+      auto b_partId = std::get<0>(b);
+
+      auto a_valId = std::get<1>(a);
+      auto b_valId = std::get<1>(b);
+
+      auto a_fragmentId = codeGenInfo.partitionInfo[a_partId].valuePool[a_valId].fragment_id;
+      auto b_fragmentId = codeGenInfo.partitionInfo[b_partId].valuePool[b_valId].fragment_id;
+      return a_fragmentId > b_fragmentId;
+    });
+  }
+}
+
+

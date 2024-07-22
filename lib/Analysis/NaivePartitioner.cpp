@@ -32,7 +32,7 @@ LogicalResult NaivePartitioner::partitionAndSchedule(DesignGraph &graph) {
 
   schedule(graph);
 
-  fillDebugInfo();
+  SchedulerBase::fillDebugInfo();
 
   return success();
 }
