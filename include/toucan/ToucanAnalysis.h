@@ -32,7 +32,6 @@
 
 #include <unordered_map>
 #include <filesystem>
-#include <format>
 
 namespace toucan {
 

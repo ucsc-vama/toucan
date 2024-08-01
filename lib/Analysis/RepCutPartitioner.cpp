@@ -18,7 +18,8 @@
 #include <chrono>
 
 #include <thread>
-#include <format>
+#include <sstream>
+#include <iomanip>
 
 #include <numeric>
 
@@ -65,7 +66,9 @@ LogicalResult RepCutPartitioner::partitionAndSchedule(mlir::MLIRContext *context
   assert(regionPartitionNumbers.size() == numRegions);
 
   for (size_t rid = 0; rid < numRegions; rid++) {
-    std::string dirName = std::format("region{}", rid);
+    std::ostringstream oss;
+    oss << "region" << rid;
+    std::string dirName = oss.str();
     regionWorkDirectory.push_back(outputDirectory / dirName);
   }
 
@@ -86,7 +89,9 @@ LogicalResult RepCutPartitioner::partitionAndSchedule(mlir::MLIRContext *context
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
 
-    auto msg = std::format("(Optionally) Dump the whole graph spend {}ms\n", duration);
+    std::ostringstream msgOss;
+    msgOss << "(Optionally) Dump the whole graph spend " << duration << "ms\n";
+    std::string msg = msgOss.str();
     llvm::outs() << msg;
   });
 
@@ -102,7 +107,10 @@ LogicalResult RepCutPartitioner::partitionAndSchedule(mlir::MLIRContext *context
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
 
-    auto msg = std::format("Graph region {} spend {}ms\n", regionId, duration);
+    std::ostringstream msgOss;
+    msgOss << "Graph region " << regionId << " spend " << duration << "ms\n";
+
+    std::string msg = msgOss.str();
     llvm::outs() << msg;
 
     return ret;
@@ -257,8 +265,19 @@ void RepCutPartitioner::printPartitionStatistics(const RepCutPartitioningStatist
   for (auto &es: stats.partWeight) {
     llvm::outs() << " " << es;
   }
-  auto formatStr = std::format("\nSize replication rate {:.3f}, ib factor {:.3f}\nWeight replication rate {:.3f}, ib factor {:.3f}\n", stats.sizeReplicationRate, stats.sizeIBFactor, stats.weightReplicationRate, stats.weightIBFactor);
-  llvm::outs() << formatStr;
+
+  std::ostringstream oss;
+  oss << std::fixed << std::setprecision(3);
+  oss << "\nSize replication rate " 
+      << stats.sizeReplicationRate
+      << ", ib factor "
+      << stats.sizeIBFactor
+      << "\nWeight replication rate "
+      << stats.weightReplicationRate
+      << ", ib factor "
+      << stats.weightIBFactor
+      << "\n"; 
+  llvm::outs() << oss.str();
 }
 
 
