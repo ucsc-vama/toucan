@@ -55,9 +55,6 @@ void MultiRegionScheduler::levelizeGraphForCut(DesignGraph &graph) {
 
 void MultiRegionScheduler::findCutPoints(DesignGraph &graph) {
   assert(graphLevels.size() > 1);
-  // TODO: Is this the best policy?
-  // cut to 3 regions: 0.4, 0.3, rest
-  mlir::SmallVector<float> cutRatios = {0.4, 0.3};
 
   uint32_t graphSize = boost::num_vertices(graph.g);
   uint32_t regionTarget = graphSize * cutRatios[0];
@@ -604,7 +601,7 @@ void MultiRegionScheduler::sortRegistersForLocality(const PartitioningGraph &gra
   }
   // Collect all reg writes (last level of last region)
   for (size_t partId = 0; partId < regionPartLevels.back().size(); partId++) {
-    assert(regionPartLevels.back()[partId].size() >= 3);
+    assert(regionPartLevels.back()[partId].size() >= 2);
     const auto & currentPartLastLevel = regionPartLevels.back()[partId].back();
     partToRegWrites.emplace_back();
 

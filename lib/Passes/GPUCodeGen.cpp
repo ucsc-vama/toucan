@@ -88,7 +88,7 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     }
 
     // ops, middle levels
-    assert(part.opPool.size() >= 3);
+    assert(part.opPool.size() >= 2);
     partInfo.ops_exec.resize(part.opPool.size() - 2);
     for (size_t levelId = 1; levelId < part.opPool.size() - 1; levelId++) {
       auto execOpsIdx = levelId - 1;
@@ -251,7 +251,18 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
 
     auto p = RepCutPartitioner(outputDirectory.getValue());
 
-    p.setPartitionTarget();
+    auto rawGraphNumVtxes = boost::num_vertices(graph.g);
+    auto eachRegionVtxes = rawGraphNumVtxes / numRegions;
+    auto preferredPartitionSize = 10000;
+    auto preferredPartCount = eachRegionVtxes / preferredPartitionSize;
+    llvm::outs() << "Preferred Part count is " << preferredPartCount << "\n";
+    llvm::outs() << "Create " << numSMs << " partitions\n";
+
+    // TODO: What's the best policy to determine numPartsInEachRegion?
+    // For now, simply use numSMs
+    p.setPartitionTarget(numRegions, numSMs);
+    assert(ibFactor > 0.0f);
+    p.targetIb = ibFactor;
 
     auto result = p.partitionAndSchedule(&getContext(), graph);
 

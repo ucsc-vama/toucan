@@ -28,11 +28,24 @@ using namespace mlir;
 using namespace llvm;
 using namespace circt;
 
-void RepCutPartitioner::setPartitionTarget() {
-  auto numRegions = 3;
+void RepCutPartitioner::setPartitionTarget(uint32_t numRegions, uint32_t numPartsInEachRegion) {
+  assert(numRegions > 0);
+  assert(numPartsInEachRegion > 0);
 
-  // TODO: for now, simply use fixed number of partitions
-  regionPartitionNumbers.resize(numRegions, 4);
+  regionPartitionNumbers.resize(numRegions, numPartsInEachRegion);
+
+  switch (numRegions) {
+    case 4: {
+      cutRatios = {0.35, 0.18, 0.18};
+      break;
+    }
+    default: {
+      // Policy: evenly distribute region size
+      cutRatios.resize(numRegions - 1, 1.0f / (numRegions));
+    }
+  }
+  
+  assert(cutRatios.size() == numRegions - 1);
 }
 
 LogicalResult RepCutPartitioner::partitionAndSchedule(mlir::MLIRContext *context, DesignGraph &graph) {

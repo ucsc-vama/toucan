@@ -417,6 +417,7 @@ namespace toucan {
 
   class MultiRegionScheduler: public SchedulerBase {
     public:
+    mlir::SmallVector<float> cutRatios;
 
     mlir::SmallVector<PartitioningGraph> regionGraphs;
     // regionId -> partitionId -> vtxes
@@ -493,6 +494,8 @@ namespace toucan {
 
   class RepCutPartitioner: public MultiRegionScheduler {
     public:
+    float targetIb = 0.06;
+
     mlir::SmallVector<uint32_t> regionPartitionNumbers;
 
     RepCutPartitioner(std::filesystem::path outputDirectory) : outputDirectory(outputDirectory) {
@@ -500,7 +503,7 @@ namespace toucan {
     };
     mlir::LogicalResult partitionAndSchedule(mlir::MLIRContext *context, DesignGraph &graph);
 
-    void setPartitionTarget();
+    void setPartitionTarget(uint32_t numRegions, uint32_t numPartsInEachRegion);
 
     private:
     std::filesystem::path outputDirectory;
@@ -511,7 +514,6 @@ namespace toucan {
     const char* repcutOutputFileName = "rcp_output.txt";
     const char* repcutConsoleLogFileName = "repcut_print.txt";
 
-    float targetIb = 0.2;
     // float cutR1Weight = 0.4;
     
     void dumpGraphToFile(const PartitioningGraph &g, std::string fileName) const;
