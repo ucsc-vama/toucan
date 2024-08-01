@@ -31,6 +31,7 @@ add_circt_dialect_library(
 
   Toucan
   ToucanSim
+  ToucanGPUSim
   ToucanUtils
   ToucanAnalysis
 
