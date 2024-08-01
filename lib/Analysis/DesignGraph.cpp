@@ -199,7 +199,7 @@ DesignGraph::DesignGraph(Operation *op, AnalysisManager &am) {
   }
 
 
-  llvm::dbgs() << "Raw graph has " << boost::num_vertices(rawGraph) << " vertices and " << boost::num_edges(rawGraph) << " edges\n";
+  llvm::outs() << "Raw graph has " << boost::num_vertices(rawGraph) << " vertices and " << boost::num_edges(rawGraph) << " edges\n";
 
-  llvm::dbgs() << "After removing and merging, graph has " << boost::num_vertices(g) << " vertices and " << boost::num_edges(g) << " edges\n";
+  llvm::outs() << "After removing and merging, graph has " << boost::num_vertices(g) << " vertices and " << boost::num_edges(g) << " edges\n";
 }
