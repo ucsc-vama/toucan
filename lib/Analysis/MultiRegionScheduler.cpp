@@ -654,6 +654,7 @@ void MultiRegionScheduler::sortRegistersForLocality(const PartitioningGraph &gra
 
   for (auto &eachPartWrites: partToRegWrites) {
     sharedVals.clear();
+    writeOnlyRegVals.clear();
     for (size_t partId = 0; partId < partToRegReads.size(); partId++) {
       groupedVals[partId].clear();
     }
