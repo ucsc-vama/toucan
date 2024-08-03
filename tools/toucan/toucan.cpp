@@ -79,12 +79,6 @@ static LogicalResult compileAndEmit(
         MLIRContext &context, TimingScope &ts, llvm::SourceMgr &sourceMgr, std::filesystem::path &outputDir) {
 
     std::string errorMsg;
-    auto outputFilename = outputDir / "output.mlir";
-    auto output = openOutputFile(outputFilename.string(), &errorMsg);
-    if (!output) {
-        llvm::errs() << errorMsg << "\n";
-        return failure();
-    }
 
     auto mod = parseSourceFile<ModuleOp>(sourceMgr, &context);
     if(!mod) return failure();
@@ -192,6 +186,13 @@ static LogicalResult compileAndEmit(
         mlir::OpPrintingFlags flags;
         flags.enableDebugInfo(true, true);
         flags.useLocalScope();
+
+        auto outputFilename = outputDir / "output.mlir";
+        auto output = openOutputFile(outputFilename.string(), &errorMsg);
+        if (!output) {
+            llvm::errs() << errorMsg << "\n";
+            return failure();
+        }
         mod->print(output->os());
         output->keep();
     }
