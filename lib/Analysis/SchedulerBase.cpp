@@ -27,7 +27,9 @@
 #include <array>
 #include <optional>
 #include <tuple>
+#include <unordered_set>
 #include <vector>
+#include <algorithm>
 
 
 using namespace toucan;
@@ -148,7 +150,9 @@ void SchedulerBase::fillDebugInfo() {
     if (regMeta.namehint) {
       // has name hint
       auto namehint = regMeta.namehint.value();
-      // auto fragment_id = regMeta.fragment_id;
+      // every named reg should have a fragment id
+      auto fragment_id = regMeta.fragment_id;
+      assert(fragment_id != UINT32_MAX);
       if (!codeGenInfo.regDebugInfo.contains(namehint)) {
         codeGenInfo.regDebugInfo.try_emplace(namehint);
       }
@@ -159,7 +163,11 @@ void SchedulerBase::fillDebugInfo() {
   for (auto &elem: codeGenInfo.regDebugInfo) {
     auto &v = elem.getSecond();
     std::sort(v.begin(), v.end(), [=](const uint32_t a, const uint32_t b) {
-      return codeGenInfo.regPool[a].fragment_id > codeGenInfo.regPool[b].fragment_id;
+      auto a_fragmentId = codeGenInfo.regPool[a].fragment_id;
+      auto b_fragmentId = codeGenInfo.regPool[b].fragment_id;
+      // fragment Id should not duplicate
+      assert(a_fragmentId != b_fragmentId);
+      return a_fragmentId > b_fragmentId;
     });
   }
 
@@ -171,6 +179,9 @@ void SchedulerBase::fillDebugInfo() {
     if (memMeta.namehint) {
       // has name hint
       auto namehint = memMeta.namehint.value();
+      // Every named memory should have a fragment id
+      auto fragment_id = memMeta.fragment_id;
+      assert(fragment_id != UINT32_MAX);
       if (!codeGenInfo.memDebugInfo.contains(namehint)) {
         codeGenInfo.memDebugInfo.try_emplace(namehint);
       }
@@ -181,7 +192,11 @@ void SchedulerBase::fillDebugInfo() {
   for (auto &elem: codeGenInfo.memDebugInfo) {
     auto &v = elem.getSecond();
     std::sort(v.begin(), v.end(), [=](const uint32_t a, const uint32_t b) {
-      return codeGenInfo.memPool[a].fragment_id > codeGenInfo.memPool[b].fragment_id;
+      auto a_fragmentId = codeGenInfo.memPool[a].fragment_id;
+      auto b_fragmentId = codeGenInfo.memPool[b].fragment_id;
+      // fragment Id should not duplicate
+      assert(a_fragmentId != b_fragmentId);
+      return a_fragmentId > b_fragmentId;
     });
   }
 
@@ -207,6 +222,37 @@ void SchedulerBase::fillDebugInfo() {
     }
   }
 
+  // Refactor signal namehint
+  // Note: some signal might be duplicated. Here we only need 1 copy
+  std::unordered_set<uint32_t> signalFragments;
+  mlir::SmallVector<std::tuple<uint32_t, uint32_t>> dedupInfos;
+  for (auto &elem: codeGenInfo.signalDebugInfo) {
+    // auto namehint = elem.getFirst();
+    auto &infos = elem.getSecond();
+
+    if (infos.size() > 1) {
+      // Possibly duplication
+      dedupInfos.clear();
+      signalFragments.clear();
+
+      for (const auto &eachFragment: infos) {
+        auto partId = std::get<0>(eachFragment);
+        auto valId = std::get<1>(eachFragment);
+        uint32_t fragment_id = codeGenInfo.partitionInfo[partId].valuePool[valId].fragment_id;
+
+        if (!signalFragments.contains(fragment_id)) {
+          // a new fragment
+          signalFragments.insert(fragment_id);
+          dedupInfos.push_back(eachFragment);
+        }
+      }
+
+      if (dedupInfos.size() != infos.size()) {
+        std::swap(dedupInfos, infos);
+      }
+    }
+  }
+
   // sort by fragment_id
   for (auto &elem: codeGenInfo.signalDebugInfo) {
     auto &v = elem.getSecond();
@@ -219,6 +265,8 @@ void SchedulerBase::fillDebugInfo() {
 
       auto a_fragmentId = codeGenInfo.partitionInfo[a_partId].valuePool[a_valId].fragment_id;
       auto b_fragmentId = codeGenInfo.partitionInfo[b_partId].valuePool[b_valId].fragment_id;
+      // fragment Id should not duplicate
+      assert(a_fragmentId != b_fragmentId);
       return a_fragmentId > b_fragmentId;
     });
   }
