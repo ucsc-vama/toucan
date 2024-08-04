@@ -18,6 +18,8 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
+#include <cassert>
+#include <climits>
 #include <cstddef>
 #include <cstdint>
 
@@ -170,6 +172,18 @@ void SchedulerBase::fillDebugInfo() {
       return a_fragmentId > b_fragmentId;
     });
   }
+  // Verify fragment id correctness
+  for (auto &elem: codeGenInfo.regDebugInfo) {
+    auto &v = elem.getSecond();
+    if (v.size() == 1) continue;
+    uint32_t expected_id = v.size() - 1;
+    for (const auto &ei: v) {
+      assert(expected_id != UINT32_MAX);
+      auto fragment_id = codeGenInfo.regPool[ei].fragment_id;
+      assert(fragment_id == expected_id);
+      expected_id--;
+    }
+  }
 
 
 
@@ -198,6 +212,18 @@ void SchedulerBase::fillDebugInfo() {
       assert(a_fragmentId != b_fragmentId);
       return a_fragmentId > b_fragmentId;
     });
+  }
+  // Verify fragment id correctness
+  for (auto &elem: codeGenInfo.memDebugInfo) {
+    auto &v = elem.getSecond();
+    if (v.size() == 1) continue;
+    uint32_t expected_id = v.size() - 1;
+    for (const auto &ei: v) {
+      assert(expected_id != UINT32_MAX);
+      auto fragment_id = codeGenInfo.memPool[ei].fragment_id;
+      assert(fragment_id == expected_id);
+      expected_id--;
+    }
   }
 
 
@@ -270,6 +296,10 @@ void SchedulerBase::fillDebugInfo() {
       return a_fragmentId > b_fragmentId;
     });
   }
+
+  // Don't verify fragment id correctness
+  // For regular signals, some fragments can be missing due to optimizations
+
 }
 
 

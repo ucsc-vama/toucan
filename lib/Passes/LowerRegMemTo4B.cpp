@@ -194,6 +194,10 @@ struct LowerRegMemTo4BPass : toucan::impl::LowerRegMemTo4BBase<LowerRegMemTo4BPa
 
               auto fragmentsInEachMask = (memWidth + 3) / 4;
               fragmentId_raw = (originalMemPos / memWidth) * (fragmentsInEachMask) + newMemId;
+
+              if (namehint == "TestHarness.ldut.tile_prci_domain_1.tile_reset_domain.boom_tile.frontend.bpd.banked_predictors_0.components_1.tables_2.lo_us") {
+                llvm::dbgs() << "Found mem with accumulated_mem_width " << originalMemPos << ", mem id " << newMemId << ", new fragment id " << fragmentId_raw << "\n";
+              }
             } else {
               fragmentId_raw = newMemId;
             }
@@ -254,16 +258,30 @@ struct LowerRegMemTo4BPass : toucan::impl::LowerRegMemTo4BBase<LowerRegMemTo4BPa
             toRemove.push_back(op);
           }
         } else {
-          if (!getSignalFragmentIDAttr(memOp)) {
-            // memory width less or equal than 4
-            // Don't need expand
-            memsAfterInModule++;
-            // set name hint
-            setSVNameHintAttr(memOp, namehint);
-            // Set fragment Id
-            auto fragmentId = rewriter.getIntegerAttr(rewriter.getIntegerType(32), 0);
+          auto originalMemPosAttr = getAccumulatedMemWidthAttr(memOp);
+          if (originalMemPosAttr) {
+            // has accumulated mem width attr
+            // Small memory, assign fragmentid using accumulated_mem_width
+            auto accumulated_mem_width = originalMemPosAttr->getValue().getZExtValue();
+            auto memWidth = memOp.getHandle().getType().getElementWidth();
+            assert(accumulated_mem_width % memWidth == 0);
+            auto newFragmentId = accumulated_mem_width / memWidth;
+            // TODO: align with memWidth
+            auto fragmentId = rewriter.getIntegerAttr(rewriter.getIntegerType(32), newFragmentId);
             setSignalFragmentIDAttr(memOp, fragmentId);
+          } else {
+            if (!getSignalFragmentIDAttr(memOp)) {
+              // memory width less or equal than 4
+              // Don't need expand
+              memsAfterInModule++;
+              // set name hint
+              setSVNameHintAttr(memOp, namehint);
+              // Set fragment Id
+              auto fragmentId = rewriter.getIntegerAttr(rewriter.getIntegerType(32), 0);
+              setSignalFragmentIDAttr(memOp, fragmentId);
+            }
           }
+          
         }
       }
     }

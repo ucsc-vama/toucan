@@ -939,7 +939,7 @@ void MultiRegionScheduler::generateRegMemLayout(DesignGraph &graph) {
 
       paddingRegMeta.isPadding = true;
       paddingRegMeta.bitWidth = 0;
-      paddingRegMeta.fragment_id = 0;
+      paddingRegMeta.fragment_id = UINT32_MAX;
       paddingRegMeta.isIO = false;
 
       // auto regId = codeGenInfo.regPool.size();
@@ -966,6 +966,7 @@ void MultiRegionScheduler::generateRegMemLayout(DesignGraph &graph) {
       if (fragmentIdAttr) {
         memMeta.fragment_id = fragmentIdAttr->getInt();
       } else {
+        assert(false && "Every memory should have a fragment id!");
         memMeta.fragment_id = UINT32_MAX;
       }
       memMeta.bitWidth = memVal.getType().getElementWidth();
