@@ -30,7 +30,7 @@ using namespace llvm;
 using namespace circt;
 
 void RepCutPartitioner::setPartitionTarget(uint32_t numRegions, uint32_t numPartsInEachRegion) {
-  assert(numRegions > 0);
+  assert(numRegions > 1);
   assert(numPartsInEachRegion > 0);
 
   regionPartitionNumbers.resize(numRegions, numPartsInEachRegion);

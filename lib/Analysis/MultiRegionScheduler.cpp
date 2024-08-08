@@ -7,6 +7,7 @@
 #include "mlir/IR/Value.h"
 #include "mlir/Pass/AnalysisManager.h"
 #include "mlir/Support/LLVM.h"
+#include "toucan/PartitioningGraph.h"
 #include "toucan/ToucanAnalysis.h"
 #include "toucan/ToucanAttributes.h"
 #include "toucan/ToucanOps.h"
@@ -110,7 +111,6 @@ void MultiRegionScheduler::cutGraph(DesignGraph &graph) {
   mlir::DenseSet<uint32_t> vecReadsInNextRegion;
   for (size_t levelId = 0; levelId < graphLevels.size(); levelId++) {
     const auto currentLevel = graphLevels[levelId];
-    // TODO: VecDecl and VecRead must be in same region!
     bool isLastLevelInRegion = levelId > nextCutPoint;
 
     if (isLastLevelInRegion) {
@@ -128,7 +128,7 @@ void MultiRegionScheduler::cutGraph(DesignGraph &graph) {
   }
   regionVtxes.resize(currentRegionId + 1);
 
-  // Move VecDecl to its user region (backwards)
+  // Move VecDecl and const vec decl to its user region (backwards)
   mlir::SmallVector<uint32_t> vecUserRegions;
   for (uint32_t vtxId = 0; vtxId < graphSize; vtxId++) {
     auto tOpName = graph.g[vtxId].toucanOpName;
@@ -137,7 +137,18 @@ void MultiRegionScheduler::cutGraph(DesignGraph &graph) {
     assert(!opToVtxId.contains(opPtr));
     opToVtxId[opPtr] = vtxId;
 
+    bool is_VecDecl_or_ConstVecDecl = false;
+
     if (tOpName == CGToucanOPName::VecDecl) {
+      // A vec decl
+      is_VecDecl_or_ConstVecDecl = true;
+    } else if (tOpName == CGToucanOPName::ConstDecl && isa<toucan::DefConstVectorOp>(opPtr)) {
+      // A const vec decl
+      is_VecDecl_or_ConstVecDecl = true;
+    }
+
+
+    if (is_VecDecl_or_ConstVecDecl) {
       auto vecDeclRegion = vtxIdToRegionId[vtxId];
 
       vecUserRegions.clear();
@@ -493,9 +504,9 @@ LogicalResult MultiRegionScheduler::levelizeAllPartitions(mlir::MLIRContext *con
 
     // assertions
     if (regionId != 0) {
-      // has ExchangeRead, then the first level must be exchange reads
+      // has ExchangeRead, then the first level must be exchange reads or const Decl
       for (auto vtx: regionLevels[0]) {
-        assert(regionGraphs[regionId][vtx].toucanOpName == CGToucanOPName::ExchangeRead);
+        assert(regionGraphs[regionId][vtx].toucanOpName == CGToucanOPName::ExchangeRead || regionGraphs[regionId][vtx].toucanOpName == CGToucanOPName::ConstDecl);
       }
     } else {
       for (auto vtx: regionLevels[0]) {
@@ -1033,6 +1044,7 @@ void MultiRegionScheduler::generateRegMemLayout(DesignGraph &graph) {
     assert(newId != UINT32_MAX);
     exchangePoolOrdered[newId] = codeGenInfo.exchangePool[oldId];
   }
+  assert(exchangePoolOrdered.size() == codeGenInfo.exchangePool.size());
   std::swap(exchangePoolOrdered, codeGenInfo.exchangePool);
 
   // modify all references
@@ -1051,8 +1063,9 @@ void MultiRegionScheduler::generateRegMemLayout(DesignGraph &graph) {
   return;
 }
 
-
-void MultiRegionScheduler::collectConstant(PartitioningGraph &graph, CGPartitionMetaInfo &partInfo, const mlir::SmallVector<uint32_t> firstLevelOps) {
+// Collect const decls. DOES NOT collect const vec decls
+// Since it's multi-regioned, const vec users might not exists in current region
+void MultiRegionScheduler::collectConstantVars(PartitioningGraph &graph, CGPartitionMetaInfo &partInfo, const mlir::SmallVector<uint32_t> firstLevelOps) {
   // Collect all consts, populate value pool
   // ConstDecl only exists in first level
   for (auto vtxId: firstLevelOps) {
@@ -1076,8 +1089,26 @@ void MultiRegionScheduler::collectConstant(PartitioningGraph &graph, CGPartition
 
         partInfo.valuePool.push_back({true, false, rawVal, op, 0, static_cast<uint8_t>(bitWidth), std::nullopt, 0});
       } else {
-        // it must be a vector const
-        auto defConstVecOp = cast<toucan::DefConstVectorOp>(op);
+        // Ignore const vec decls for now.
+      }
+    }
+  }
+}
+
+// Collect const vec decls
+void MultiRegionScheduler::collectConstantVecs(PartitioningGraph &graph, CGPartitionMetaInfo &partInfo, uint32_t partId) {
+  // Collect all consts, populate value pool
+  // ConstDecl only exists in first level
+  auto numVtxes = boost::num_vertices(graph);
+  for (uint32_t vtxId = 0; vtxId < numVtxes; vtxId++) {
+    auto vtxOpName = graph[vtxId].toucanOpName;
+    if (vtxOpName == CGToucanOPName::VecRead) {
+      auto op = cast<toucan::VectorReadOp>(graph[vtxId].op);
+      auto vecHandle = op.getHandle();
+      auto vecDeclOp = vecHandle.getDefiningOp();
+
+      if (auto defConstVecOp = dyn_cast<toucan::DefConstVectorOp>(vecDeclOp)) {
+        // a const vector used in this graph/region. 
         // save op result value
         // Vec result map to first vec element
         auto vecHandle = defConstVecOp.getHandle();
@@ -1657,8 +1688,11 @@ void MultiRegionScheduler::scheduleExchangeReads(PartitioningGraph &graph, CGPar
   // uint32_t opId = 0;
   for (auto vtxId: firstLevel) {
     auto tOpName = graph[vtxId].toucanOpName;
+    // ConstDecl may also appear. Do nothing.
+    if (tOpName == CGToucanOPName::ConstDecl) continue;
     auto vtxWeight = graph[vtxId].weight;
     auto exchangeValId = graph[vtxId].exchangeValId;
+    assert(codeGenInfo.exchangePool.size() > exchangeValId);
     auto readVal = codeGenInfo.exchangePool[exchangeValId].val;
     assert(vtxWeight == 1);
     assert(tOpName == CGToucanOPName::ExchangeRead);
@@ -1686,6 +1720,7 @@ void MultiRegionScheduler::scheduleExchangeReads(PartitioningGraph &graph, CGPar
 
     partInfo.valuePool.push_back(valMeta);
 
+    assert(!partInfo.valueToValId.contains(readVal));
     partInfo.valueToValId[readVal] = localValId;
     opMeta.setResult(localValId);
     opMeta.exgRead.exchangeVal = exchangeValId;
@@ -1714,6 +1749,7 @@ void MultiRegionScheduler::scheduleExchangeWrites(PartitioningGraph &graph, CGPa
     auto tOpName = graph[vtxId].toucanOpName;
     auto vtxWeight = graph[vtxId].weight;
     auto exchangeValId = graph[vtxId].exchangeValId;
+    assert(codeGenInfo.exchangePool.size() > exchangeValId);
     auto writeVal = codeGenInfo.exchangePool[exchangeValId].val;
     assert(vtxWeight == 1);
     assert(tOpName == CGToucanOPName::ExchangeWrite);
@@ -1792,11 +1828,14 @@ void MultiRegionScheduler::schedule(DesignGraph &graph) {
       partInfo.valuePool.push_back(zeroConst);
 
       if (regionId == 0) {
-      // constant only exists in first region. collect them.
-        collectConstant(currentRegionGraph, partInfo, firstLevel);
+      // constant vars only exists in first region. collect them.
+        collectConstantVars(currentRegionGraph, partInfo, firstLevel);
       }
+      // const vecs might exists in multiple regions.
+      // create const vars for every const vecdecl.
+      collectConstantVecs(currentRegionGraph, partInfo, partId);
       partInfo.numConstsInValuePool = partInfo.valuePool.size();
-      // llvm::dbgs() << "Const pool size " << partInfo.numConstsInValuePool << "\n";
+      // llvm::dbgs() << "Region " << regionId << " part " << partId << " has const pool size " << partInfo.numConstsInValuePool << "\n";
 
 
       if (printLevelStat) {
