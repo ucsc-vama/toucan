@@ -441,8 +441,9 @@ namespace toucan {
 
     // CGInfo codeGenInfo;
 
-    uint32_t partitionPaddingSpace = 32;
-    uint32_t memPaddingSpace = 32;
+    // GPU cache line size
+    uint32_t partitionPaddingSpace = 128;
+    uint32_t memPaddingSpace = 128;
     // if a memory has multiple writer, add extra padding to avoid possible write conflict. 
     // 4 => each memory element (4bits) takes 32 bits (4B)
     // Warning: Change this number also requires change in CodeGen and simulator!!
