@@ -20,3 +20,23 @@ std::string toucan::stringifyCGToucanOPName(CGToucanOPName val) {
   }
   return "???";
 }
+
+void CGOpStatistics::print() const {
+  auto printMember = [=](uint32_t num, const char* name) {
+    if (num != 0) {
+      llvm::outs() << name << ": " << num << "\n";
+    }
+  };
+
+  printMember(numRegReads, "RegRead");
+  printMember(numMemReads, "MemRead");
+  printMember(numVecReads, "VecRead");
+  printMember(numLuts, "LUT");
+  printMember(numLutNops, "LUT_nop");
+  printMember(numRegWrites, "RegWrite");
+  printMember(numMemWrites, "MemWrite");
+  printMember(numPrints, "Print");
+  printMember(numStops, "Stop");
+  printMember(numExchangeReads, "ExchangeRead");
+  printMember(numExchangeWrites, "ExchangeWrite");
+}

@@ -299,6 +299,8 @@ namespace toucan {
     uint32_t numStops;
     uint32_t numExchangeReads;
     uint32_t numExchangeWrites;
+
+    void print() const;
   };
 
   // Information needed for code gen, each level

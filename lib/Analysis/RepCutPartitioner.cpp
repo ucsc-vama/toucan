@@ -136,6 +136,12 @@ LogicalResult RepCutPartitioner::partitionAndSchedule(mlir::MLIRContext *context
   auto schedule_duration = std::chrono::duration_cast<std::chrono::milliseconds>(schedule_end - schedule_start).count();
   llvm::outs() << "Scheduling took " << schedule_duration << "ms\n";
 
+  // for (size_t partId = 0; partId < codeGenInfo.partitionInfo.size(); partId++) {
+  //   const auto &eachPart = codeGenInfo.partitionInfo[partId];
+  //   llvm::outs() << "Partition " << partId << "\n";
+  //   eachPart.opStatistics.print();
+  // }
+
   SchedulerBase::fillDebugInfo();
 
   return success();
