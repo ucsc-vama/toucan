@@ -1793,6 +1793,12 @@ void MultiRegionScheduler::schedule(DesignGraph &graph) {
 
   // dedup strings
   collectPrintString(graph, codeGenInfo.printStrings);
+  if (codeGenInfo.printStrings.size() > UINT16_MAX) {
+    llvm::errs() << "Too many print strings! (current max is " << UINT16_MAX << ")\n";
+    llvm_unreachable("Too many print strings");
+  }
+  assert(codeGenInfo.printStrings.size() <= UINT16_MAX);
+  
 
   // llvm::dbgs() << "Verifying original graph\n";
 

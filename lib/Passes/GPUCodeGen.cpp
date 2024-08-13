@@ -58,6 +58,8 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
 
   void populateSinglePartition(const CGPartitionMetaInfo &part) {
     toucanGPUSim::SimPartitionInfo partInfo;
+    // have at least 2 levels. one for input, one for output
+    assert(part.opPool.size() >= 2);
 
     partInfo.valuePool.resize(part.numConstsInValuePool);
     for (size_t i = 0; i < part.numConstsInValuePool; i++) {
@@ -65,20 +67,33 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
       partInfo.valuePool[i] = part.valuePool[i].value;
     } 
     partInfo.valuePoolSize = part.valuePool.size();
+    if (partInfo.valuePoolSize > UINT16_MAX) {
+      llvm::errs() << "Value pool size is " << partInfo.valuePoolSize << ", which exceeds UINT16_MAX. This should not happen.\n";
+    }
+    assert(partInfo.valuePoolSize <= UINT16_MAX && "Value pool is too large");
 
-    partInfo.ops_l0.resize(part.opPool[0].size());
     for (size_t i = 0; i < part.opPool[0].size(); i++) {
       auto &opMeta = part.opPool[0][i];
-      partInfo.ops_l0[i].opType = static_cast<uint8_t>(opMeta.opName);
+
       switch (opMeta.opName) {
         case CGToucanOPName::RegRead: {
-          partInfo.ops_l0[i].reg.reg = opMeta.regRead.reg;
-          partInfo.ops_l0[i].reg.result = opMeta.regRead.result;
+          assert(opMeta.regRead.result <= UINT16_MAX);
+
+          toucanGPUSim::CGRegReadMetaInfo info;
+          info.reg = opMeta.regRead.reg;
+          info.result = static_cast<uint16_t>(opMeta.regRead.result);
+
+          partInfo.ops_l0_regRead.push_back(info);
           break;
         }
         case CGToucanOPName::ExchangeRead: {
-          partInfo.ops_l0[i].exgRead.exchangeVal = opMeta.exgRead.exchangeVal;
-          partInfo.ops_l0[i].exgRead.localVal = opMeta.exgRead.localVal;
+          assert(opMeta.exgRead.localVal <= UINT16_MAX);
+
+          toucanGPUSim::CGExchangeReadMetaInfo info;
+          info.exchangeVal = opMeta.exgRead.exchangeVal;
+          info.localVal = opMeta.exgRead.localVal;
+
+          partInfo.ops_l0_exgRead.push_back(info);
           break;
         }
         default: {
@@ -88,122 +103,149 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     }
 
     // ops, middle levels
-    assert(part.opPool.size() >= 2);
-    partInfo.ops_exec.resize(part.opPool.size() - 2);
     for (size_t levelId = 1; levelId < part.opPool.size() - 1; levelId++) {
       auto execOpsIdx = levelId - 1;
       auto &currentLevel = part.opPool[levelId];
 
-      uint32_t numMemReads = 0;
-      uint32_t numVecReads = 0;
-      uint32_t numLuts = 0;
+      partInfo.ops_exec_memRead.emplace_back();
+      partInfo.ops_exec_vecRead.emplace_back();
+      partInfo.ops_exec_lut.emplace_back();
 
-      partInfo.ops_exec[execOpsIdx].resize(currentLevel.size());
       for (size_t i = 0; i < currentLevel.size(); i++) {
         auto &opMeta = currentLevel[i];
-        partInfo.ops_exec[execOpsIdx][i].opType = static_cast<uint8_t>(opMeta.opName);
         switch (opMeta.opName) {
-        case CGToucanOPName::LUT: {
-          auto lutIndex = lutPos[static_cast<uint32_t>(opMeta.lut.lutId)];
-          partInfo.ops_exec[execOpsIdx][i].lut.lutIndex = lutIndex;
-          partInfo.ops_exec[execOpsIdx][i].lut.op0 = opMeta.lut.op0;
-          partInfo.ops_exec[execOpsIdx][i].lut.op1 = opMeta.lut.op1;
-          partInfo.ops_exec[execOpsIdx][i].lut.op2 = opMeta.lut.op2;
-          partInfo.ops_exec[execOpsIdx][i].lut.result = opMeta.lut.result;
+          case CGToucanOPName::LUT: {
+            assert(opMeta.lut.op0 <= UINT16_MAX);
+            assert(opMeta.lut.op1 <= UINT16_MAX);
+            assert(opMeta.lut.op2 <= UINT16_MAX);
+            assert(opMeta.lut.result <= UINT16_MAX);
+            toucanGPUSim::CGLUTMetaInfo info;
 
-          numLuts++;
-          break;
-        }
-        case CGToucanOPName::VecRead: {
-          assert(opMeta.vec.vecLength < UINT16_MAX && "Vector is too long");
+            auto lutIndex = lutPos[static_cast<uint32_t>(opMeta.lut.lutId)];
+            info.lutIndex = lutIndex;
+            info.op0 = opMeta.lut.op0;
+            info.op1 = opMeta.lut.op1;
+            info.op2 = opMeta.lut.op2;
+            info.result = opMeta.lut.result;
 
-          partInfo.ops_exec[execOpsIdx][i].vec.vecBase = opMeta.vec.vecBase;
-          partInfo.ops_exec[execOpsIdx][i].vec.vecLength = opMeta.vec.vecLength;
-          partInfo.ops_exec[execOpsIdx][i].vec.index0 = opMeta.vec.index0;
-          partInfo.ops_exec[execOpsIdx][i].vec.index1 = opMeta.vec.index1;
-          partInfo.ops_exec[execOpsIdx][i].vec.index2 = opMeta.vec.index2;
-          partInfo.ops_exec[execOpsIdx][i].vec.index3 = opMeta.vec.index3;
-          partInfo.ops_exec[execOpsIdx][i].vec.outRangeValue = opMeta.vec.outRangeValue;
-          partInfo.ops_exec[execOpsIdx][i].vec.offset = opMeta.vec.offset;
-          partInfo.ops_exec[execOpsIdx][i].vec.result = opMeta.vec.result;
+            partInfo.ops_exec_lut.back().push_back(info);
+            break;
+          }
+          case CGToucanOPName::VecRead: {
+            assert(opMeta.vec.index0 <= UINT16_MAX);
+            assert(opMeta.vec.index1 <= UINT16_MAX);
+            assert(opMeta.vec.index2 <= UINT16_MAX);
+            assert(opMeta.vec.index3 <= UINT16_MAX);
+            assert(opMeta.vec.outRangeValue <= UINT16_MAX);
+            assert(opMeta.vec.result <= UINT16_MAX);
 
-          numVecReads++;
-          break;
-        }
-        case CGToucanOPName::MemRead: {
-          partInfo.ops_exec[execOpsIdx][i].mem.hasMultipleWriter = opMeta.memRead.hasMultipleWriter;
-          partInfo.ops_exec[execOpsIdx][i].mem.memDepth = opMeta.memRead.memDepth;
-          partInfo.ops_exec[execOpsIdx][i].mem.memBase = opMeta.memRead.memBase;
-          partInfo.ops_exec[execOpsIdx][i].mem.en = opMeta.memRead.en;
-          partInfo.ops_exec[execOpsIdx][i].mem.addrVec = opMeta.memRead.addrVec;
-          partInfo.ops_exec[execOpsIdx][i].mem.result = opMeta.memRead.result;
+            assert(opMeta.vec.vecLength < UINT16_MAX && "Vector is too long");
 
-          numMemReads++;
-          break;
-        }
-        default:
-          llvm::dbgs() << static_cast<uint32_t>(opMeta.opName);
-          llvm_unreachable("Other ops should not appear here");
+            toucanGPUSim::CGVecReadMetaInfo info;
+
+            info.vecBase = opMeta.vec.vecBase;
+            info.vecLength = opMeta.vec.vecLength;
+            info.index0 = opMeta.vec.index0;
+            info.index1 = opMeta.vec.index1;
+            info.index2 = opMeta.vec.index2;
+            info.index3 = opMeta.vec.index3;
+            info.outRangeValue = opMeta.vec.outRangeValue;
+            info.offset = opMeta.vec.offset;
+            info.result = opMeta.vec.result;
+
+            partInfo.ops_exec_vecRead.back().push_back(info);
+            break;
+          }
+          case CGToucanOPName::MemRead: {
+            assert(opMeta.memRead.en <= UINT16_MAX);
+            assert(opMeta.memRead.addrVec <= UINT16_MAX);
+            assert(opMeta.memRead.result <= UINT16_MAX);
+
+            toucanGPUSim::CGMemReadMetaInfo info;
+
+            info.hasMultipleWriter = opMeta.memRead.hasMultipleWriter;
+            info.memDepth = opMeta.memRead.memDepth;
+            info.memBase = opMeta.memRead.memBase;
+            info.en = opMeta.memRead.en;
+            info.addrVec = opMeta.memRead.addrVec;
+            info.result = opMeta.memRead.result;
+
+            partInfo.ops_exec_memRead.back().push_back(info);
+            break;
+          }
+          default: {
+            llvm::dbgs() << static_cast<uint32_t>(opMeta.opName);
+            llvm_unreachable("Other ops should not appear here");
+          }
         }
       }
-
-      partInfo.opInfo_exec.push_back(std::tuple(numMemReads, numVecReads, numLuts));
-      assert(partInfo.ops_exec[execOpsIdx].size() == (numMemReads + numVecReads + numLuts));
     }
 
     // ops, last level
-    uint32_t numExchangeWrites = 0;
-    uint32_t numRegWrites = 0;
-    uint32_t numMemWrites = 0;
-    uint32_t numPrints = 0;
-    uint32_t numStops = 0;
-
-    partInfo.ops_last.resize(part.opPool.back().size());
     for (size_t i = 0; i < part.opPool.back().size(); i++) {
       auto &opMeta = part.opPool.back()[i];
-      partInfo.ops_last[i].opType = static_cast<uint8_t>(opMeta.opName);
       switch (opMeta.opName) {
-      case CGToucanOPName::Print: {
-        partInfo.ops_last[i].print.en = opMeta.print.en;
-        partInfo.ops_last[i].print.msg = opMeta.print.msg;
-        numPrints++;
-        break;
-      }
-      case CGToucanOPName::Stop: {
-        partInfo.ops_last[i].stop.en = opMeta.stop.en;
-        numStops++;
-        break;
-      }
-      case CGToucanOPName::RegWrite: {
-        partInfo.ops_last[i].regWrite.reg = opMeta.regWrite.reg;
-        partInfo.ops_last[i].regWrite.dat = opMeta.regWrite.dat;
-        numRegWrites++;
-        break;
-      }
-      case CGToucanOPName::MemWrite: {
-        partInfo.ops_last[i].memWrite.hasMultipleWriter = opMeta.memWrite.hasMultipleWriter;
-        partInfo.ops_last[i].memWrite.memDepth = opMeta.memWrite.memDepth;
-        partInfo.ops_last[i].memWrite.memBase = opMeta.memWrite.memBase;
-        partInfo.ops_last[i].memWrite.addrVec = opMeta.memWrite.addrVec;
-        partInfo.ops_last[i].memWrite.dat = opMeta.memWrite.dat;
-        partInfo.ops_last[i].memWrite.en = opMeta.memWrite.en;
-        numMemWrites++;
-        break;
-      }
-      case CGToucanOPName::ExchangeWrite: {
-        partInfo.ops_last[i].exgWrite.localVal = opMeta.exgWrite.localVal;
-        partInfo.ops_last[i].exgWrite.exchangeVal = opMeta.exgWrite.exchangeVal;
-        numExchangeWrites++;
-        break;
-      }
-      default:
-        llvm_unreachable("Other type of ops should not appear in last level!");
+        case CGToucanOPName::Print: {
+          assert(opMeta.print.en <= UINT16_MAX);
+          assert(opMeta.print.msg <= UINT16_MAX);
+
+          toucanGPUSim::CGPrintMetaInfo info;
+          info.en = opMeta.print.en;
+          info.msg = opMeta.print.msg;
+          
+          partInfo.ops_last_print.push_back(info);
+          break;
+        }
+        case CGToucanOPName::Stop: {
+          assert(opMeta.stop.en <= UINT16_MAX);
+
+          toucanGPUSim::CGStopMetaInfo info;
+          info.en = opMeta.stop.en;
+          
+          partInfo.ops_last_stop.push_back(info);
+          break;
+        }
+        case CGToucanOPName::RegWrite: {
+          assert(opMeta.regWrite.dat <= UINT16_MAX);
+
+          toucanGPUSim::CGRegWriteMetaInfo info;
+          info.reg = opMeta.regWrite.reg;
+          info.dat = opMeta.regWrite.dat;
+          
+          partInfo.ops_last_regWrite.push_back(info);
+          break;
+        }
+        case CGToucanOPName::MemWrite: {
+          assert(opMeta.memWrite.addrVec <= UINT16_MAX);
+          assert(opMeta.memWrite.dat <= UINT16_MAX);
+          assert(opMeta.memWrite.en <= UINT16_MAX);
+
+          toucanGPUSim::CGMemWriteMetaInfo info;
+          info.hasMultipleWriter = opMeta.memWrite.hasMultipleWriter;
+          info.memDepth = opMeta.memWrite.memDepth;
+          info.memBase = opMeta.memWrite.memBase;
+          info.addrVec = opMeta.memWrite.addrVec;
+          info.dat = opMeta.memWrite.dat;
+          info.en = opMeta.memWrite.en;
+          
+          partInfo.ops_last_memWrite.push_back(info);
+          break;
+        }
+        case CGToucanOPName::ExchangeWrite: {
+          assert(opMeta.exgWrite.localVal <= UINT16_MAX);
+
+          toucanGPUSim::CGExchangeWriteMetaInfo info;
+          info.localVal = opMeta.exgWrite.localVal;
+          info.exchangeVal = opMeta.exgWrite.exchangeVal;
+          
+          partInfo.ops_last_exgWrite.push_back(info);
+          break;
+        }
+        default: {
+          llvm_unreachable("Other type of ops should not appear in last level!");
+        }
       }
     }
-
-    partInfo.opInfo_last = std::tuple(numExchangeWrites, numRegWrites, numMemWrites, numPrints, numStops);
-    assert(partInfo.ops_last.size() == (numExchangeWrites + numRegWrites + numMemWrites + numPrints + numStops));
-    assert((numExchangeWrites == 0) || (partInfo.ops_last.size() == numExchangeWrites));
 
     designInfo.parts.push_back(std::move(partInfo));
   }

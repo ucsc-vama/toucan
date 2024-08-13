@@ -2,6 +2,7 @@
 #include <fstream>
 
 #include <iostream>
+#include <cassert>
 
 using namespace toucanGPUSim;
 
@@ -130,33 +131,50 @@ static void serializeSimPartitionInfo(std::ostream& out, const toucanGPUSim::Sim
   serializeVector(out, info.valuePool);
   out.write(reinterpret_cast<const char*>(&info.valuePoolSize), sizeof(info.valuePoolSize));
 
-  serializeVector(out, info.ops_l0);
-  size_t execSize = info.ops_exec.size();
+  serializeVector(out, info.ops_l0_regRead);
+  serializeVector(out, info.ops_l0_exgRead);
+
+  size_t execSize = info.ops_exec_memRead.size();
   out.write(reinterpret_cast<const char*>(&execSize), sizeof(execSize));
-  for (const auto& execVec : info.ops_exec) {
-    serializeVector(out, execVec);
+  assert(info.ops_exec_vecRead.size() == execSize);
+  assert(info.ops_exec_lut.size() == execSize);
+
+  for (size_t levelId = 0; levelId < execSize; levelId++) {
+    serializeVector(out, info.ops_exec_memRead);
+    serializeVector(out, info.ops_exec_vecRead);
+    serializeVector(out, info.ops_exec_lut);
   }
 
-  serializeVector(out, info.ops_last);
-  serializeVector(out, info.opInfo_exec);
-  serializePrimitive(out, info.opInfo_last);
+  serializeVector(out, info.ops_last_exgWrite);
+  serializeVector(out, info.ops_last_regWrite);
+  serializeVector(out, info.ops_last_memWrite);
+  serializeVector(out, info.ops_last_print);
+  serializeVector(out, info.ops_last_stop);
 }
 
 static void deserializeSimPartitionInfo(std::istream& in, toucanGPUSim::SimPartitionInfo& info) {
   deserializeVector(in, info.valuePool);
   in.read(reinterpret_cast<char*>(&info.valuePoolSize), sizeof(info.valuePoolSize));
 
-  deserializeVector(in, info.ops_l0);
+  deserializeVector(in, info.ops_l0_regRead);
+  deserializeVector(in, info.ops_l0_exgRead);
   size_t execSize;
   in.read(reinterpret_cast<char*>(&execSize), sizeof(execSize));
-  info.ops_exec.resize(execSize);
-  for (auto& execVec : info.ops_exec) {
-    deserializeVector(in, execVec);
+
+  info.ops_exec_vecRead.resize(execSize);
+  info.ops_exec_memRead.resize(execSize);
+  info.ops_exec_lut.resize(execSize);
+  for (size_t levelId = 0; levelId < execSize; levelId++) {
+    deserializeVector(in, info.ops_exec_memRead[levelId]);
+    deserializeVector(in, info.ops_exec_vecRead[levelId]);
+    deserializeVector(in, info.ops_exec_lut[levelId]);
   }
 
-  deserializeVector(in, info.ops_last);
-  deserializeVector(in, info.opInfo_exec);
-  deserializePrimitive(in, info.opInfo_last);
+  deserializeVector(in, info.ops_last_exgWrite);
+  deserializeVector(in, info.ops_last_regWrite);
+  deserializeVector(in, info.ops_last_memWrite);
+  deserializeVector(in, info.ops_last_print);
+  deserializeVector(in, info.ops_last_stop);
 }
 
 

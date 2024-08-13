@@ -14,54 +14,46 @@ namespace toucanGPUSim {
   // Reg read, only appear in first level
   struct CGRegReadMetaInfo {
     uint32_t reg;
-    uint32_t result;
+    uint16_t result;
   };
 
   struct CGExchangeReadMetaInfo {
     uint32_t exchangeVal;
-    uint32_t localVal;
+    uint16_t localVal;
   };
 
   struct CGExchangeWriteMetaInfo {
-    uint32_t localVal;
+    uint16_t localVal;
     uint32_t exchangeVal;
   };
 
-  // top level nodes
-  struct CGTopLevelMetaInfo {
-    uint8_t opType;
-    union {
-      CGRegReadMetaInfo reg;
-      CGExchangeReadMetaInfo exgRead;
-    };
-  };
 
   struct CGLUTMetaInfo {
     // lut size: 4898
     uint16_t lutIndex;
 
-    uint32_t op0;
-    uint32_t op1;
-    uint32_t op2;
+    uint16_t op0;
+    uint16_t op1;
+    uint16_t op2;
 
-    uint32_t result;
+    uint16_t result;
   };
 
   struct CGVecReadMetaInfo {
-    uint32_t vecBase;
+    uint16_t vecBase;
     // Note: vecLength is static
     uint16_t vecLength;
     // Note: This offset is a static value!!!!
     uint16_t offset;
     
     // max addr width: 16
-    uint32_t index0;
-    uint32_t index1;
-    uint32_t index2;
-    uint32_t index3;
-    uint32_t outRangeValue;
+    uint16_t index0;
+    uint16_t index1;
+    uint16_t index2;
+    uint16_t index3;
+    uint16_t outRangeValue;
 
-    uint32_t result;
+    uint16_t result;
   };
 
   struct CGMemReadMetaInfo {
@@ -72,33 +64,24 @@ namespace toucanGPUSim {
     // static
     uint64_t memBase;
 
-    uint32_t en;
-    uint32_t addrVec;
+    uint16_t en;
+    uint16_t addrVec;
 
-    uint32_t result;
+    uint16_t result;
   };
 
-  // exec level nodes
-  struct CGExecLevelMetaInfo {
-    uint8_t opType;
-    union {
-      CGLUTMetaInfo lut;
-      CGVecReadMetaInfo vec;
-      CGMemReadMetaInfo mem;
-    };
-  };
 
   // last level: regWrite, memWrite, stop, print
   struct CGPrintMetaInfo {
-    uint32_t en;
-    uint32_t msg;
+    uint16_t en;
+    uint16_t msg;
   };
   struct CGStopMetaInfo {
-    uint32_t en;
+    uint16_t en;
   };
   struct CGRegWriteMetaInfo {
     uint32_t reg;
-    uint32_t dat;
+    uint16_t dat;
   };
   struct CGMemWriteMetaInfo {
     // const
@@ -107,21 +90,11 @@ namespace toucanGPUSim {
     uint32_t memDepth;
     uint64_t memBase;
 
-    uint32_t addrVec;
-    uint32_t dat;
-    uint32_t en;
+    uint16_t addrVec;
+    uint16_t dat;
+    uint16_t en;
   };
 
-  struct CGLastLevelMetaInfo {
-    uint8_t opType;
-    union {
-      CGPrintMetaInfo print;
-      CGStopMetaInfo stop;
-      CGRegWriteMetaInfo regWrite;
-      CGMemWriteMetaInfo memWrite;
-      CGExchangeWriteMetaInfo exgWrite;
-    };
-  };
 
 
   struct SimDebugInfo {
@@ -138,14 +111,19 @@ namespace toucanGPUSim {
     std::vector<uint8_t> valuePool;
     uint32_t valuePoolSize;
 
-    std::vector<CGTopLevelMetaInfo> ops_l0;
-    std::vector<std::vector<CGExecLevelMetaInfo> > ops_exec;
-    std::vector<CGLastLevelMetaInfo> ops_last;
+    std::vector<CGRegReadMetaInfo> ops_l0_regRead;
+    std::vector<CGExchangeReadMetaInfo> ops_l0_exgRead;
 
-    // Within each layer, place memReads first, then vecReads, luts are the last
-    std::vector<std::tuple<uint32_t, uint32_t, uint32_t>> opInfo_exec;
-    // Last level: exchangeWrite, regWrite, memWrite, print, stop
-    std::tuple<uint32_t, uint32_t, uint32_t, uint32_t, uint32_t> opInfo_last;
+    std::vector<std::vector<CGMemReadMetaInfo>> ops_exec_memRead;
+    std::vector<std::vector<CGVecReadMetaInfo>> ops_exec_vecRead;
+    std::vector<std::vector<CGLUTMetaInfo>> ops_exec_lut;
+
+    std::vector<CGExchangeWriteMetaInfo> ops_last_exgWrite;
+    std::vector<CGRegWriteMetaInfo> ops_last_regWrite;
+    std::vector<CGMemWriteMetaInfo> ops_last_memWrite;
+    std::vector<CGPrintMetaInfo> ops_last_print;
+    std::vector<CGStopMetaInfo> ops_last_stop;
+
   };
   struct SimDesignInfo {
     std::vector<uint8_t> lut;
