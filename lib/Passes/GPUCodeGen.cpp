@@ -67,6 +67,7 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
       partInfo.valuePool[i] = part.valuePool[i].value;
     } 
     partInfo.valuePoolSize = part.valuePool.size();
+    partInfo.numConstsInValuePool = part.numConstsInValuePool;
     if (partInfo.valuePoolSize > UINT16_MAX) {
       llvm::errs() << "Value pool size is " << partInfo.valuePoolSize << ", which exceeds UINT16_MAX. This should not happen.\n";
     }

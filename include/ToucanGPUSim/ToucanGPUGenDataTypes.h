@@ -110,6 +110,7 @@ namespace toucanGPUSim {
     // valuePool is filled with consts
     std::vector<uint8_t> valuePool;
     uint32_t valuePoolSize;
+    uint32_t numConstsInValuePool;
 
     std::vector<CGRegReadMetaInfo> ops_l0_regRead;
     std::vector<CGExchangeReadMetaInfo> ops_l0_exgRead;
