@@ -140,9 +140,9 @@ static void serializeSimPartitionInfo(std::ostream& out, const toucanGPUSim::Sim
   assert(info.ops_exec_lut.size() == execSize);
 
   for (size_t levelId = 0; levelId < execSize; levelId++) {
-    serializeVector(out, info.ops_exec_memRead);
-    serializeVector(out, info.ops_exec_vecRead);
-    serializeVector(out, info.ops_exec_lut);
+    serializeVector(out, info.ops_exec_memRead[levelId]);
+    serializeVector(out, info.ops_exec_vecRead[levelId]);
+    serializeVector(out, info.ops_exec_lut[levelId]);
   }
 
   serializeVector(out, info.ops_last_exgWrite);

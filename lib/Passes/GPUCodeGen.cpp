@@ -354,6 +354,12 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     toucanGPUSim::serializeSimDesignInfo(ofs_design, designInfo);
     ofs_design.close();
 
+    // test read back
+    toucanGPUSim::SimDesignInfo readBackDesign;
+      std::ifstream ifs_design(outputDesignFileFullName);
+  toucanGPUSim::deserializeSimDesignInfo(ifs_design, readBackDesign);
+
+
     // Debug symbols
     auto outputSymbolFileFullName = std::filesystem::path(outputDirectory.getValue()) / outputSymbolFilename.getValue();
     std::ofstream ofs_symbol(outputSymbolFileFullName, std::ios::binary | std::ios::out);
