@@ -71,6 +71,9 @@ DesignGraph::DesignGraph(Operation *op, AnalysisManager &am) {
     if (auto vecDefOp = dyn_cast<toucan::DefVectorOp>(stmt)) {
       auto vecSize = vecDefOp.getHandle().getType().getLength();
       vp.weight = vecSize;
+    } else if (auto constVecDefOp = dyn_cast<toucan::DefConstVectorOp>(stmt)) {
+      auto vecSize = constVecDefOp.getHandle().getType().getLength();
+      vp.weight = vecSize;
     } else {
       vp.weight = 1;
     }
