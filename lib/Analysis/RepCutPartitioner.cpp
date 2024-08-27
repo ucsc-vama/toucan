@@ -65,6 +65,7 @@ void RepCutPartitioner::setPartitionTarget(uint32_t numRegions, uint32_t numPart
 LogicalResult RepCutPartitioner::partitionAndSchedule(mlir::MLIRContext *context, DesignGraph &graph) {
 
   // Levelize
+  llvm::outs() << "====================Levelize And Cut====================\n";
   levelizeGraphForCut(graph);
 
   // Cut into 2 subgraph
@@ -93,6 +94,7 @@ LogicalResult RepCutPartitioner::partitionAndSchedule(mlir::MLIRContext *context
   std::iota(regionIds.begin(), regionIds.end(), 0);
 
   // llvm::outs() << "Start partitioning\n";
+  llvm::outs() << "====================Partitioning====================\n";
 
   // Save graph to file for debug purpose.
   std::thread bgDumpThread([&]() {
@@ -150,7 +152,7 @@ LogicalResult RepCutPartitioner::partitionAndSchedule(mlir::MLIRContext *context
 
     msgOss.str("");
     msgOss.clear();
-    msgOss << "Region " << regionId << " repartition tooks " << rePartIterationCount << " iterations, num partitions increased from " 
+    msgOss << "Region " << regionId << " repartition took " << rePartIterationCount << " iterations, num partitions increased from " 
         << rawPartitionCount << " to " << regionPartitions[regionId].size() << "\n";
     llvm::outs() << msgOss.str();
 
@@ -166,6 +168,7 @@ LogicalResult RepCutPartitioner::partitionAndSchedule(mlir::MLIRContext *context
 
   if (failed(ret)) return ret;
 
+  llvm::outs() << "====================Partitioning Statistics====================\n";
   for (size_t regionId = 0; regionId < numRegions; regionId++) {
     auto stat = getPartitionStatistics(regionId);
 
@@ -175,6 +178,8 @@ LogicalResult RepCutPartitioner::partitionAndSchedule(mlir::MLIRContext *context
 
   auto levelize_stat = levelizeAllPartitions(context);
   assert(succeeded(levelize_stat));
+
+  llvm::outs() << "====================Schedule And Codegen====================\n";
 
   auto schedule_start = std::chrono::high_resolution_clock::now();
   schedule(graph);
