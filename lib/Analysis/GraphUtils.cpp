@@ -1,4 +1,5 @@
 #include "toucan/PartitioningGraph.h"
+#include <boost/graph/depth_first_search.hpp>
 
 using namespace toucan;
 
@@ -45,4 +46,26 @@ void toucan::mergeVerticies(uint32_t dst, const mlir::SmallVector<uint32_t> &toM
   }
   // update weight
   g[dst].weight += toMerge.size();
+}
+
+
+
+// Custom visitor to detect cycles
+struct cycle_detector : public boost::dfs_visitor<> {
+    bool& has_cycle;
+
+    cycle_detector(bool& cycle) : has_cycle(cycle) {}
+
+    template <typename Edge, typename Graph>
+    void back_edge(Edge, const Graph&) {
+        has_cycle = true;  // Cycle detected
+    }
+};
+
+bool toucan::partitioningGraphHasCycle(const PartitioningGraph &graph) {
+  bool has_cycle = false;
+  cycle_detector vis(has_cycle);
+  boost::depth_first_search(graph, visitor(vis));
+
+  return has_cycle;
 }

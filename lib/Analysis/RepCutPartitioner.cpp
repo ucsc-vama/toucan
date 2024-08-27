@@ -6,11 +6,16 @@
 
 #include "mlir/Pass/AnalysisManager.h"
 #include "mlir/IR/Threading.h"
+#include "mlir/Support/LLVM.h"
+#include "mlir/Support/LogicalResult.h"
+#include "toucan/PartitioningGraph.h"
 #include "toucan/ToucanAnalysis.h"
 
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/Program.h"
+#include "llvm/Support/raw_ostream.h"
+#include <_types/_uint32_t.h>
 #include <cstdint>
 #include <fstream>
 #include <string>
@@ -28,6 +33,14 @@ using namespace toucan;
 using namespace mlir;
 using namespace llvm;
 using namespace circt;
+
+static uint32_t getPartWeight(const mlir::SmallVector<uint32_t> &part, const PartitioningGraph &graph) {
+  uint32_t weight = 0;
+  for (const auto eachVtx: part) {
+    weight += graph[eachVtx].weight;
+  }
+  return weight;
+};
 
 void RepCutPartitioner::setPartitionTarget(uint32_t numRegions, uint32_t numPartsInEachRegion) {
   assert(numRegions > 1);
@@ -109,9 +122,42 @@ LogicalResult RepCutPartitioner::partitionAndSchedule(mlir::MLIRContext *context
 
     std::ostringstream msgOss;
     msgOss << "Graph region " << regionId << " spend " << duration << "ms\n";
+    llvm::outs() << msgOss.str();
 
-    std::string msg = msgOss.str();
-    llvm::outs() << msg;
+    uint32_t rePartIterationCount = 0;
+    bool converged = false;
+    uint32_t rawPartitionCount = regionPartitions[regionId].size();
+    while ((rePartIterationCount <= rePartitionMaxIterations) && (!converged)) {
+      msgOss.str("");
+      msgOss.clear();
+      msgOss << "Repartition iteration " << rePartIterationCount << "\n";
+      llvm::outs() << msgOss.str();
+
+      auto numPartsBefore = regionPartitions[regionId].size();
+
+      auto rePartitionRet = rePartition(
+      regionId, regionGraphs[regionId], 
+      regionWorkDirectory[regionId], 
+      regionPartitions[regionId]);
+      if (failed(rePartitionRet)) return failure();
+
+      auto numPartsAfter = regionPartitions[regionId].size();
+      assert(numPartsAfter >= numPartsBefore);
+      if (numPartsAfter == numPartsBefore) converged = true;
+      
+      rePartIterationCount++;
+    }
+
+    msgOss.str("");
+    msgOss.clear();
+    msgOss << "Region " << regionId << " repartition tooks " << rePartIterationCount << " iterations, num partitions increased from " 
+        << rawPartitionCount << " to " << regionPartitions[regionId].size() << "\n";
+    llvm::outs() << msgOss.str();
+
+    if (!converged) {
+      llvm::errs() << "Fail to limit partition size by repartition!\n";
+      return failure();
+    }
 
     return ret;
   });
@@ -188,7 +234,16 @@ LogicalResult RepCutPartitioner::callRepCutAndWait(uint32_t nParts, float target
 
   int result = llvm::sys::ExecuteAndWait(*rcpExe, args, std::nullopt, redirects);
 
-  assert(result == 0);
+  if (result != 0) {
+    llvm::errs() << "RepCut partitioner returns non-zero code: " << result << "\n";
+    llvm::errs() << rcpExe.get() << " ";
+    for (const auto &eachArg: args) {
+      llvm::errs() << eachArg << " ";
+    }
+    llvm::errs() << "\n";
+
+    return failure();
+  }
 
   return success();
 }
@@ -245,10 +300,7 @@ RepCutPartitioningStatistics RepCutPartitioner::getPartitionStatistics(uint32_t 
   RepCutPartitioningStatistics stats;
   for (auto &ep: parts) {
     stats.partSize.push_back(ep.size());
-    uint32_t partWeight = 0;
-    for (auto &ev: ep) {
-      partWeight += g[ev].weight;
-    }
+    auto partWeight = getPartWeight(ep, g);
     stats.partWeight.push_back(partWeight);
   }
   stats.graphSize = graphSize;
@@ -295,6 +347,13 @@ LogicalResult RepCutPartitioner::workerFunc(const PartitioningGraph &graph, std:
     }
   }
 
+  /* Should not have cycle. This code is for debugging purpose */
+  // bool hasCycle = partitioningGraphHasCycle(graph);
+  // if (hasCycle) {
+  //   llvm::errs() << "Graph has cycle!\n";
+  //   return failure();
+  // }
+
   // Save graph to file
   std::filesystem::path graphPath = workDirectory / graphFileName;
   std::filesystem::path repcutOutputPath = workDirectory / repcutOutputFileName;
@@ -302,10 +361,127 @@ LogicalResult RepCutPartitioner::workerFunc(const PartitioningGraph &graph, std:
   dumpGraphToFile(graph, graphPath);
 
   auto partitionSucc = callRepCutAndWait(nParts, targetIb, graphPath, workDirectory);
-  if (failed(partitionSucc)) return failure();
+  if (failed(partitionSucc)) {
+    llvm::errs() << "RepCut partitioner returns error\n";
+    return failure();
+  }
 
   auto parseSucc = parseRepCutResult(nParts, repcutOutputPath, partOutput);
-  if (failed(parseSucc)) return failure();
+  if (failed(parseSucc)) {
+    llvm::errs() << "Fail to parse RepCut result\n";
+    return failure();
+  }
 
+  return success();
+}
+
+static PartitioningGraph createNewGraphFromPartition(const PartitioningGraph &graph, const mlir::SmallVector<uint32_t> &part, mlir::SmallVector<uint32_t> &graphNewIdToOldId) {
+  PartitioningGraph newGraph;
+  mlir::DenseMap<uint32_t, uint32_t> graphOldIdToNewId;
+
+  graphNewIdToOldId.clear();
+  graphNewIdToOldId.resize(part.size(), UINT32_MAX);
+  graphOldIdToNewId.reserve(part.size());
+
+  // copy vertices
+  for (const auto eachOldVtx: part) {
+    const auto &vp = graph[eachOldVtx];
+    auto newVtx = boost::add_vertex(vp, newGraph);
+
+    assert(newVtx < part.size());
+    graphNewIdToOldId[newVtx] = eachOldVtx;
+    graphOldIdToNewId[eachOldVtx] = newVtx;
+  }
+
+  assert(boost::num_vertices(newGraph) == graphNewIdToOldId.size());
+
+  // copy edges
+  for (const auto eachOldVtx: part) {
+    auto out_edge_range = boost::out_edges(eachOldVtx, graph);
+    for (auto ei = out_edge_range.first; ei != out_edge_range.second; ei++) {
+      auto edgeSource = eachOldVtx;
+      auto edgeTarget = boost::target(*ei, graph);
+
+      assert(edgeSource != edgeTarget && "Should have no loop");
+
+      if (graphOldIdToNewId.contains(edgeTarget)) {
+        auto edgeSourceNewId = graphOldIdToNewId[edgeSource];
+        auto edgeTargetNewId = graphOldIdToNewId[edgeTarget];
+
+        boost::add_edge(edgeSourceNewId, edgeTargetNewId, newGraph);
+      }
+    }
+  }
+
+  return newGraph;
+}
+
+mlir::LogicalResult RepCutPartitioner::rePartition(uint32_t regionId, const PartitioningGraph &graph, std::filesystem::path regionWorkDirectory, mlir::SmallVector<mlir::SmallVector<uint32_t>> &partOutput) {
+
+  mlir::SmallVector<mlir::SmallVector<uint32_t>> partitions;
+  mlir::SmallVector<uint32_t> partsNeedRepartition;
+
+  uint32_t oldPartId = 0;
+  for (const auto &eachPart: partOutput) {
+    auto partWeight = getPartWeight(eachPart, graph);
+    if (partWeight <= PARTITION_MAX_WEIGHT) {
+      // a leagel sized partition
+      partitions.push_back(eachPart);
+    } else {
+      partsNeedRepartition.push_back(oldPartId);
+      // Need re-partition
+    }
+    oldPartId++;
+  }
+
+  for (auto oldPartId: partsNeedRepartition) {
+    // TODO: This can be parallel
+    const auto &eachPart = partOutput[oldPartId];
+    auto partWeight = getPartWeight(eachPart, graph);
+
+    mlir::SmallVector<uint32_t> graphNewIdToOldId;
+    auto newGraph = createNewGraphFromPartition(graph, eachPart, graphNewIdToOldId);
+    assert(!graphNewIdToOldId.empty());
+    mlir::SmallVector<mlir::SmallVector<uint32_t>> newPartitions;
+
+    std::ostringstream oss;
+    oss << "rePartition_" << oldPartId;
+    std::string dirName = oss.str();
+    auto workDir = regionWorkDirectory / dirName;
+
+    int targetNumPartitions = (partWeight / REPARTITION_PREFERRED_WEIGHT) + 1;
+
+    std::ostringstream msgOss;
+    msgOss << "Region " << regionId << " part " << oldPartId
+        << ": original size " << partWeight 
+        << ", target num parts: " << targetNumPartitions << "\n";
+    
+    auto ret = workerFunc(newGraph, workDir, newPartitions, targetNumPartitions);
+    if (failed(ret)) {
+      msgOss << "Error on re-partition!\n";
+      llvm::errs() << msgOss.str();
+      return failure();
+    }
+
+    msgOss << "  Result: ";
+
+    for (const auto &eachNewPartition: newPartitions) {
+      auto newPartWeight = getPartWeight(eachNewPartition, newGraph);
+      msgOss << newPartWeight << " ";
+
+      mlir::SmallVector<uint32_t> partInOldVtxes;
+      partInOldVtxes.reserve(eachNewPartition.size());
+      for (const auto &eachNewVtx: eachNewPartition) {
+        assert(eachNewVtx < graphNewIdToOldId.size());
+        auto oldVtx = graphNewIdToOldId[eachNewVtx];
+        partInOldVtxes.push_back(oldVtx);
+      }
+      partitions.push_back(std::move(partInOldVtxes));
+    }
+    msgOss << "\n";
+    llvm::outs() << msgOss.str();
+  }
+
+  std::swap(partitions, partOutput);
   return success();
 }

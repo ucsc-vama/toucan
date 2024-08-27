@@ -22,6 +22,7 @@
 #include <cstdint>
 #include <optional>
 
+#include "mlir/Support/LogicalResult.h"
 #include "toucan/ToucanAttributes.h"
 #include "toucan/ToucanDialect.h"
 #include "toucan/ToucanOps.h"
@@ -498,6 +499,10 @@ namespace toucan {
   class RepCutPartitioner: public MultiRegionScheduler {
     public:
     float targetIb = 0.06;
+    uint32_t rePartitionMaxIterations = 3;
+
+    const uint32_t PARTITION_MAX_WEIGHT = 65000;
+    const uint32_t REPARTITION_PREFERRED_WEIGHT = 50000;
 
     mlir::SmallVector<uint32_t> regionPartitionNumbers;
 
@@ -529,6 +534,8 @@ namespace toucan {
     void printPartitionStatistics(const RepCutPartitioningStatistics &stats);
 
     mlir::LogicalResult workerFunc(const PartitioningGraph &graph, std::filesystem::path workDirectory, mlir::SmallVector<mlir::SmallVector<uint32_t>> &partOutput, uint32_t nParts);
+
+    mlir::LogicalResult rePartition(uint32_t regionId, const PartitioningGraph &graph, std::filesystem::path regionWorkDirectory, mlir::SmallVector<mlir::SmallVector<uint32_t>> &partOutput);
   };
 
 }

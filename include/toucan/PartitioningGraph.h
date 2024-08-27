@@ -66,5 +66,6 @@ namespace toucan {
 
   void mergeVerticies(uint32_t dst, const mlir::SmallVector<uint32_t> &toMerge, PartitioningGraph &g);
 
+  bool partitioningGraphHasCycle(const PartitioningGraph &graph);
 
 }

@@ -743,9 +743,9 @@ void MultiRegionScheduler::sortOpsAndExchangeValsForLocality(const mlir::SmallVe
     const auto &currentRegionGraph = regionGraphs[regionId];
     // llvm::dbgs() <<"Working on region " << regionId << "\n";
 
-    for (size_t partId = 0; partId < regionPartLevels[regionId].size(); partId++) {
+    for (size_t partId = 0; partId < numParts; partId++) {
       // llvm::dbgs() <<"Working on part " << partId << "\n";
-
+// error: region 2, part 0
       vtxIdToLevelOrder.resize(boost::num_vertices(currentRegionGraph), UINT32_MAX);
 
       uint32_t levelOrder = 0;
@@ -835,7 +835,8 @@ void MultiRegionScheduler::sortOpsAndExchangeValsForLocality(const mlir::SmallVe
         exchangeValShared.clear();
         // val used by only 1 part
         exchangeValUnique.clear();
-        exchangeValUnique.resize(numParts);
+        size_t nextRegionNumParts = regionPartLevels[regionId+1].size();
+        exchangeValUnique.resize(nextRegionNumParts);
 
         if (partId == 0) {
           exchangeValIdOrdered.emplace_back();
@@ -856,7 +857,10 @@ void MultiRegionScheduler::sortOpsAndExchangeValsForLocality(const mlir::SmallVe
             auto readerVtxId = std::get<1>(codeGenInfo.exchangePool[exchangeValId].readerIds.back());
             if (readerRegionId == regionId + 1) {
               // used by next region
+              assert(regionNewIdToPartId.size() > regionId+1);
+              assert(regionNewIdToPartId[regionId+1].size() > readerVtxId);
               auto userPartId = regionNewIdToPartId[regionId+1][readerVtxId];
+              assert(exchangeValUnique.size() > userPartId);
               exchangeValUnique[userPartId].push_back(exchangeValId);
             } else {
               // A cross region read (uncommon). treat as shared
