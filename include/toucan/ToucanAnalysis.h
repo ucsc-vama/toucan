@@ -312,7 +312,13 @@ namespace toucan {
     uint32_t numConstsInValuePool;
     // Operator pool in each level
     mlir::SmallVector<mlir::SmallVector<CGOpMetaInfo>> opPool;
+
+    // data structure for scheduling purpose
     mlir::DenseMap<mlir::Value, uint32_t> valueToValId;
+    // mlir::DenseMap<mlir::Value, uint32_t> valueToValId_preAlloc;
+    // meta info for pre-allocated values
+    // mlir::SmallVector<mlir::Value> preAlloc_values;
+    mlir::SmallVector<CGValueMetaInfo> preAlloc_valuePool;
 
     mlir::SmallVector<CGLayerValueStatistics> opStatisticsPerLevel;
     CGOpStatistics opStatistics;
@@ -462,21 +468,36 @@ namespace toucan {
 
 
     private:
+    const uint32_t preAllocateStartPos = UINT16_MAX;
 
     // void collectConstant(DesignGraph &graph, CGPartitionMetaInfo &partInfo, uint32_t partId);
     void sortRegistersForLocality(const PartitioningGraph &graph,  mlir::SmallVector<mlir::SmallVector<mlir::TypedValue<toucan::RegType>>> &regOrdered);
-    void sortOpsAndExchangeValsForLocality(const mlir::SmallVector<mlir::SmallVector<mlir::TypedValue<toucan::RegType>>> &regPoolOrdered, mlir::SmallVector<mlir::SmallVector<mlir::SmallVector<uint32_t>>> &exchangeValIdOrdered);
+    void sortRegWriteOps(mlir::DenseMap<mlir::Value, uint32_t> &regValToOrder);
+    void sortRegReadOps(mlir::DenseMap<mlir::Value, uint32_t> &regValToOrder);
     void generateRegMemLayout(DesignGraph &graph);
+
+
+    void groupExchangeVals(mlir::SmallVector<mlir::SmallVector<mlir::SmallVector<uint32_t>>> &exchangeValIdOrdered);
+    void sortExchangeWriteOps(const mlir::SmallVector<mlir::SmallVector<mlir::SmallVector<uint32_t>>> &exchangeValIdOrdered);
+    void sortExchangeReadOps(const mlir::SmallVector<mlir::SmallVector<mlir::SmallVector<uint32_t>>> &exchangeValIdOrdered);
+    void generateExchangeLayout();
+
+    // exgread
+
+
     void collectConstantVars(PartitioningGraph &graph, CGPartitionMetaInfo &partInfo, const mlir::SmallVector<uint32_t> firstLevelOps);
     void collectConstantVecs(PartitioningGraph &graph, CGPartitionMetaInfo &partInfo, uint32_t partId);
 
-    // TODO: Share those infrastructure with SingleRegionScheduler
-    static void scheduleFirstLevel(PartitioningGraph &graph, CGPartitionMetaInfo &partInfo, CGInfo &codeGenInfo, const mlir::SmallVector<uint32_t> &firstLevelOps);
-    void scheduleMiddleLevel(PartitioningGraph &graph, CGPartitionMetaInfo &partInfo, CGInfo &codeGenInfo, const mlir::SmallVector<uint32_t> &currentLevel, uint32_t levelId);
-    static void scheduleLastLevel(PartitioningGraph &graph, CGPartitionMetaInfo &partInfo, CGInfo &codeGenInfo, const mlir::SmallVector<uint32_t> &lastLevel);
+    // Pre-allocate space ahead, to ensure value read by MemWrite and ExgWrite are scheduled together.
+    void preAllocateLastLevel(PartitioningGraph &graph, CGPartitionMetaInfo &partInfo, CGInfo &codeGenInfo, const mlir::SmallVector<uint32_t> &lastLevel);
+    void mergePreAllocatedLastLevelVals(CGPartitionMetaInfo &partInfo);
 
-    static void scheduleExchangeReads(PartitioningGraph &graph, CGPartitionMetaInfo &partInfo, CGInfo &codeGenInfo, const mlir::SmallVector<uint32_t> &firstLevel);
-    static void scheduleExchangeWrites(PartitioningGraph &graph, CGPartitionMetaInfo &partInfo, CGInfo &codeGenInfo, const mlir::SmallVector<uint32_t> &lastLevel);
+    void scheduleFirstLevel(PartitioningGraph &graph, CGPartitionMetaInfo &partInfo, CGInfo &codeGenInfo, const mlir::SmallVector<uint32_t> &firstLevelOps);
+    void scheduleMiddleLevel(PartitioningGraph &graph, CGPartitionMetaInfo &partInfo, CGInfo &codeGenInfo, const mlir::SmallVector<uint32_t> &currentLevel, uint32_t levelId);
+    void scheduleLastLevel(PartitioningGraph &graph, CGPartitionMetaInfo &partInfo, CGInfo &codeGenInfo, const mlir::SmallVector<uint32_t> &lastLevel);
+
+    void scheduleExchangeReads(PartitioningGraph &graph, CGPartitionMetaInfo &partInfo, CGInfo &codeGenInfo, const mlir::SmallVector<uint32_t> &firstLevel);
+    void scheduleExchangeWrites(PartitioningGraph &graph, CGPartitionMetaInfo &partInfo, CGInfo &codeGenInfo, const mlir::SmallVector<uint32_t> &lastLevel);
   };
 
 
@@ -502,7 +523,7 @@ namespace toucan {
     uint32_t rePartitionMaxIterations = 3;
 
     const uint32_t PARTITION_MAX_WEIGHT = 50000;
-    const uint32_t REPARTITION_PREFERRED_WEIGHT = 50000;
+    const uint32_t REPARTITION_PREFERRED_WEIGHT = 45000;
 
     mlir::SmallVector<uint32_t> regionPartitionNumbers;
 

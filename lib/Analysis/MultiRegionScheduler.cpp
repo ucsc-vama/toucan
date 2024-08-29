@@ -40,18 +40,20 @@ using namespace llvm;
 using namespace circt;
 
 
+// #define DEBUG_PRINT_LEVEL_STATUS
 
 
 void MultiRegionScheduler::levelizeGraphForCut(DesignGraph &graph) {
   levelizeWorker(graph.g, graphLevels);
 
   // debug print
-
-  llvm::outs() << "Graph has " << graphLevels.size() << " levels\n";
+#ifdef DEBUG_PRINT_LEVEL_STATUS
+  llvm::dbgs() << "Graph has " << graphLevels.size() << " levels\n";
   for (size_t levelId = 0; levelId < graphLevels.size(); levelId++) {
     auto &currentLevel = graphLevels[levelId];
-    llvm::outs() << "  Level " << levelId << " has " << currentLevel.size() << " verticies\n";
+    llvm::dbgs() << "  Level " << levelId << " has " << currentLevel.size() << " verticies\n";
   }
+#endif
 }
 
 void MultiRegionScheduler::findCutPoints(DesignGraph &graph) {
@@ -565,25 +567,23 @@ LogicalResult MultiRegionScheduler::levelizeAllPartitions(mlir::MLIRContext *con
   }
 
   
-  // debug: report
-  bool printLevelStat = false;
 
-  if (printLevelStat) {
-    for (size_t regionId = 0; regionId < numRegions; regionId++) {
-      llvm::dbgs() << "Region " << regionId << "\n";
-      for (uint32_t partId = 0; partId < regionPartitions[regionId].size(); partId++) {
-        llvm::dbgs() << "  Partition " << partId << "\n";
-        auto &currentPartLevels = regionPartLevels[regionId][partId];
-        for (size_t levelId = 0; levelId < currentPartLevels.size(); levelId++) {
-          uint32_t levelWeight = 0;
-          for (auto vtx: currentPartLevels[levelId]) {
-            levelWeight += regionGraphs[regionId][vtx].weight;
-          }
-          llvm::dbgs() << "    Level " << levelId << " has size of " << currentPartLevels[levelId].size() << ", weight of " << levelWeight << "\n";
+#ifdef DEBUG_PRINT_LEVEL_STATUS
+  for (size_t regionId = 0; regionId < numRegions; regionId++) {
+    llvm::dbgs() << "Region " << regionId << "\n";
+    for (uint32_t partId = 0; partId < regionPartitions[regionId].size(); partId++) {
+      llvm::dbgs() << "  Partition " << partId << "\n";
+      auto &currentPartLevels = regionPartLevels[regionId][partId];
+      for (size_t levelId = 0; levelId < currentPartLevels.size(); levelId++) {
+        uint32_t levelWeight = 0;
+        for (auto vtx: currentPartLevels[levelId]) {
+          levelWeight += regionGraphs[regionId][vtx].weight;
         }
+        llvm::dbgs() << "    Level " << levelId << " has size of " << currentPartLevels[levelId].size() << ", weight of " << levelWeight << "\n";
       }
     }
   }
+#endif
 
   return success();
 }
@@ -711,30 +711,16 @@ void MultiRegionScheduler::sortRegistersForLocality(const PartitioningGraph &gra
 }
 
 
-void MultiRegionScheduler::sortOpsAndExchangeValsForLocality(const mlir::SmallVector<mlir::SmallVector<mlir::TypedValue<toucan::RegType>>> &regPoolOrdered, mlir::SmallVector<mlir::SmallVector<mlir::SmallVector<uint32_t>>> &exchangeValIdOrdered) {
-  mlir::DenseMap<mlir::TypedValue<toucan::RegType>, uint32_t> regValToOrder;
-  mlir::SmallVector<uint32_t> vtxIdToLevelOrder;
+void MultiRegionScheduler::groupExchangeVals(mlir::SmallVector<mlir::SmallVector<mlir::SmallVector<uint32_t>>> &exchangeValIdOrdered) {
+
   mlir::SmallVector<uint32_t> exchangeValIdToOrder;
 
   uint32_t exchangeValIdOrderNext = 0;
   exchangeValIdToOrder.resize(codeGenInfo.exchangePool.size(), UINT32_MAX);
-  
+
   // Temporaries
   mlir::SmallVector<uint32_t> exchangeValShared;
   mlir::SmallVector<mlir::SmallVector<uint32_t>> exchangeValUnique;
-  // only used for first level register reads
-  mlir::DenseMap<uint32_t, uint32_t> vtxIdToOrder;
-  // used for every level, sorting cache
-  mlir::DenseMap<uint32_t, uint32_t> currentLevelVtxSortKey;
-  mlir::SmallVector<uint32_t> allInVtxOrder;
-
-  uint32_t regOrder = 0;
-  for (const auto &eachSection: regPoolOrdered) {
-    for (const auto &eachVal: eachSection) {
-      regValToOrder[eachVal] = regOrder;
-      regOrder++;
-    }
-  }
 
   auto numRegions = regionGraphs.size();
 
@@ -744,88 +730,6 @@ void MultiRegionScheduler::sortOpsAndExchangeValsForLocality(const mlir::SmallVe
     // llvm::dbgs() <<"Working on region " << regionId << "\n";
 
     for (size_t partId = 0; partId < numParts; partId++) {
-      // llvm::dbgs() <<"Working on part " << partId << "\n";
-// error: region 2, part 0
-      vtxIdToLevelOrder.resize(boost::num_vertices(currentRegionGraph), UINT32_MAX);
-
-      uint32_t levelOrder = 0;
-
-
-      for (size_t levelId = 0; levelId < regionPartLevels[regionId][partId].size(); levelId++) {
-        // llvm::dbgs() <<"Working on level " << levelId << "\n";
-        auto &currentLevelVtxes = regionPartLevels[regionId][partId][levelId];
-
-        if (levelId == 0) {
-          // top level
-          if (regionId == 0) {
-            // reg reads. Sort by reg order
-            vtxIdToOrder.clear();
-            vtxIdToOrder.reserve(currentLevelVtxes.size());
-            for (auto eachVtx: currentLevelVtxes) {
-              if (currentRegionGraph[eachVtx].toucanOpName == CGToucanOPName::RegRead) {
-                auto regReadOp = cast<toucan::RegReadOp>(currentRegionGraph[eachVtx].op);
-                auto regVal = regReadOp.getReg();
-                vtxIdToOrder[eachVtx] = regValToOrder[regVal];
-              } else {
-                // Maybe a constDecl
-                assert(currentRegionGraph[eachVtx].toucanOpName == CGToucanOPName::ConstDecl);
-                // ConstDecl will merged to valuePool after scheduling. For now simply move them to last
-                vtxIdToOrder[eachVtx] = UINT32_MAX;
-              }
-            }
-
-            std::sort(currentLevelVtxes.begin(), currentLevelVtxes.end(), [&vtxIdToOrder](uint32_t a, uint32_t b) {
-              return vtxIdToOrder[a] < vtxIdToOrder[b];
-            });
-          } else {
-            // exchange reads
-            // order for exchange read
-            // order by exchangeValIdToOrder
-            vtxIdToOrder.clear();
-            for (auto eachVtx: currentLevelVtxes) {
-              auto exchangeValId = currentRegionGraph[eachVtx].exchangeValId;
-              vtxIdToOrder[eachVtx] = exchangeValIdToOrder[exchangeValId];
-            }
-
-            std::sort(currentLevelVtxes.begin(), currentLevelVtxes.end(), [&](const uint32_t a, const uint32_t b) {
-              return vtxIdToOrder[a] < vtxIdToOrder[b];
-            });
-            
-          }
-        } else {
-          // levelId != 0
-          // Not first level, sort by last reference
-
-
-          // Find order of last inNeight
-          currentLevelVtxSortKey.clear();
-          for (auto eachVtx: currentLevelVtxes) {
-            allInVtxOrder.clear();
-            auto in_edges_range = boost::in_edges(eachVtx, currentRegionGraph);
-            for (auto ei = in_edges_range.first; ei != in_edges_range.second; ++ei) {
-              auto srcVtx = boost::source(*ei, currentRegionGraph);
-              auto srcOrder = vtxIdToLevelOrder[srcVtx];
-              assert(srcOrder != UINT32_MAX);
-
-              allInVtxOrder.push_back(srcOrder);
-            }
-            assert(!allInVtxOrder.empty());
-            auto maxOrder = *std::max_element(allInVtxOrder.begin(), allInVtxOrder.end());
-            currentLevelVtxSortKey[eachVtx] = maxOrder;
-          }
-
-          std::sort(currentLevelVtxes.begin(), currentLevelVtxes.end(), [&](const uint32_t a, const uint32_t b) {
-            return currentLevelVtxSortKey[a] < currentLevelVtxSortKey[b];
-          });
-        }
-
-        // update level order. This will be used by following levels
-        for (auto vtx: currentLevelVtxes) {
-          vtxIdToLevelOrder[vtx] = levelOrder;
-          levelOrder++;
-        }
-
-      }
 
       // Sort exchange write vals
       if ((regionId != (numRegions - 1))) {
@@ -886,6 +790,68 @@ void MultiRegionScheduler::sortOpsAndExchangeValsForLocality(const mlir::SmallVe
   }
 }
 
+void MultiRegionScheduler::sortRegWriteOps(mlir::DenseMap<mlir::Value, uint32_t> &regValToOrder) {
+
+  // regWrite only exists in last level of last region
+  auto &currentRegionGraph = regionGraphs.back();
+  for (size_t partId = 0; partId < regionPartLevels.back().size(); partId++) {
+    auto &lastLevel = regionPartLevels.back()[partId].back();
+    mlir::DenseMap<uint32_t, uint32_t> vtxIdToOrder;
+    for (const auto &eachVtx: lastLevel) {
+      // Default order 0. since we use stable sort they will stay in original order
+      uint32_t currentVtxOrder = 0;
+      auto tOpName = currentRegionGraph[eachVtx].toucanOpName;
+      if (tOpName == CGToucanOPName::RegWrite) {
+        auto regWriteOp = cast<toucan::RegWriteOp>(currentRegionGraph[eachVtx].op);
+        auto regVal = regWriteOp.getReg();
+        assert(regValToOrder.contains(regVal) && "Every register should appear in this map!");
+        currentVtxOrder = regValToOrder[regVal];
+      }
+      assert(!vtxIdToOrder.contains(eachVtx));
+      vtxIdToOrder[eachVtx] = currentVtxOrder;
+    }
+    // sort
+    std::stable_sort(lastLevel.begin(), lastLevel.end(), [&](uint32_t a, uint32_t b) {
+      assert(vtxIdToOrder.contains(a));
+      assert(vtxIdToOrder.contains(b));
+      auto a_order = vtxIdToOrder[a];
+      auto b_order = vtxIdToOrder[b];
+      return a_order < b_order;
+    });
+  }
+}
+
+void MultiRegionScheduler::sortRegReadOps(mlir::DenseMap<mlir::Value, uint32_t> &regValToOrder) {
+
+  // regRead only exists in first level of first region
+  auto &currentRegionGraph = regionGraphs[0];
+  for (size_t partId = 0; partId < regionPartLevels[0].size(); partId++) {
+    auto &firstLevel = regionPartLevels[0][partId][0];
+    mlir::DenseMap<uint32_t, uint32_t> vtxIdToOrder;
+    for (const auto &eachVtx: firstLevel) {
+      // Default order 0. since we use stable sort they will stay in original order
+      uint32_t currentVtxOrder = 0;
+      auto tOpName = currentRegionGraph[eachVtx].toucanOpName;
+      if (tOpName == CGToucanOPName::RegRead) {
+        auto regReadOp = cast<toucan::RegReadOp>(currentRegionGraph[eachVtx].op);
+        auto regVal = regReadOp.getReg();
+        assert(regValToOrder.contains(regVal) && "Every register should appear in this map!");
+        currentVtxOrder = regValToOrder[regVal];
+      }
+      assert(!vtxIdToOrder.contains(eachVtx));
+      vtxIdToOrder[eachVtx] = currentVtxOrder;
+    }
+    // sort
+    std::stable_sort(firstLevel.begin(), firstLevel.end(), [&](uint32_t a, uint32_t b) {
+      assert(vtxIdToOrder.contains(a));
+      assert(vtxIdToOrder.contains(b));
+      auto a_order = vtxIdToOrder[a];
+      auto b_order = vtxIdToOrder[b];
+      return a_order < b_order;
+    });
+  }
+}
+
 void MultiRegionScheduler::generateRegMemLayout(DesignGraph &graph) {
   // collect all reg and memory, generate layout
   codeGenInfo.regPool.clear();
@@ -909,21 +875,17 @@ void MultiRegionScheduler::generateRegMemLayout(DesignGraph &graph) {
   }
 
 
-  // 1. sort registers and exchange vals.
+  // 1. sort registers
   // Writer part -> val. Needs padding
   mlir::SmallVector<mlir::SmallVector<mlir::TypedValue<toucan::RegType>>> regPoolOrdered;
-  // order to exchangeValId
-  // region -> writer part -> valId. Needs padding
-  mlir::SmallVector<mlir::SmallVector<mlir::SmallVector<uint32_t>>> exchangeValIdOrdered;
 
   // llvm::dbgs() << "Sorting registers\n";
   sortRegistersForLocality(graph.g, regPoolOrdered);
-  // llvm::dbgs() << "Sorting ops and exchange vals\n";
-  sortOpsAndExchangeValsForLocality(regPoolOrdered, exchangeValIdOrdered);
 
 
   // Now, registers and exchangeVal location and ops are sorted
   // Allocate space
+  mlir::DenseMap<mlir::Value, uint32_t> regValToOrder;
 
   // 2. Allocate storage for all registers
   for (auto &eachSection: regPoolOrdered) {
@@ -947,6 +909,10 @@ void MultiRegionScheduler::generateRegMemLayout(DesignGraph &graph) {
       auto regId = codeGenInfo.regPool.size();
       codeGenInfo.regPool.push_back(regMeta);
       codeGenInfo.toucanRegToId[regVal] = regId;
+
+      assert(!regValToOrder.contains(regVal));
+      // order 0 reserved for non-reg write ops
+      regValToOrder[regVal] = regId + 1;
     }
     // add padding regs
     for (size_t i = 0; i < partitionPaddingSpace; i++) {
@@ -961,6 +927,10 @@ void MultiRegionScheduler::generateRegMemLayout(DesignGraph &graph) {
       codeGenInfo.regPool.push_back(paddingRegMeta);
     }
   }
+
+  // Coaleasce memory access.
+  sortRegWriteOps(regValToOrder);
+  sortRegReadOps(regValToOrder);
   
   // 3. Allocate storage for all memories
   // Here we assume each memory has at least 1 writer
@@ -1001,10 +971,88 @@ void MultiRegionScheduler::generateRegMemLayout(DesignGraph &graph) {
   }
   codeGenInfo.totalMemSize = memBaseAddr;
 
+  return;
+}
+
+// sort exgwrite ops at last level by order of result exchangeVal in exchange pool
+void MultiRegionScheduler::sortExchangeWriteOps(const mlir::SmallVector<mlir::SmallVector<mlir::SmallVector<uint32_t>>> &exchangeValIdOrdered) {
+  auto numRegions = regionGraphs.size();
+  assert(exchangeValIdOrdered.size() + 1 == numRegions);
 
 
+  for (uint32_t regionId = 0; regionId < numRegions - 1; regionId++) {
+    auto &currentRegionGraph = regionGraphs[regionId];
+    for (size_t partId = 0; partId < regionPartLevels[regionId].size(); partId++) {
+      auto &lastLevel = regionPartLevels[regionId][partId].back();
+      mlir::DenseMap<uint32_t, uint32_t> vtxIdToOrder;
+      for (const auto &eachVtx: lastLevel) {
+        uint32_t currentVtxOrder = 0;
+        auto tOpName = currentRegionGraph[eachVtx].toucanOpName;
+        if (tOpName == CGToucanOPName::ExchangeWrite) {
+          auto exchangeValId = currentRegionGraph[eachVtx].exchangeValId;
+          // Exchange pool is already ordered. Here simply use exchangeValId to order ops
+          currentVtxOrder = exchangeValId;
+        }
+        assert(!vtxIdToOrder.contains(eachVtx));
+        vtxIdToOrder[eachVtx] = currentVtxOrder;
+      }
+      // sort
+      std::stable_sort(lastLevel.begin(), lastLevel.end(), [&](uint32_t a, uint32_t b) {
+        assert(vtxIdToOrder.contains(a));
+        assert(vtxIdToOrder.contains(b));
+        auto a_order = vtxIdToOrder[a];
+        auto b_order = vtxIdToOrder[b];
+        return a_order < b_order;
+      });
+    }
+  }
 
+  return;
+}
+
+// sort exgwrite ops at last level by order of result exchangeVal in exchange pool
+void MultiRegionScheduler::sortExchangeReadOps(const mlir::SmallVector<mlir::SmallVector<mlir::SmallVector<uint32_t>>> &exchangeValIdOrdered) {
+  auto numRegions = regionGraphs.size();
+  assert(exchangeValIdOrdered.size() + 1 == numRegions);
+
+
+  for (uint32_t regionId = 1; regionId < numRegions; regionId++) {
+    auto &currentRegionGraph = regionGraphs[regionId];
+    for (size_t partId = 0; partId < regionPartLevels[regionId].size(); partId++) {
+      auto &firstLevel = regionPartLevels[regionId][partId][0];
+      mlir::DenseMap<uint32_t, uint32_t> vtxIdToOrder;
+      for (const auto &eachVtx: firstLevel) {
+        uint32_t currentVtxOrder = 0;
+        auto tOpName = currentRegionGraph[eachVtx].toucanOpName;
+        if (tOpName == CGToucanOPName::ExchangeRead) {
+          auto exchangeValId = currentRegionGraph[eachVtx].exchangeValId;
+          // Exchange pool is already ordered. Here simply use exchangeValId to order ops
+          currentVtxOrder = exchangeValId;
+        }
+        assert(!vtxIdToOrder.contains(eachVtx));
+        vtxIdToOrder[eachVtx] = currentVtxOrder;
+      }
+      // sort
+      std::stable_sort(firstLevel.begin(), firstLevel.end(), [&](uint32_t a, uint32_t b) {
+        assert(vtxIdToOrder.contains(a));
+        assert(vtxIdToOrder.contains(b));
+        auto a_order = vtxIdToOrder[a];
+        auto b_order = vtxIdToOrder[b];
+        return a_order < b_order;
+      });
+    }
+  }
+
+  return;
+}
+
+void MultiRegionScheduler::generateExchangeLayout() {
   // 4. Reorder exchangePool
+  // order to exchangeValId
+  // region -> writer part -> valId. Needs padding
+  mlir::SmallVector<mlir::SmallVector<mlir::SmallVector<uint32_t>>> exchangeValIdOrdered;
+
+  groupExchangeVals(exchangeValIdOrdered);
   // old Id -> new Id
   mlir::SmallVector<uint32_t> exchangePoolReorderIdMap;
   uint32_t expectedExchangePoolSize = 0;
@@ -1063,8 +1111,8 @@ void MultiRegionScheduler::generateRegMemLayout(DesignGraph &graph) {
     }
   }
 
-
-  return;
+  sortExchangeWriteOps(exchangeValIdOrdered);
+  sortExchangeReadOps(exchangeValIdOrdered);
 }
 
 // Collect const decls. DOES NOT collect const vec decls
@@ -1138,6 +1186,139 @@ void MultiRegionScheduler::collectConstantVecs(PartitioningGraph &graph, CGParti
   }
 }
 
+// For performance reason, last level ops with output prefer read from/write to coaleasced mem addrs. For now allocate a temporary id, then replace to correct one later
+// by MultiRegionScheduler::mergePreAllocatedLastLevelVals()
+void MultiRegionScheduler::preAllocateLastLevel(PartitioningGraph &graph, CGPartitionMetaInfo &partInfo, CGInfo &codeGenInfo, const mlir::SmallVector<uint32_t> &lastLevel) {
+  // pre allocate value storage for value needed by MW and EW.
+
+  auto nextPos = preAllocateStartPos;
+  for (auto vtxId: lastLevel) {
+    auto vtxOpName = graph[vtxId].toucanOpName;
+    auto rawOp = graph[vtxId].op;
+
+    if (vtxOpName == CGToucanOPName::RegWrite) {
+      // regwrite
+      auto regWriteOp = cast<toucan::RegWriteOp>(rawOp);
+      auto dataVal = regWriteOp.getData();
+
+      if (!partInfo.valueToValId.contains(dataVal)) {
+        // need pre-allocate. Never seen this value
+        // partInfo.preAlloc_values.push_back(dataVal);
+        partInfo.valueToValId[dataVal] = nextPos;
+        // partInfo.valueToValId_preAlloc[dataVal] = nextPos;
+        nextPos++;
+      }
+
+    } else if (vtxOpName == CGToucanOPName::ExchangeWrite) {
+      // exchange write
+      auto exchangeValId = graph[vtxId].exchangeValId;
+      auto writeVal = codeGenInfo.exchangePool[exchangeValId].val;
+
+      if (!partInfo.valueToValId.contains(writeVal)) {
+        // partInfo.preAlloc_values.push_back(writeVal);
+        partInfo.valueToValId[writeVal] = nextPos;
+        // partInfo.valueToValId_preAlloc[writeVal] = nextPos;
+        nextPos++;
+      }
+    }
+  }
+  // Reserve space
+  uint32_t numPreAllocatedVals = nextPos - preAllocateStartPos;
+  assert(numPreAllocatedVals < UINT16_MAX);
+  partInfo.preAlloc_valuePool.resize(numPreAllocatedVals);
+}
+
+void MultiRegionScheduler::mergePreAllocatedLastLevelVals(CGPartitionMetaInfo &partInfo) {
+  uint32_t mergeValuePoolStartPos = partInfo.valuePool.size();
+  uint32_t preAllocValueIdStart = preAllocateStartPos;
+  uint32_t numOfPreAllocVals = partInfo.preAlloc_valuePool.size();
+  assert(numOfPreAllocVals + mergeValuePoolStartPos < UINT16_MAX && "too many values");
+
+  // Move valMeta to the back of value pool
+  partInfo.valuePool.insert(partInfo.valuePool.end(), partInfo.preAlloc_valuePool.begin(), partInfo.preAlloc_valuePool.end());
+  partInfo.preAlloc_valuePool.clear();
+
+  auto updateValId = [&](uint32_t &valId) {
+    if (valId >= preAllocValueIdStart) {
+      // need update
+      uint32_t newValId = valId - preAllocValueIdStart + mergeValuePoolStartPos;
+      assert(newValId < partInfo.valuePool.size());
+      valId = newValId;
+    }
+  };
+
+  // Replace old val with new val
+  for (auto &eachLevelOps: partInfo.opPool) {
+    for (auto &op: eachLevelOps) {
+      auto tOpName = op.opName;
+
+      switch (tOpName) {
+        case CGToucanOPName::LUT: {
+          updateValId(op.lut.op0);
+          updateValId(op.lut.op1);
+          updateValId(op.lut.op2);
+          updateValId(op.lut.result);
+          break;
+        }
+        case CGToucanOPName::VecRead: {
+          assert(op.vec.vecBase < preAllocValueIdStart);
+          updateValId(op.vec.index0);
+          updateValId(op.vec.index1);
+          updateValId(op.vec.index2);
+          updateValId(op.vec.index3);
+          updateValId(op.vec.outRangeValue);
+          updateValId(op.vec.result);
+          break;
+        }
+        case CGToucanOPName::Print: {
+          updateValId(op.print.en);
+          break;
+        }
+        case CGToucanOPName::Stop: {
+          updateValId(op.stop.en);
+          break;
+        }
+        case CGToucanOPName::RegRead: {
+          updateValId(op.regRead.result);
+          break;
+        }
+        case CGToucanOPName::RegWrite: {
+          updateValId(op.regWrite.dat);
+          break;
+        }
+        case CGToucanOPName::MemRead: {
+          assert(op.memRead.addrVec < preAllocValueIdStart);
+          updateValId(op.memRead.en);
+          updateValId(op.memRead.result);
+          break;
+        }
+        case CGToucanOPName::MemWrite: {
+          assert(op.memWrite.addrVec < preAllocValueIdStart);
+          updateValId(op.memWrite.dat);
+          updateValId(op.memWrite.en);
+          break;
+        }
+        case CGToucanOPName::ExchangeRead: {
+          updateValId(op.exgRead.localVal);
+          break;
+        }
+        case CGToucanOPName::ExchangeWrite: {
+          updateValId(op.exgWrite.localVal);
+          break;
+        }
+
+        // case CGToucanOPName::VecDecl:
+        // case CGToucanOPName::ConstDecl:
+        //   break;
+        default: {
+          llvm_unreachable("Unknow op type or should not appear");
+        }
+      }
+    }
+  }
+
+}
+
 // Note: This step is same as SingleRegionScheduler
 void MultiRegionScheduler::scheduleFirstLevel(PartitioningGraph &graph, CGPartitionMetaInfo &partInfo, CGInfo &codeGenInfo, const mlir::SmallVector<uint32_t> &firstLevelOps) {
   mlir::SmallVector<CGOpMetaInfo> currentLevelOps;
@@ -1176,7 +1357,6 @@ void MultiRegionScheduler::scheduleFirstLevel(PartitioningGraph &graph, CGPartit
     auto &opMeta = currentLevelOps[opId];
 
     assert(opMeta.opName == CGToucanOPName::RegRead);
-    auto valId = partInfo.valuePool.size();
 
     // new val
     CGValueMetaInfo valMeta;
@@ -1192,9 +1372,23 @@ void MultiRegionScheduler::scheduleFirstLevel(PartitioningGraph &graph, CGPartit
 
     partInfo.valuePool.push_back(valMeta);
     auto resultVal = opMeta.op->getResult(0);
-    assert(!partInfo.valueToValId.contains(resultVal));
-    partInfo.valueToValId[resultVal] = valId;
-    opMeta.setResult(valId);
+
+    if (!partInfo.valueToValId.contains(resultVal)) {
+      // Result is not pre-allocated
+      uint32_t valId = partInfo.valuePool.size();
+      assert(valId < preAllocateStartPos && "If you see this error, increase preAllocateStartPos");
+      partInfo.valueToValId[resultVal] = valId;
+      opMeta.setResult(valId);
+      partInfo.valuePool.push_back(valMeta);
+    } else {
+      // pre-allocated. 
+      uint32_t valId = partInfo.valueToValId[resultVal];
+      assert(valId >= preAllocateStartPos);
+      opMeta.setResult(valId);
+      auto posInPool = valId - preAllocateStartPos;
+      assert(partInfo.preAlloc_valuePool.size() > posInPool);
+      partInfo.preAlloc_valuePool[posInPool] = valMeta;
+    }
   }
 
   // Save statistics
@@ -1309,6 +1503,7 @@ void MultiRegionScheduler::scheduleMiddleLevel(PartitioningGraph &graph, CGParti
       auto vecHandle = vecReadOp.getHandle();
       assert(partInfo.valueToValId.contains(vecHandle));
       auto vecHandleId = partInfo.valueToValId[vecHandle];
+      assert(vecHandleId < preAllocateStartPos && "Vector value cannot directly write to register or exchange pool, thus should not be pre-allocated!");
       auto vecLength = vecHandle.getType().getLength();
 
       for (auto userOp: vecHandle.getUsers()) {
@@ -1382,6 +1577,8 @@ void MultiRegionScheduler::scheduleMiddleLevel(PartitioningGraph &graph, CGParti
       auto memAddrVec = memReadOp.getAddrVec();
       assert(memAddrVec.getType().getLength() == 8 && "Memory address should be a 32 bit vector");
       auto memAddrVecId = partInfo.valueToValId[memAddrVec];
+      assert(memAddrVecId < preAllocateStartPos && "Vector value cannot directly write to register or exchange pool, thus should not be pre-allocated!");
+      
 
       // size_t pos = 0;
       // for (; pos < 8 - numMemAddrs; pos++) {
@@ -1410,8 +1607,6 @@ void MultiRegionScheduler::scheduleMiddleLevel(PartitioningGraph &graph, CGParti
     }
   }
 
-  //TODO: need sort for cpu code.
-
   // Record number of luts/memreads/vecreads for later performance tuning
   CGLayerValueStatistics stats;
   std::memset(&stats, 0, sizeof(CGLayerValueStatistics));
@@ -1437,7 +1632,6 @@ void MultiRegionScheduler::scheduleMiddleLevel(PartitioningGraph &graph, CGParti
   assert(currentLevelOps.size() == 0);
   // save op, allocate result storage
   auto allocateResultForMiddleLayer = [&](CGOpMetaInfo &opMeta) {
-    auto valId = partInfo.valuePool.size();
     auto resultVal = opMeta.op->getResult(0);
 
     CGValueMetaInfo valMeta;
@@ -1451,11 +1645,23 @@ void MultiRegionScheduler::scheduleMiddleLevel(PartitioningGraph &graph, CGParti
     valMeta.namehint = opMeta.namehint;
     valMeta.fragment_id = opMeta.fragment_id;
 
-    assert(!partInfo.valueToValId.contains(resultVal));
-    partInfo.valueToValId[resultVal] = valId;
-    partInfo.valuePool.push_back(valMeta);
-
-    opMeta.setResult(valId);
+    if (!partInfo.valueToValId.contains(resultVal)) {
+      // Result is not pre-allocated
+      uint32_t valId = partInfo.valuePool.size();
+      assert(valId < preAllocateStartPos && "If you see this error, increase preAllocateStartPos");
+      partInfo.valueToValId[resultVal] = valId;
+      opMeta.setResult(valId);
+      partInfo.valuePool.push_back(valMeta);
+    } else {
+      // pre-allocated. 
+      uint32_t valId = partInfo.valueToValId[resultVal];
+      assert(valId >= preAllocateStartPos);
+      opMeta.setResult(valId);
+      auto posInPool = valId - preAllocateStartPos;
+      assert(partInfo.preAlloc_valuePool.size() > posInPool);
+      partInfo.preAlloc_valuePool[posInPool] = valMeta;
+    }
+    
     currentLevelOps.push_back(opMeta);
   };
 
@@ -1701,7 +1907,6 @@ void MultiRegionScheduler::scheduleExchangeReads(PartitioningGraph &graph, CGPar
     assert(vtxWeight == 1);
     assert(tOpName == CGToucanOPName::ExchangeRead);
     assert(codeGenInfo.exchangePool[exchangeValId].isPadding == false);
-    assert(!partInfo.valueToValId.contains(readVal));
 
     CGOpMetaInfo opMeta;
     opMeta.opName = tOpName;
@@ -1709,7 +1914,6 @@ void MultiRegionScheduler::scheduleExchangeReads(PartitioningGraph &graph, CGPar
     opMeta.vtxId = vtxId;
 
     // allocate storage
-    auto localValId = partInfo.valuePool.size();
     CGValueMetaInfo valMeta;
     valMeta.isConst = false;
     valMeta.isPlaceholder = false;
@@ -1722,12 +1926,25 @@ void MultiRegionScheduler::scheduleExchangeReads(PartitioningGraph &graph, CGPar
     valMeta.namehint = std::nullopt;
     valMeta.fragment_id = 0;
 
-    partInfo.valuePool.push_back(valMeta);
 
-    assert(!partInfo.valueToValId.contains(readVal));
-    partInfo.valueToValId[readVal] = localValId;
-    opMeta.setResult(localValId);
     opMeta.exgRead.exchangeVal = exchangeValId;
+
+    if (!partInfo.valueToValId.contains(readVal)) {
+      // Result is not pre-allocated
+      uint32_t valId = partInfo.valuePool.size();
+      assert(valId < preAllocateStartPos && "If you see this error, increase preAllocateStartPos");
+      partInfo.valueToValId[readVal] = valId;
+      opMeta.exgRead.localVal = valId;
+      partInfo.valuePool.push_back(valMeta);
+    } else {
+      // pre-allocated. 
+      uint32_t valId = partInfo.valueToValId[readVal];
+      assert(valId >= preAllocateStartPos);
+      opMeta.exgRead.localVal = valId;
+      auto posInPool = valId - preAllocateStartPos;
+      assert(partInfo.preAlloc_valuePool.size() > posInPool);
+      partInfo.preAlloc_valuePool[posInPool] = valMeta;
+    }
 
     currentLevelOps.push_back(opMeta);
 
@@ -1788,12 +2005,12 @@ void MultiRegionScheduler::scheduleExchangeWrites(PartitioningGraph &graph, CGPa
 
 // Scheduler entry point
 void MultiRegionScheduler::schedule(DesignGraph &graph) {
-  bool printLevelStat = false;
 
   auto numRegions = regionGraphs.size();
 
-  // schedule all registers, memories and exchange values
+  // schedule all registers, memories and exchange values. Also sort registers and exchange writes
   generateRegMemLayout(graph);
+  generateExchangeLayout();
 
   // dedup strings
   collectPrintString(graph, codeGenInfo.printStrings);
@@ -1807,9 +2024,9 @@ void MultiRegionScheduler::schedule(DesignGraph &graph) {
   // llvm::dbgs() << "Verifying original graph\n";
 
   for (uint32_t regionId = 0; regionId < numRegions; regionId++) {
-    if (printLevelStat) {
-      llvm::dbgs() << "Region " << regionId << "\n";
-    }
+#ifdef DEBUG_PRINT_LEVEL_STATUS
+    llvm::dbgs() << "Region " << regionId << "\n";
+#endif
 
     codeGenInfo.regionPartitionIds.emplace_back();
 
@@ -1819,9 +2036,9 @@ void MultiRegionScheduler::schedule(DesignGraph &graph) {
     auto numPartitions = currentRegionPartitions.size();
 
     for (uint32_t partId = 0; partId < numPartitions; partId++) {
-      if (printLevelStat) {
-        llvm::dbgs() << "Partition " << partId << "\n";
-      }
+#ifdef DEBUG_PRINT_LEVEL_STATUS
+      llvm::dbgs() << "Partition " << partId << "\n";
+#endif
 
       auto &currentPartLevels = regionPartLevels[regionId][partId];
       auto &firstLevel = currentPartLevels[0];
@@ -1848,9 +2065,12 @@ void MultiRegionScheduler::schedule(DesignGraph &graph) {
       // llvm::dbgs() << "Region " << regionId << " part " << partId << " has const pool size " << partInfo.numConstsInValuePool << "\n";
 
 
-      if (printLevelStat) {
-        llvm::dbgs() << "Level 0 has size of " << firstLevel.size() << "\n";
-      }
+#ifdef DEBUG_PRINT_LEVEL_STATUS
+      llvm::dbgs() << "Level 0 has size of " << firstLevel.size() << "\n";
+#endif
+
+      preAllocateLastLevel(currentRegionGraph, partInfo, codeGenInfo, lastLevel);
+
       if (regionId == 0) {
         scheduleFirstLevel(currentRegionGraph, partInfo, codeGenInfo, firstLevel);
       } else {
@@ -1859,22 +2079,23 @@ void MultiRegionScheduler::schedule(DesignGraph &graph) {
 
       for (uint32_t levelId = 1; levelId < numLevels - 1; levelId++) {
         // for each middle level
-        if (printLevelStat) {
-          llvm::dbgs() << "Level " << levelId << " has size of " << currentPartLevels[levelId].size() << "\n";
-        }
+#ifdef DEBUG_PRINT_LEVEL_STATUS
+        llvm::dbgs() << "Level " << levelId << " has size of " << currentPartLevels[levelId].size() << "\n";
+#endif
         auto &currentLevel = currentPartLevels[levelId];
         scheduleMiddleLevel(currentRegionGraph, partInfo, codeGenInfo, currentLevel, levelId);
       }
 
-      if (printLevelStat) {
-        llvm::dbgs() << "Last level has size of " << lastLevel.size() << "\n";
-      }
+#ifdef DEBUG_PRINT_LEVEL_STATUS
+      llvm::dbgs() << "Last level has size of " << lastLevel.size() << "\n";
+#endif
       if (regionId < (numRegions - 1)) {
         scheduleExchangeWrites(currentRegionGraph, partInfo, codeGenInfo, lastLevel);
       } else {
         scheduleLastLevel(currentRegionGraph, partInfo, codeGenInfo, lastLevel);
       }
-      
+
+      mergePreAllocatedLastLevelVals(partInfo);
 
       auto partitionFlatId = codeGenInfo.partitionInfo.size();
       codeGenInfo.partitionInfo.push_back(std::move(partInfo));

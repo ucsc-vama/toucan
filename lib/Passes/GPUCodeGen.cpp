@@ -49,6 +49,11 @@ using namespace llvm;
 
 #define DEBUG_TYPE "GPUCodeGenPass"
 
+// #define ENABLE_REG_READ_DEBUG_PRINT
+// #define ENABLE_REG_WRITE_DEBUG_PRINT
+// #define ENABLE_EXG_READ_DEBUG_PRINT
+// #define ENABLE_EXG_WRITE_DEBUG_PRINT
+
 struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHelper {
   using GPUCodeGenBase<GPUCodeGenPass>::GPUCodeGenBase;
 
@@ -56,7 +61,7 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
   toucanGPUSim::SimDebugInfo debugInfo;
 
 
-  void populateSinglePartition(const CGPartitionMetaInfo &part) {
+  void populateSinglePartition(const CGPartitionMetaInfo &part, uint32_t regionId, uint32_t partId) {
     toucanGPUSim::SimPartitionInfo partInfo;
     // have at least 2 levels. one for input, one for output
     assert(part.opPool.size() >= 2);
@@ -73,6 +78,21 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     }
     assert(partInfo.valuePoolSize <= UINT16_MAX && "Value pool is too large");
 
+#if defined (ENABLE_EXG_READ_DEBUG_PRINT) || defined (ENABLE_REG_READ_DEBUG_PRINT) || defined (ENABLE_EXG_WRITE_DEBUG_PRINT) || defined (ENABLE_REG_WRITE_DEBUG_PRINT)
+    llvm::dbgs() << "Info in a new partition ========\n";
+#endif
+
+#ifdef ENABLE_REG_READ_DEBUG_PRINT
+    uint32_t rr_bulk_size = 0;
+    toucanGPUSim::CGRegReadMetaInfo rr_bulk_start, rr_last = {0, 0};
+#endif
+
+#ifdef ENABLE_EXG_READ_DEBUG_PRINT
+    uint32_t er_bulk_size = 0;
+    toucanGPUSim::CGExchangeReadMetaInfo er_bulk_start, er_last = {0, 0};
+#endif
+    
+
     for (size_t i = 0; i < part.opPool[0].size(); i++) {
       auto &opMeta = part.opPool[0][i];
 
@@ -84,6 +104,21 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
           info.reg = opMeta.regRead.reg;
           info.result = static_cast<uint16_t>(opMeta.regRead.result);
 
+#ifdef ENABLE_REG_READ_DEBUG_PRINT
+          if (info.reg == rr_last.reg + 1 && info.result == rr_last.result + 1) {
+            // bulk
+            rr_bulk_size += 1;
+          } else {
+            // a new bulk
+            if (rr_bulk_size != 0) {
+              llvm::dbgs() << "Reg read bulk, from reg " << rr_bulk_start.reg << " to local " << rr_bulk_start.result << ", bulk size " << rr_bulk_size << "\n";
+              rr_bulk_size = 0;
+              rr_bulk_start = info;
+            }
+          }
+          rr_last = info;
+#endif
+
           partInfo.ops_l0_regRead.push_back(info);
           break;
         }
@@ -94,6 +129,23 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
           info.exchangeVal = opMeta.exgRead.exchangeVal;
           info.localVal = opMeta.exgRead.localVal;
 
+#ifdef ENABLE_EXG_READ_DEBUG_PRINT
+          if (info.exchangeVal == er_last.exchangeVal + 1 && info.localVal == er_last.localVal + 1) {
+            // bulk
+            er_bulk_size += 1;
+          } else {
+            // a new bulk
+            if (er_bulk_size != 0) {
+              llvm::dbgs() << "Exchange read bulk, from exchange pool " << er_bulk_start.exchangeVal << " to local " << er_bulk_start.localVal << ", bulk size " << er_bulk_size << "\n";
+              er_bulk_size = 0;
+              er_bulk_start = info;
+            }
+          }
+          er_last = info;
+#endif
+
+          // llvm::dbgs() << "Exchange read, from exchange pool " << info.exchangeVal << " to local pool " << info.localVal << "\n";
+
           partInfo.ops_l0_exgRead.push_back(info);
           break;
         }
@@ -102,6 +154,17 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
         }
       }
     }
+
+#ifdef ENABLE_REG_READ_DEBUG_PRINT
+    if (rr_bulk_size != 0) {
+      llvm::dbgs() << "Reg read bulk, from reg " << rr_bulk_start.reg << " to local " << rr_bulk_start.result << ", bulk size " << rr_bulk_size << "\n";
+    }
+#endif
+#ifdef ENABLE_EXG_READ_DEBUG_PRINT
+    if (er_bulk_size != 0) {
+      llvm::dbgs() << "Exchange read bulk, from exchange pool " << er_bulk_start.exchangeVal << " to local " << er_bulk_start.localVal << ", bulk size " << er_bulk_size << "\n";
+    }
+#endif
 
     // ops, middle levels
     for (size_t levelId = 1; levelId < part.opPool.size() - 1; levelId++) {
@@ -182,6 +245,17 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
       }
     }
 
+#ifdef ENABLE_EXG_WRITE_DEBUG_PRINT
+    uint32_t ew_bulk_size = 0;
+    toucanGPUSim::CGExchangeWriteMetaInfo ew_last, ew_bulk_start;
+#endif
+
+#ifdef ENABLE_REG_WRITE_DEBUG_PRINT
+    uint32_t rw_bulk_size = 0;
+    toucanGPUSim::CGRegWriteMetaInfo rw_last, rw_bulk_start;
+#endif
+    
+
     // ops, last level
     for (size_t i = 0; i < part.opPool.back().size(); i++) {
       auto &opMeta = part.opPool.back()[i];
@@ -212,7 +286,22 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
           toucanGPUSim::CGRegWriteMetaInfo info;
           info.reg = opMeta.regWrite.reg;
           info.dat = opMeta.regWrite.dat;
-          
+
+#ifdef ENABLE_REG_WRITE_DEBUG_PRINT
+          if (info.reg == rw_last.reg + 1 && info.dat == rw_last.dat + 1) {
+            // bulk
+            rw_bulk_size += 1;
+          } else {
+            // a new bulk
+            if (rw_bulk_size != 0) {
+              llvm::dbgs() << "Reg write bulk, from data " << rw_bulk_start.dat << " to reg " << rw_bulk_start.reg << ", bulk size " << rw_bulk_size << "\n";
+              rw_bulk_size = 0;
+            }
+            rw_bulk_start = info;
+          }
+          rw_last = info;
+#endif
+
           partInfo.ops_last_regWrite.push_back(info);
           break;
         }
@@ -238,6 +327,21 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
           toucanGPUSim::CGExchangeWriteMetaInfo info;
           info.localVal = opMeta.exgWrite.localVal;
           info.exchangeVal = opMeta.exgWrite.exchangeVal;
+
+#ifdef ENABLE_EXG_WRITE_DEBUG_PRINT
+          if (info.localVal == ew_last.localVal + 1 && info.exchangeVal == ew_last.exchangeVal + 1) {
+            // bulk
+            ew_bulk_size += 1;
+          } else {
+            // a new bulk
+            if (ew_bulk_size != 0) {
+              llvm::dbgs() << "Exchange write bulk, from local pool " << ew_bulk_start.localVal << " to exchange pool " << ew_bulk_start.exchangeVal << ", bulk size " << ew_bulk_size << "\n";
+              ew_bulk_size = 0;
+              ew_bulk_start = info;
+            }
+          }
+          ew_last = info;
+#endif
           
           partInfo.ops_last_exgWrite.push_back(info);
           break;
@@ -247,6 +351,18 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
         }
       }
     }
+
+#ifdef ENABLE_EXG_WRITE_DEBUG_PRINT
+    if (ew_bulk_size != 0) {
+      llvm::dbgs() << "Exchange write bulk, from local pool " << ew_bulk_start.localVal << " to exchange pool " << ew_bulk_start.exchangeVal << ", bulk size " << ew_bulk_size << "\n";
+    }
+#endif
+
+#ifdef ENABLE_REG_WRITE_DEBUG_PRINT
+    if (rw_bulk_size != 0) {
+      llvm::dbgs() << "Reg write bulk, from data " << rw_bulk_start.dat << " to reg " << rw_bulk_start.reg << ", bulk size " << rw_bulk_size << "\n";
+    }
+#endif
 
     designInfo.parts.push_back(std::move(partInfo));
   }
@@ -296,7 +412,7 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
 
     auto rawGraphNumVtxes = boost::num_vertices(graph.g);
     auto eachRegionVtxes = rawGraphNumVtxes / numRegions;
-    auto preferredPartCount = eachRegionVtxes / p.PARTITION_MAX_WEIGHT;
+    auto preferredPartCount = (eachRegionVtxes / p.REPARTITION_PREFERRED_WEIGHT) + 1;
     llvm::outs() << "Preferred Part count is " << preferredPartCount << "\n";
 
     // TODO: What's the best policy to determine numPartsInEachRegion?
@@ -321,6 +437,7 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     designInfo.exchangePoolSize = p.codeGenInfo.exchangePool.size();
 
     uint32_t partId = 0;
+    uint32_t regionId = 0;
     for (const auto &eachRegionParts: p.codeGenInfo.regionPartitionIds) {
       designInfo.regionPartitionIds.emplace_back();
       for (const auto &eachPartId: eachRegionParts) {
@@ -329,9 +446,10 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
         // save partition region info
         designInfo.regionPartitionIds.back().push_back(partId);
         // codegen for a single partition
-        populateSinglePartition(p.codeGenInfo.partitionInfo[partId]);
+        populateSinglePartition(p.codeGenInfo.partitionInfo[partId], regionId, partId);
         partId++;
       }
+      regionId++;
     }
 
     // Fill print msgs
