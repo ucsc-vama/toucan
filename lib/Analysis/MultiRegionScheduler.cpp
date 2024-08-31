@@ -852,6 +852,95 @@ void MultiRegionScheduler::sortRegReadOps(mlir::DenseMap<mlir::Value, uint32_t> 
   }
 }
 
+void MultiRegionScheduler::sortMiddleLevelOps(uint32_t regionId, uint32_t partId, CGPartitionMetaInfo &partInfo) {
+  uint32_t nextOrder = 1;
+  mlir::DenseMap<uint32_t, uint32_t> vtxToResultValOrder;
+  mlir::DenseMap<uint32_t, uint32_t> vtxToSortOrder;
+
+
+  auto &currentRegionGraph = regionGraphs[regionId];
+
+  size_t numLevels = regionPartLevels[regionId][partId].size();
+  assert(numLevels >= 2);
+  for (size_t levelId = 0; levelId < numLevels - 1; levelId++) {
+    auto &currentLevelVtxes = regionPartLevels[regionId][partId][levelId];
+
+    // update vtx order
+    if (levelId == 0) {
+      for (const auto eachVtx: currentLevelVtxes) {
+        assert(!vtxToResultValOrder.contains(eachVtx));
+        auto tOpName = currentRegionGraph[eachVtx].toucanOpName;
+
+        switch (tOpName) {
+          case CGToucanOPName::ConstDecl: {
+            vtxToResultValOrder[eachVtx] = 0;
+            break;
+          }
+
+          case CGToucanOPName::RegRead: {
+            auto regReadOp = cast<toucan::RegReadOp>(currentRegionGraph[eachVtx].op);
+            auto regVal = regReadOp.getResult();
+            assert(partInfo.valueToValId.contains(regVal));
+            auto realOrder = partInfo.valueToValId[regVal];
+            // May be a pre-allocate location
+            vtxToResultValOrder[eachVtx] = realOrder;
+            nextOrder = std::max(nextOrder, realOrder);
+            // nextOrder = std::max(nextOrder, realOrder % preAllocateStartPos);
+            break;
+          }
+
+          case CGToucanOPName::ExchangeRead: {
+            auto exchangeValId = currentRegionGraph[eachVtx].exchangeValId;
+            auto readVal = codeGenInfo.exchangePool[exchangeValId].val;
+
+            auto realOrder = partInfo.valueToValId[readVal];
+            // May be a pre-allocate location
+            vtxToResultValOrder[eachVtx] = realOrder;
+            nextOrder = std::max(nextOrder, realOrder);
+            // nextOrder = std::max(nextOrder, realOrder % preAllocateStartPos);
+            break;
+          }
+
+          default: {
+            llvm_unreachable("Op should not appear here");
+          }
+        }
+      }
+    } else {
+      // Middle levels
+      nextOrder++;
+      vtxToSortOrder.clear();
+      mlir::DenseSet<uint32_t> allInVtxOrder;
+      for (auto &eachVtx: currentLevelVtxes) {
+        allInVtxOrder.clear();
+        auto in_edges_range = boost::in_edges(eachVtx, currentRegionGraph);
+        for (auto ei = in_edges_range.first; ei != in_edges_range.second; ++ei) {
+          auto srcVtx = boost::source(*ei, currentRegionGraph);
+          assert(vtxToResultValOrder.contains(srcVtx));
+          auto srcOrder = vtxToResultValOrder[srcVtx];
+
+          allInVtxOrder.insert(srcOrder);
+        }
+        assert(!allInVtxOrder.empty());
+        // Consider: any better policy?
+        auto maxOrder = *std::max_element(allInVtxOrder.begin(), allInVtxOrder.end());
+        vtxToSortOrder[eachVtx] = maxOrder;
+      }
+
+      std::sort(currentLevelVtxes.begin(), currentLevelVtxes.end(), [&](const uint32_t a, const uint32_t b) {
+        return vtxToSortOrder[a] < vtxToSortOrder[b];
+      });
+
+      // save result order
+      for (const auto& eachVtx: currentLevelVtxes) {
+        vtxToResultValOrder[eachVtx] = nextOrder;
+        nextOrder++;
+      }
+    }
+  }
+
+}
+
 void MultiRegionScheduler::generateRegMemLayout(DesignGraph &graph) {
   // collect all reg and memory, generate layout
   codeGenInfo.regPool.clear();
@@ -2076,6 +2165,9 @@ void MultiRegionScheduler::schedule(DesignGraph &graph) {
       } else {
         scheduleExchangeReads(currentRegionGraph, partInfo, codeGenInfo, firstLevel);
       }
+
+      // After schedule first level, sort middle level ops
+      sortMiddleLevelOps(regionId, partId, partInfo);
 
       for (uint32_t levelId = 1; levelId < numLevels - 1; levelId++) {
         // for each middle level

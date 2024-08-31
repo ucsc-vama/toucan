@@ -482,7 +482,7 @@ namespace toucan {
     void sortExchangeReadOps(const mlir::SmallVector<mlir::SmallVector<mlir::SmallVector<uint32_t>>> &exchangeValIdOrdered);
     void generateExchangeLayout();
 
-    // exgread
+    void sortMiddleLevelOps(uint32_t regionId, uint32_t partId, CGPartitionMetaInfo &partInfo);
 
 
     void collectConstantVars(PartitioningGraph &graph, CGPartitionMetaInfo &partInfo, const mlir::SmallVector<uint32_t> firstLevelOps);
