@@ -15,7 +15,6 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/Program.h"
 #include "llvm/Support/raw_ostream.h"
-#include <_types/_uint32_t.h>
 #include <cstdint>
 #include <fstream>
 #include <string>
