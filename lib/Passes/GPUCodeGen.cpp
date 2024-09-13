@@ -412,7 +412,7 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
 
     auto rawGraphNumVtxes = boost::num_vertices(graph.g);
     auto eachRegionVtxes = rawGraphNumVtxes / numRegions;
-    auto preferredPartCount = (eachRegionVtxes / p.REPARTITION_PREFERRED_WEIGHT) + 1;
+    auto preferredPartCount = (eachRegionVtxes / p.PARTITION_PREFERRED_WEIGHT) + 1;
     llvm::outs() << "Preferred Part count is " << preferredPartCount << "\n";
 
     // TODO: What's the best policy to determine numPartsInEachRegion?
