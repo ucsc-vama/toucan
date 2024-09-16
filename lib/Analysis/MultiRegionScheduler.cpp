@@ -4,9 +4,13 @@
 #include "circt/Dialect/Comb/CombOps.h"
 #include "circt/Dialect/Seq/SeqOps.h"
 
+#include "mlir/IR/Operation.h"
+#include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Pass/AnalysisManager.h"
 #include "mlir/Support/LLVM.h"
+#include "mlir/IR/Builders.h"
+
 #include "toucan/PartitioningGraph.h"
 #include "toucan/ToucanAnalysis.h"
 #include "toucan/ToucanAttributes.h"
@@ -20,6 +24,7 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/raw_ostream.h"
 #include <cstddef>
 #include <cstdint>
 
@@ -29,6 +34,7 @@
 #include <array>
 #include <optional>
 #include <tuple>
+#include <utility>
 #include <vector>
 #include <numeric>
 #include <algorithm>
@@ -172,6 +178,7 @@ void MultiRegionScheduler::cutGraph(DesignGraph &graph) {
         // move VecDecl to user region
         // llvm::dbgs() << "Move vtx " << vtxId << " from region " << vecDeclRegion << " to region " << vecUserRegion << "\n";
         vtxIdToRegionId[vtxId] = vecUserRegion;
+        vecDeclMovedToLaterRegion[opPtr] = vecUserRegion;
       }
     }
   }
@@ -483,6 +490,191 @@ void MultiRegionScheduler::cutGraph(DesignGraph &graph) {
   return;
 }
 
+
+/*
+Add NOP lut to break edge directly from input nodes (RegRead, ExchangeRead) to output nodes (RegWrite, ExchangeWrite).
+This help the scheduler to create more bulked GPU global memory access
+*/
+void MultiRegionScheduler::breakDirectIOConnection(DesignGraph &graph) {
+
+  size_t regionId = 0;
+  mlir::DenseMap<mlir::Operation*, uint32_t> opToRegionId;
+  for (auto & eachRegionGraph: regionGraphs) {
+    auto numVtxes = boost::num_vertices(eachRegionGraph);
+    for (uint32_t vtxId = 0; vtxId < numVtxes; vtxId++) {
+      auto op = eachRegionGraph[vtxId].op;
+      if (op != nullptr) {
+        assert(!opToRegionId.contains(op));
+        opToRegionId[op] = regionId;
+      }
+    }
+    regionId++;
+  }
+
+  // mlir::DenseSet<mlir::Operation*> vecOpsWithValReplaced;
+  mlir::DenseMap<mlir::Operation*, uint32_t> vecOpsMovedToLaterRegion;
+  for (auto [vecDecl, vecUserRegion]: vecDeclMovedToLaterRegion) {
+    vecOpsMovedToLaterRegion[vecDecl] = vecUserRegion;
+    for (auto eachVecUser: vecDecl->getUsers()) {
+      vecOpsMovedToLaterRegion[eachVecUser] = vecUserRegion;
+    }
+  }
+
+
+  regionId = 0;
+  for (auto & eachRegionGraph: regionGraphs) {
+    mlir::SmallVector<std::pair<uint32_t, uint32_t>> edgesToBreak;
+
+    // assume vtxid is continuous. i.e. no vtx removed ever
+    auto numVtxes = boost::num_vertices(eachRegionGraph);
+    for (uint32_t srcVtx = 0; srcVtx < numVtxes; srcVtx++) {
+      auto srcTOpName = eachRegionGraph[srcVtx].toucanOpName;
+      bool srcVtxIsExgRead = (srcTOpName == CGToucanOPName::ExchangeRead);
+
+      if (srcTOpName == CGToucanOPName::RegRead || srcTOpName == CGToucanOPName::ExchangeRead) {
+        // an input node
+        // auto srcOp = eachRegionGraph[srcVtx].op;
+        // assert(srcOp == nullptr || isa<toucan::RegReadOp>(srcOp));
+        assert(boost::in_degree(srcVtx, eachRegionGraph) == 0);
+
+        mlir::DenseSet<uint32_t> directExchangeContactsToRemove;
+
+        for (auto ei = boost::out_edges(srcVtx, eachRegionGraph); ei.first != ei.second; ei.first++) {
+          auto dstVtx = boost::target(*ei.first, eachRegionGraph);
+          auto dstTOpName = eachRegionGraph[dstVtx].toucanOpName;
+          bool dstVtxIsExgWrite = (dstTOpName == CGToucanOPName::ExchangeWrite);
+          // Not for correctness, but direct connection from exgread to exgWrite is unnecessary
+          assert(!(srcVtxIsExgRead && dstVtxIsExgWrite) && "Remove this assertion should still works. However a direct edge from ExgRead to ExgWrite is unnecessary.");
+
+          if (dstTOpName == CGToucanOPName::RegWrite || dstTOpName == CGToucanOPName::ExchangeWrite) {
+            // Need to break such edge
+            assert(boost::out_degree(dstVtx, eachRegionGraph) == 0);
+            edgesToBreak.push_back({srcVtx, dstVtx});
+            directExchangeContactsToRemove.insert(dstVtx);
+          }
+        }
+
+        // update exchange meta info
+        if (srcVtxIsExgRead && !directExchangeContactsToRemove.empty()) {
+          mlir::SmallVector<std::tuple<uint32_t, uint32_t>> newReaderIds;
+          auto exchangeValId = eachRegionGraph[srcVtx].exchangeValId;
+          for (auto [rRegion, rVtx]: codeGenInfo.exchangePool[exchangeValId].readerIds) {
+            if (!(rRegion == regionId && directExchangeContactsToRemove.contains(rVtx))){
+              newReaderIds.push_back({regionId, rVtx});
+            }
+          }
+
+          // TODO: Found some issue here: readerIds may not be correct
+
+          // assert(newReaderIds.size() < codeGenInfo.exchangePool[exchangeValId].readerIds.size());
+          std::swap(codeGenInfo.exchangePool[exchangeValId].readerIds, newReaderIds);
+        }
+
+      }
+    }
+
+    // pick any operation to create IRRewriter
+    mlir::Operation *anyOp = nullptr;
+    for (uint32_t srcVtx = 0; srcVtx < numVtxes; srcVtx++) {
+      auto op = eachRegionGraph[srcVtx].op;
+      if (op != nullptr) {
+        anyOp = op;
+        break;
+      }
+    }
+
+    auto loc = anyOp->getLoc();
+    OpBuilder builder(anyOp);
+    IRRewriter rewriter(builder);
+
+    mlir::DenseMap<uint32_t, uint32_t> regToNewReader;
+    for (auto [srcVtx, dstVtx]: edgesToBreak) {
+      boost::remove_edge(srcVtx, dstVtx, eachRegionGraph);
+
+
+      if (!regToNewReader.contains(srcVtx)) {
+        auto srcOp = eachRegionGraph[srcVtx].op;
+
+        mlir::Value srcVal;
+
+        if (srcOp != nullptr) {
+          // a reg read
+          assert(eachRegionGraph[srcVtx].toucanOpName == CGToucanOPName::RegRead);
+          srcVal = cast<toucan::RegReadOp>(srcOp).getResult();
+        } else {
+          // a exchange read
+          assert(eachRegionGraph[srcVtx].toucanOpName == CGToucanOPName::ExchangeRead);
+          auto exchangeValId = eachRegionGraph[srcVtx].exchangeValId;
+          assert(codeGenInfo.exchangePool.size() > exchangeValId);
+          srcVal = codeGenInfo.exchangePool[exchangeValId].val;
+        }
+
+
+        // create a nop
+        auto newNop = rewriter.create<toucan::LUTOp>(loc, toucan::LUTOpName::LUT_Nop, srcVal);
+
+
+        // Insert nop
+        PartitioningGraphNodeProperty vp;
+        vp.op = newNop;
+        vp.weight = 1;
+        vp.exchangeValId = UINT32_MAX;
+        vp.toucanOpName = CGToucanOPName::LUT;
+
+        auto nopVtxId = boost::add_vertex(vp, eachRegionGraph);
+
+
+        srcVal.replaceUsesWithIf(newNop.getResult(), [&](const OpOperand &operand) {
+          // tryCount++;
+          auto userOp = operand.getOwner();
+          auto userRegion = opToRegionId[userOp];
+
+          bool shouldReplace = userRegion > regionId;
+          if (vecOpsMovedToLaterRegion.contains(userOp)) {
+            auto vecUserRegion = vecOpsMovedToLaterRegion[userOp];
+            shouldReplace = vecUserRegion > regionId;
+          }
+
+          return shouldReplace;
+        });
+
+        // use this nop vtx to avoid direct contact
+        boost::add_edge(srcVtx, nopVtxId, eachRegionGraph);
+        regToNewReader[srcVtx] = nopVtxId;
+
+        if (eachRegionGraph[srcVtx].toucanOpName == CGToucanOPName::ExchangeRead) {
+          auto exchangeValId = eachRegionGraph[srcVtx].exchangeValId;
+          codeGenInfo.exchangePool[exchangeValId].readerIds.push_back({regionId, nopVtxId});
+        }
+      }
+
+      // add edge that use the nop
+      auto nopVtxId = regToNewReader[srcVtx];
+      boost::add_edge(nopVtxId, dstVtx, eachRegionGraph);
+
+      // update use
+      auto nopVal = cast<toucan::LUTOp>(eachRegionGraph[nopVtxId].op).getResult();
+      auto dstVtxOpName = eachRegionGraph[dstVtx].toucanOpName;
+      auto dstOp = eachRegionGraph[dstVtx].op;
+
+      if (dstVtxOpName == CGToucanOPName::ExchangeWrite) {
+        // update exchangeVal
+        assert(dstOp == nullptr);
+        auto exchangeValId = eachRegionGraph[dstVtx].exchangeValId;
+        assert(codeGenInfo.exchangePool.size() > exchangeValId);
+        codeGenInfo.exchangePool[exchangeValId].val = nopVal;
+        codeGenInfo.exchangePool[exchangeValId].writerId = nopVtxId;
+      } else if (dstVtxOpName != CGToucanOPName::RegWrite) {
+        assert(false && "Should not reach here");
+      }
+    }
+
+    llvm::outs() << "Region " << regionId << ": insert " << regToNewReader.size() << " extra NOP verticies to break " << edgesToBreak.size() << " direct IO edges\n";
+
+    regionId++;
+  }
+}
+
 LogicalResult MultiRegionScheduler::levelizeAllPartitions(mlir::MLIRContext *context) {
   assert(!regionPartitions.empty());
   assert(regionPartLevels.empty());
@@ -710,7 +902,7 @@ void MultiRegionScheduler::sortRegistersForLocality(const PartitioningGraph &gra
   return;
 }
 
-
+// TODO: Is this the best policy? is it correctly implemented?
 void MultiRegionScheduler::groupExchangeVals(mlir::SmallVector<mlir::SmallVector<mlir::SmallVector<uint32_t>>> &exchangeValIdOrdered) {
 
   mlir::SmallVector<uint32_t> exchangeValIdToOrder;
@@ -1522,7 +1714,7 @@ void MultiRegionScheduler::scheduleMiddleLevel(PartitioningGraph &graph, CGParti
     opMeta.opName = tOpName;
     opMeta.op = rawOp;
     opMeta.vtxId = vtxId;
-    populateOpMetaDebugInfo(opMeta, rawOp);
+    if (rawOp != nullptr) populateOpMetaDebugInfo(opMeta, rawOp);
 
     if (tOpName == CGToucanOPName::LUT) {
       // lut

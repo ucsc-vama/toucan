@@ -70,6 +70,7 @@ LogicalResult RepCutPartitioner::partitionAndSchedule(mlir::MLIRContext *context
   // Cut into 2 subgraph
   findCutPoints(graph);
   cutGraph(graph);
+  breakDirectIOConnection(graph);
   // Clear unneeded data
   graphLevels.clear();
 

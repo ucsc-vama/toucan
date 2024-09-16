@@ -461,6 +461,7 @@ namespace toucan {
     void levelizeGraphForCut(DesignGraph &graph);
     void findCutPoints(DesignGraph &graph);
     void cutGraph(DesignGraph &graph);
+    void breakDirectIOConnection(DesignGraph &graph);
 
     //
     mlir::LogicalResult levelizeAllPartitions(mlir::MLIRContext *context);
@@ -469,6 +470,8 @@ namespace toucan {
 
     private:
     const uint32_t preAllocateStartPos = UINT16_MAX;
+
+    mlir::DenseMap<mlir::Operation*, uint32_t> vecDeclMovedToLaterRegion;
 
     // void collectConstant(DesignGraph &graph, CGPartitionMetaInfo &partInfo, uint32_t partId);
     void sortRegistersForLocality(const PartitioningGraph &graph,  mlir::SmallVector<mlir::SmallVector<mlir::TypedValue<toucan::RegType>>> &regOrdered);
