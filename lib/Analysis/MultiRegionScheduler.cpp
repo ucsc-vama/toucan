@@ -47,7 +47,7 @@ using namespace circt;
 
 
 // #define DEBUG_PRINT_LEVEL_STATUS
-
+// #define DEBUG_PRINT_REG_LAYOUT
 
 void MultiRegionScheduler::levelizeGraphForCut(DesignGraph &graph) {
   levelizeWorker(graph.g, graphLevels);
@@ -817,87 +817,151 @@ void MultiRegionScheduler::sortRegistersForLocality(const PartitioningGraph &gra
     assert(!partToRegWrites.back().empty());
   }
 
-
-  // Segment by writer, then reader
-  // Sort by reader: shared read, read by p0, p1, p2, ...
-
   // Here we assume replication rate is relatively small
-  mlir::DenseSet<mlir::TypedValue<toucan::RegType>> replicatedRegReadVals;
-  mlir::DenseMap<mlir::TypedValue<toucan::RegType>, uint32_t> regReadValToPartId;
+  mlir::DenseSet<mlir::TypedValue<toucan::RegType>> regValsWithMultipleReads;
+  mlir::DenseMap<mlir::TypedValue<toucan::RegType>, uint32_t> regValToReaderPartId, regValToWriterPartId;
   mlir::DenseSet<mlir::TypedValue<toucan::RegType>> regValRead, regValWrite;
 
+  // Collect reg RW info
   for (size_t partId = 0; partId < partToRegReads.size(); partId++) {
     for (auto vtxId: partToRegReads[partId]) {
       auto regReadOp = cast<toucan::RegReadOp>(graph[vtxId].op);
       auto regVal = regReadOp.getReg();
       regValRead.insert(regVal);
 
-      if (!replicatedRegReadVals.contains(regVal)) {
-        if (regReadValToPartId.contains(regVal)) {
+      if (!regValsWithMultipleReads.contains(regVal)) {
+        if (regValToReaderPartId.contains(regVal)) {
           // has at least 2 writer
-          replicatedRegReadVals.insert(regVal);
-          regReadValToPartId.erase(regVal);
+          regValsWithMultipleReads.insert(regVal);
+          regValToReaderPartId.erase(regVal);
         } else {
-          regReadValToPartId[regVal] = partId;
+          regValToReaderPartId[regVal] = partId;
         }
       }
     }
   }
-
-  // reg vals that read by multiple partitions (multiple reader)
-  mlir::SmallVector<mlir::TypedValue<toucan::RegType>> sharedVals;
-  // reg vals that has only 1 reader
-  mlir::SmallVector<mlir::SmallVector<mlir::TypedValue<toucan::RegType>>> groupedVals;
-  // reg vals with no reader
-  // mlir::SmallVector<mlir::TypedValue<toucan::RegType>> readOnlyRegVals;
-  mlir::SmallVector<mlir::TypedValue<toucan::RegType>> writeOnlyRegVals;
-
-  // auto numReadParts = partToRegReads.size();
-  groupedVals.resize(partToRegReads.size());
-
-  for (auto &eachPartWrites: partToRegWrites) {
-    sharedVals.clear();
-    writeOnlyRegVals.clear();
-    for (size_t partId = 0; partId < partToRegReads.size(); partId++) {
-      groupedVals[partId].clear();
-    }
-
-    for (auto &vtxId: eachPartWrites) {
+  for (size_t partId = 0; partId < partToRegWrites.size(); partId++) {
+    for (auto vtxId: partToRegWrites[partId]) {
       auto regWriteOp = cast<toucan::RegWriteOp>(graph[vtxId].op);
       auto regVal = regWriteOp.getReg();
+      assert(!regValWrite.contains(regVal) && "Each reg should have only 1 writer");
       regValWrite.insert(regVal);
+      regValToWriterPartId[regVal] = partId;
+    }
+  }
 
-      if (!regReadValToPartId.contains(regVal)) {
-        writeOnlyRegVals.push_back(regVal);
-      } else if (replicatedRegReadVals.contains(regVal)) {
-        sharedVals.push_back(regVal);
+
+#ifdef DEBUG_PRINT_REG_LAYOUT
+  llvm::dbgs() << "In total, there are " << regValsWithMultipleReads.size() << " shared reads\n";
+#endif
+
+  // reg vals that read by multiple partitions (multiple reader)
+  mlir::SmallVector<mlir::SmallVector<mlir::TypedValue<toucan::RegType>>> groupedSharedReadVals;
+  // reg vals that has only 1 reader
+  mlir::SmallVector<mlir::SmallVector<mlir::TypedValue<toucan::RegType>>> groupedReadOnceVals;
+  // reg vals with no reader
+  mlir::SmallVector<mlir::SmallVector<mlir::TypedValue<toucan::RegType>>> groupedWriteOnlyVals;
+  // reg vals with no writer
+  mlir::SmallVector<mlir::TypedValue<toucan::RegType>> sortedReadOnlyVals;
+
+  auto numReadParts = partToRegReads.size();
+  auto numWriteParts = partToRegWrites.size();
+
+  groupedSharedReadVals.resize(numWriteParts);
+  groupedReadOnceVals.resize(numWriteParts);
+  groupedWriteOnlyVals.resize(numWriteParts);
+
+
+  // Segment by writer, then reader
+  // Sort by reader: shared read, read by p0, p1, p2, ...
+
+  // First, group by writer
+  for (size_t writerPartId = 0; writerPartId < partToRegWrites.size(); writerPartId++) {
+    for (auto vtxId: partToRegWrites[writerPartId]) {
+      auto regWriteOp = cast<toucan::RegWriteOp>(graph[vtxId].op);
+      auto regVal = regWriteOp.getReg();
+
+      // for each writer section
+      if (regValsWithMultipleReads.contains(regVal)) {
+        // reg with multiple reader
+        groupedSharedReadVals[writerPartId].push_back(regVal);
+      } else if (regValToReaderPartId.contains(regVal)) {
+        // reg with 1 reader
+        groupedReadOnceVals[writerPartId].push_back(regVal);
       } else {
-        assert(regReadValToPartId.contains(regVal));
-        auto partId = regReadValToPartId[regVal];
-        // assert(partId < numReadParts);
-        groupedVals[partId].push_back(regVal);
+        // write only
+        groupedWriteOnlyVals[writerPartId].push_back(regVal);
       }
     }
+  
+    // Second, within each writer group, further sort by reader
 
-    // put shareVals at the begining, then group by reader partition ID
+    // TODO: sort sharedVals by what?
+    std::sort(groupedReadOnceVals[writerPartId].begin(), groupedReadOnceVals[writerPartId].end(), 
+      [&] (const mlir::TypedValue<toucan::RegType>& a, const mlir::TypedValue<toucan::RegType>& b) {
+        auto readerPartId_a = regValToReaderPartId[a];
+        auto readerPartId_b = regValToReaderPartId[b];
+        return readerPartId_a < readerPartId_b;
+      });
+  }
+
+
+  // Special handling for read-only vals
+  mlir::SmallVector<mlir::TypedValue<toucan::RegType>> readOnlySharedVals, readOnlyOnceVals;
+
+  for (auto &eachReadVal: regValRead) {
+    if (!regValToWriterPartId.contains(eachReadVal)) {
+      // read only, no writer
+      if (regValsWithMultipleReads.contains(eachReadVal)) {
+        readOnlySharedVals.push_back(eachReadVal);
+      } else {
+        assert(regValToReaderPartId.contains(eachReadVal));
+        readOnlyOnceVals.push_back(eachReadVal);
+      }
+    }
+  }
+  // TODO: sort readOnlySharedVals by what? They are relatively rare
+  std::sort(readOnlyOnceVals.begin(), readOnlyOnceVals.end(), 
+  [&] (const mlir::TypedValue<toucan::RegType>& a, const mlir::TypedValue<toucan::RegType>& b) {
+    auto readerPartId_a = regValToReaderPartId[a];
+    auto readerPartId_b = regValToReaderPartId[b];
+    return readerPartId_a < readerPartId_b;
+  });
+  // Merge all together
+#ifdef DEBUG_PRINT_REG_LAYOUT
+    llvm::dbgs() << readOnlySharedVals.size() << " shared read only vals, and " << readOnlyOnceVals.size() << " read only once vals\n";
+#endif
+  std::copy(readOnlySharedVals.begin(), readOnlySharedVals.end(), std::back_inserter(sortedReadOnlyVals));
+  std::copy(readOnlyOnceVals.begin(), readOnlyOnceVals.end(), std::back_inserter(sortedReadOnlyVals));
+
+
+
+  // schedule
+  for (size_t partId = 0; partId < numWriteParts; partId++) {
+#ifdef DEBUG_PRINT_REG_LAYOUT
+    llvm::dbgs() << "Schedule for writer part " << partId << "\n";
+#endif
     regOrdered.emplace_back();
-    std::copy(sharedVals.begin(), sharedVals.end(), std::back_inserter(regOrdered.back()));
-    for (auto &eachGroupVals: groupedVals) {
-      std::copy(eachGroupVals.begin(), eachGroupVals.end(), std::back_inserter(regOrdered.back()));
-    }
-    std::copy(writeOnlyRegVals.begin(), writeOnlyRegVals.end(), std::back_inserter(regOrdered.back()));
-  }
 
-  // Read only vals. Push them to last section.
-  // uint32_t numReadOnlyVals = 0;
-  for (auto eachVal: regValRead) {
-    if (!regValWrite.contains(eachVal)) {
-      regOrdered.back().push_back(eachVal);
-      // numReadOnlyVals ++;
+    if (partId == 0) {
+      // first group for writer part 0. put read only vals
+#ifdef DEBUG_PRINT_REG_LAYOUT
+      llvm::dbgs() << "  First writer part. Append all " << sortedReadOnlyVals.size() << " read only regs\n";
+#endif
+      std::copy(sortedReadOnlyVals.begin(), sortedReadOnlyVals.end(), std::back_inserter(regOrdered.back()));
     }
-  }
 
-  // llvm::dbgs() << "Found " << numReadOnlyVals << " read only values\n";
+
+#ifdef DEBUG_PRINT_REG_LAYOUT
+    llvm::dbgs() << "  Append " << groupedSharedReadVals[partId].size() << " share regs\n";
+    llvm::dbgs() << "  Append " << groupedReadOnceVals[partId].size() << " read once regs\n";
+    llvm::dbgs() << "  Append " << groupedWriteOnlyVals[partId].size() << " write only regs\n";
+#endif
+
+    std::copy(groupedSharedReadVals[partId].begin(), groupedSharedReadVals[partId].end(), std::back_inserter(regOrdered.back()));
+    std::copy(groupedReadOnceVals[partId].begin(), groupedReadOnceVals[partId].end(), std::back_inserter(regOrdered.back()));
+    std::copy(groupedWriteOnlyVals[partId].begin(), groupedWriteOnlyVals[partId].end(), std::back_inserter(regOrdered.back()));
+  }
 
   return;
 }
@@ -2219,6 +2283,7 @@ void MultiRegionScheduler::scheduleExchangeReads(PartitioningGraph &graph, CGPar
       partInfo.valuePool.push_back(valMeta);
     } else {
       // pre-allocated. 
+      // TODO: This should be unreachable
       // llvm_unreachable("After insert NOP to break direct edges, ExgRead result vals should never be pre-allocated.");
       uint32_t valId = partInfo.valueToValId[readVal];
       assert(valId >= preAllocateStartPos);
