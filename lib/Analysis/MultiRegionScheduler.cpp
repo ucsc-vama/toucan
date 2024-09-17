@@ -821,6 +821,7 @@ void MultiRegionScheduler::sortRegistersForLocality(const PartitioningGraph &gra
   mlir::DenseSet<mlir::TypedValue<toucan::RegType>> regValsWithMultipleReads;
   mlir::DenseMap<mlir::TypedValue<toucan::RegType>, uint32_t> regValToReaderPartId, regValToWriterPartId;
   mlir::DenseSet<mlir::TypedValue<toucan::RegType>> regValRead, regValWrite;
+  mlir::DenseMap<mlir::TypedValue<toucan::RegType>, mlir::Value> regValToWriterDataVal;
 
   // Collect reg RW info
   for (size_t partId = 0; partId < partToRegReads.size(); partId++) {
@@ -847,6 +848,9 @@ void MultiRegionScheduler::sortRegistersForLocality(const PartitioningGraph &gra
       assert(!regValWrite.contains(regVal) && "Each reg should have only 1 writer");
       regValWrite.insert(regVal);
       regValToWriterPartId[regVal] = partId;
+
+      auto dataVal = regWriteOp.getData();
+      regValToWriterDataVal[regVal] = dataVal;
     }
   }
 
@@ -877,6 +881,10 @@ void MultiRegionScheduler::sortRegistersForLocality(const PartitioningGraph &gra
 
   // First, group by writer
   for (size_t writerPartId = 0; writerPartId < partToRegWrites.size(); writerPartId++) {
+    // segment by reader
+    mlir::SmallVector<mlir::SmallVector<mlir::TypedValue<toucan::RegType>>> currentSectionReadOnceValSegments;
+    currentSectionReadOnceValSegments.resize(numReadParts);
+
     for (auto vtxId: partToRegWrites[writerPartId]) {
       auto regWriteOp = cast<toucan::RegWriteOp>(graph[vtxId].op);
       auto regVal = regWriteOp.getReg();
@@ -887,7 +895,8 @@ void MultiRegionScheduler::sortRegistersForLocality(const PartitioningGraph &gra
         groupedSharedReadVals[writerPartId].push_back(regVal);
       } else if (regValToReaderPartId.contains(regVal)) {
         // reg with 1 reader
-        groupedReadOnceVals[writerPartId].push_back(regVal);
+        auto readerId = regValToReaderPartId[regVal];
+        currentSectionReadOnceValSegments[readerId].push_back(regVal);
       } else {
         // write only
         groupedWriteOnlyVals[writerPartId].push_back(regVal);
@@ -896,13 +905,38 @@ void MultiRegionScheduler::sortRegistersForLocality(const PartitioningGraph &gra
   
     // Second, within each writer group, further sort by reader
 
+    // readOnceVals: multiple vals might share same source.
+    // segment them to ensure each segment has no reg vals with same source
+    for (auto &eachReaderSegment: currentSectionReadOnceValSegments) {
+      mlir::SmallVector<mlir::TypedValue<toucan::RegType>> orderedRegVals;
+      mlir::DenseSet<mlir::TypedValue<toucan::RegType>> scheduledRegVals;
+      mlir::DenseSet<mlir::Value> scheduledRegValDataSource;
+
+      while (scheduledRegVals.size() != eachReaderSegment.size()) {
+        for (auto &eachRegVal: eachReaderSegment) {
+          if (!scheduledRegVals.contains(eachRegVal)) {
+            auto dataVal = regValToWriterDataVal[eachRegVal];
+            if (!scheduledRegValDataSource.contains(dataVal)) {
+              // schedule it
+              orderedRegVals.push_back(eachRegVal);
+              scheduledRegValDataSource.insert(dataVal);
+              scheduledRegVals.insert(eachRegVal);
+            }
+          }
+        }
+        scheduledRegValDataSource.clear();
+      }
+      std::swap(eachReaderSegment, orderedRegVals);
+    }
+
+    
+    for (auto & eachReaderSegment: currentSectionReadOnceValSegments) {
+      std::copy(eachReaderSegment.begin(), eachReaderSegment.end(), 
+        std::back_inserter(groupedReadOnceVals[writerPartId]));
+    }
+
     // TODO: sort sharedVals by what?
-    std::sort(groupedReadOnceVals[writerPartId].begin(), groupedReadOnceVals[writerPartId].end(), 
-      [&] (const mlir::TypedValue<toucan::RegType>& a, const mlir::TypedValue<toucan::RegType>& b) {
-        auto readerPartId_a = regValToReaderPartId[a];
-        auto readerPartId_b = regValToReaderPartId[b];
-        return readerPartId_a < readerPartId_b;
-      });
+
   }
 
 
