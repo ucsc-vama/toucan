@@ -495,7 +495,7 @@ namespace toucan {
     void preAllocateLastLevel(PartitioningGraph &graph, CGPartitionMetaInfo &partInfo, CGInfo &codeGenInfo, const mlir::SmallVector<uint32_t> &lastLevel);
     void mergePreAllocatedLastLevelVals(CGPartitionMetaInfo &partInfo);
 
-    void scheduleFirstLevel(PartitioningGraph &graph, CGPartitionMetaInfo &partInfo, CGInfo &codeGenInfo, const mlir::SmallVector<uint32_t> &firstLevelOps);
+    void scheduleRegReads(PartitioningGraph &graph, CGPartitionMetaInfo &partInfo, CGInfo &codeGenInfo, const mlir::SmallVector<uint32_t> &firstLevelOps);
     void scheduleMiddleLevel(PartitioningGraph &graph, CGPartitionMetaInfo &partInfo, CGInfo &codeGenInfo, const mlir::SmallVector<uint32_t> &currentLevel, uint32_t levelId);
     void scheduleLastLevel(PartitioningGraph &graph, CGPartitionMetaInfo &partInfo, CGInfo &codeGenInfo, const mlir::SmallVector<uint32_t> &lastLevel);
 

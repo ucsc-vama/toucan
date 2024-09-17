@@ -112,9 +112,9 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
             // a new bulk
             if (rr_bulk_size != 0) {
               llvm::dbgs() << "Reg read bulk, from reg " << rr_bulk_start.reg << " to local " << rr_bulk_start.result << ", bulk size " << rr_bulk_size << "\n";
-              rr_bulk_size = 0;
-              rr_bulk_start = info;
             }
+            rr_bulk_size = 1;
+            rr_bulk_start = info;
           }
           rr_last = info;
 #endif

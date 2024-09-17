@@ -1601,7 +1601,7 @@ void MultiRegionScheduler::mergePreAllocatedLastLevelVals(CGPartitionMetaInfo &p
 }
 
 // Note: This step is same as SingleRegionScheduler
-void MultiRegionScheduler::scheduleFirstLevel(PartitioningGraph &graph, CGPartitionMetaInfo &partInfo, CGInfo &codeGenInfo, const mlir::SmallVector<uint32_t> &firstLevelOps) {
+void MultiRegionScheduler::scheduleRegReads(PartitioningGraph &graph, CGPartitionMetaInfo &partInfo, CGInfo &codeGenInfo, const mlir::SmallVector<uint32_t> &firstLevelOps) {
   mlir::SmallVector<CGOpMetaInfo> currentLevelOps;
   currentLevelOps.reserve(firstLevelOps.size());
 
@@ -1651,7 +1651,6 @@ void MultiRegionScheduler::scheduleFirstLevel(PartitioningGraph &graph, CGPartit
     valMeta.namehint = opMeta.namehint;
     valMeta.fragment_id = opMeta.fragment_id;
 
-    partInfo.valuePool.push_back(valMeta);
     auto resultVal = opMeta.op->getResult(0);
 
     if (!partInfo.valueToValId.contains(resultVal)) {
@@ -1663,12 +1662,13 @@ void MultiRegionScheduler::scheduleFirstLevel(PartitioningGraph &graph, CGPartit
       partInfo.valuePool.push_back(valMeta);
     } else {
       // pre-allocated. 
-      uint32_t valId = partInfo.valueToValId[resultVal];
-      assert(valId >= preAllocateStartPos);
-      opMeta.setResult(valId);
-      auto posInPool = valId - preAllocateStartPos;
-      assert(partInfo.preAlloc_valuePool.size() > posInPool);
-      partInfo.preAlloc_valuePool[posInPool] = valMeta;
+      llvm_unreachable("After insert NOP to break direct edges, RegRead result vals should never be pre-allocated.");
+      // uint32_t valId = partInfo.valueToValId[resultVal];
+      // assert(valId >= preAllocateStartPos);
+      // opMeta.setResult(valId);
+      // auto posInPool = valId - preAllocateStartPos;
+      // assert(partInfo.preAlloc_valuePool.size() > posInPool);
+      // partInfo.preAlloc_valuePool[posInPool] = valMeta;
     }
   }
 
@@ -2219,6 +2219,7 @@ void MultiRegionScheduler::scheduleExchangeReads(PartitioningGraph &graph, CGPar
       partInfo.valuePool.push_back(valMeta);
     } else {
       // pre-allocated. 
+      // llvm_unreachable("After insert NOP to break direct edges, ExgRead result vals should never be pre-allocated.");
       uint32_t valId = partInfo.valueToValId[readVal];
       assert(valId >= preAllocateStartPos);
       opMeta.exgRead.localVal = valId;
@@ -2353,7 +2354,7 @@ void MultiRegionScheduler::schedule(DesignGraph &graph) {
       preAllocateLastLevel(currentRegionGraph, partInfo, codeGenInfo, lastLevel);
 
       if (regionId == 0) {
-        scheduleFirstLevel(currentRegionGraph, partInfo, codeGenInfo, firstLevel);
+        scheduleRegReads(currentRegionGraph, partInfo, codeGenInfo, firstLevel);
       } else {
         scheduleExchangeReads(currentRegionGraph, partInfo, codeGenInfo, firstLevel);
       }
