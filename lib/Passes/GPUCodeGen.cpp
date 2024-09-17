@@ -137,9 +137,9 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
             // a new bulk
             if (er_bulk_size != 0) {
               llvm::dbgs() << "Exchange read bulk, from exchange pool " << er_bulk_start.exchangeVal << " to local " << er_bulk_start.localVal << ", bulk size " << er_bulk_size << "\n";
-              er_bulk_size = 0;
-              er_bulk_start = info;
             }
+            er_bulk_size = 1;
+            er_bulk_start = info;
           }
           er_last = info;
 #endif
@@ -253,6 +253,7 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
 #ifdef ENABLE_REG_WRITE_DEBUG_PRINT
     uint32_t rw_bulk_size = 0;
     toucanGPUSim::CGRegWriteMetaInfo rw_last, rw_bulk_start;
+    llvm::dbgs() << "This part has " << partInfo.numConstsInValuePool << " const vals at the begining of value pool\n";
 #endif
     
 
@@ -295,8 +296,8 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
             // a new bulk
             if (rw_bulk_size != 0) {
               llvm::dbgs() << "Reg write bulk, from data " << rw_bulk_start.dat << " to reg " << rw_bulk_start.reg << ", bulk size " << rw_bulk_size << "\n";
-              rw_bulk_size = 0;
             }
+            rw_bulk_size = 1;
             rw_bulk_start = info;
           }
           rw_last = info;
@@ -336,9 +337,9 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
             // a new bulk
             if (ew_bulk_size != 0) {
               llvm::dbgs() << "Exchange write bulk, from local pool " << ew_bulk_start.localVal << " to exchange pool " << ew_bulk_start.exchangeVal << ", bulk size " << ew_bulk_size << "\n";
-              ew_bulk_size = 0;
-              ew_bulk_start = info;
             }
+            ew_bulk_size = 1;
+            ew_bulk_start = info;
           }
           ew_last = info;
 #endif
