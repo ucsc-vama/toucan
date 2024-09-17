@@ -546,7 +546,11 @@ void MultiRegionScheduler::breakDirectIOConnection(DesignGraph &graph) {
           // Not for correctness, but direct connection from exgread to exgWrite is unnecessary
           assert(!(srcVtxIsExgRead && dstVtxIsExgWrite) && "Remove this assertion should still works. However a direct edge from ExgRead to ExgWrite is unnecessary.");
 
-          if (dstTOpName == CGToucanOPName::RegWrite || dstTOpName == CGToucanOPName::ExchangeWrite) {
+          if (dstTOpName == CGToucanOPName::RegWrite 
+            || dstTOpName == CGToucanOPName::ExchangeWrite
+            || dstTOpName == CGToucanOPName::MemWrite
+            || dstTOpName == CGToucanOPName::Stop
+            || dstTOpName == CGToucanOPName::Print) {
             // Need to break such edge
             assert(boost::out_degree(dstVtx, eachRegionGraph) == 0);
             edgesToBreak.push_back({srcVtx, dstVtx});
@@ -625,14 +629,24 @@ void MultiRegionScheduler::breakDirectIOConnection(DesignGraph &graph) {
 
 
         srcVal.replaceUsesWithIf(newNop.getResult(), [&](const OpOperand &operand) {
-          // tryCount++;
           auto userOp = operand.getOwner();
           auto userRegion = opToRegionId[userOp];
 
-          bool shouldReplace = userRegion > regionId;
+          // some vector's user region may be moved to later regions.
           if (vecOpsMovedToLaterRegion.contains(userOp)) {
-            auto vecUserRegion = vecOpsMovedToLaterRegion[userOp];
-            shouldReplace = vecUserRegion > regionId;
+            userRegion = vecOpsMovedToLaterRegion[userOp];
+          }
+
+          bool shouldReplace = userRegion > regionId;
+
+          // For use within current region, replace if it's a terminal vtx
+          if (!shouldReplace && (
+            isa<toucan::RegWriteOp>(userOp)
+            || isa<toucan::MemWriteOp>(userOp)
+            || isa<toucan::PrintOp>(userOp)
+            || isa<toucan::StopOp>(userOp)
+          )) {
+            shouldReplace = true;
           }
 
           return shouldReplace;
@@ -664,8 +678,6 @@ void MultiRegionScheduler::breakDirectIOConnection(DesignGraph &graph) {
         assert(codeGenInfo.exchangePool.size() > exchangeValId);
         codeGenInfo.exchangePool[exchangeValId].val = nopVal;
         codeGenInfo.exchangePool[exchangeValId].writerId = nopVtxId;
-      } else if (dstVtxOpName != CGToucanOPName::RegWrite) {
-        assert(false && "Should not reach here");
       }
     }
 
@@ -1761,12 +1773,6 @@ void MultiRegionScheduler::scheduleRegReads(PartitioningGraph &graph, CGPartitio
     } else {
       // pre-allocated. 
       llvm_unreachable("After insert NOP to break direct edges, RegRead result vals should never be pre-allocated.");
-      // uint32_t valId = partInfo.valueToValId[resultVal];
-      // assert(valId >= preAllocateStartPos);
-      // opMeta.setResult(valId);
-      // auto posInPool = valId - preAllocateStartPos;
-      // assert(partInfo.preAlloc_valuePool.size() > posInPool);
-      // partInfo.preAlloc_valuePool[posInPool] = valMeta;
     }
   }
 
@@ -2317,14 +2323,7 @@ void MultiRegionScheduler::scheduleExchangeReads(PartitioningGraph &graph, CGPar
       partInfo.valuePool.push_back(valMeta);
     } else {
       // pre-allocated. 
-      // TODO: This should be unreachable
-      // llvm_unreachable("After insert NOP to break direct edges, ExgRead result vals should never be pre-allocated.");
-      uint32_t valId = partInfo.valueToValId[readVal];
-      assert(valId >= preAllocateStartPos);
-      opMeta.exgRead.localVal = valId;
-      auto posInPool = valId - preAllocateStartPos;
-      assert(partInfo.preAlloc_valuePool.size() > posInPool);
-      partInfo.preAlloc_valuePool[posInPool] = valMeta;
+      llvm_unreachable("After insert NOP to break direct edges, ExgRead result vals should never be pre-allocated.");
     }
 
     currentLevelOps.push_back(opMeta);
