@@ -523,9 +523,9 @@ namespace toucan {
   class RepCutPartitioner: public MultiRegionScheduler {
     public:
     float targetIb = 0.06;
-    uint32_t rePartitionMaxIterations = 3;
+    uint32_t rePartitionMaxIterations = 4;
 
-    const uint32_t PARTITION_MAX_WEIGHT = 50000;
+    const uint32_t PARTITION_MAX_WEIGHT = 58000;
     const uint32_t PARTITION_PREFERRED_WEIGHT = 20000;
     const uint32_t REPARTITION_PREFERRED_WEIGHT = 45000;
 
