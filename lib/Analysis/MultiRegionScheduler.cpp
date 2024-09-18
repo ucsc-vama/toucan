@@ -295,7 +295,7 @@ void MultiRegionScheduler::cutGraph(DesignGraph &graph) {
           // Create ExchangeWrite for srcRegion
           PartitioningGraphNodeProperty vp;
           vp.op = nullptr;
-          vp.weight = 1;
+          vp.weight = 0;
           vp.exchangeValId = valId;
           vp.toucanOpName = CGToucanOPName::ExchangeWrite;
 
@@ -403,7 +403,7 @@ void MultiRegionScheduler::cutGraph(DesignGraph &graph) {
             // Create ExchangeWrite for srcRegion
             PartitioningGraphNodeProperty vp;
             vp.op = nullptr;
-            vp.weight = 1;
+            vp.weight = 0;
             vp.exchangeValId = valId;
             vp.toucanOpName = CGToucanOPName::ExchangeWrite;
 
@@ -1783,7 +1783,7 @@ void MultiRegionScheduler::scheduleRegReads(PartitioningGraph &graph, CGPartitio
     if (!partInfo.valueToValId.contains(resultVal)) {
       // Result is not pre-allocated
       uint32_t valId = partInfo.valuePool.size();
-      assert(valId < preAllocateStartPos && "If you see this error, increase preAllocateStartPos");
+      assert(valId < preAllocateStartPos && "Num of value exceed UINT16_MAX. Perhaps partition too large?");
       partInfo.valueToValId[resultVal] = valId;
       opMeta.setResult(valId);
       partInfo.valuePool.push_back(valMeta);
@@ -2050,7 +2050,7 @@ void MultiRegionScheduler::scheduleMiddleLevel(PartitioningGraph &graph, CGParti
     if (!partInfo.valueToValId.contains(resultVal)) {
       // Result is not pre-allocated
       uint32_t valId = partInfo.valuePool.size();
-      assert(valId < preAllocateStartPos && "If you see this error, increase preAllocateStartPos");
+      assert(valId < preAllocateStartPos && "Num of value exceed UINT16_MAX. Perhaps partition too large?");
       partInfo.valueToValId[resultVal] = valId;
       opMeta.setResult(valId);
       partInfo.valuePool.push_back(valMeta);
@@ -2154,7 +2154,7 @@ void MultiRegionScheduler::scheduleLastLevel(PartitioningGraph &graph, CGPartiti
 
     if (vtxOpName == CGToucanOPName::RegWrite) {
       // regwrite
-      assert(vtxWeight == 1);
+      assert(vtxWeight == 0);
 
       auto regWriteOp = cast<toucan::RegWriteOp>(rawOp);
       auto regVal = regWriteOp.getReg();
@@ -2227,11 +2227,11 @@ void MultiRegionScheduler::scheduleLastLevel(PartitioningGraph &graph, CGPartiti
           memWriteOps.push_back(mwOpMeta);
         }
       }
-      assert(numMemWrites == vtxWeight);
+
 
     } else if (vtxOpName == CGToucanOPName::Print) {
       // print
-      assert(vtxWeight == 1);
+      assert(vtxWeight == 0);
 
       auto printOp = cast<toucan::PrintOp>(rawOp);
       auto printStr = printOp.getMsg();
@@ -2251,7 +2251,7 @@ void MultiRegionScheduler::scheduleLastLevel(PartitioningGraph &graph, CGPartiti
 
     } else if (vtxOpName == CGToucanOPName::Stop) {
       // stop
-      assert(vtxWeight == 1);
+      assert(vtxWeight == 0);
 
       auto stopOp = cast<toucan::StopOp>(rawOp);
       auto enVal = stopOp.getEn();
@@ -2334,7 +2334,7 @@ void MultiRegionScheduler::scheduleExchangeReads(PartitioningGraph &graph, CGPar
     if (!partInfo.valueToValId.contains(readVal)) {
       // Result is not pre-allocated
       uint32_t valId = partInfo.valuePool.size();
-      assert(valId < preAllocateStartPos && "If you see this error, increase preAllocateStartPos");
+      assert(valId < preAllocateStartPos && "Num of value exceed UINT16_MAX. Perhaps partition too large?");
       partInfo.valueToValId[readVal] = valId;
       opMeta.exgRead.localVal = valId;
       partInfo.valuePool.push_back(valMeta);
@@ -2369,7 +2369,7 @@ void MultiRegionScheduler::scheduleExchangeWrites(PartitioningGraph &graph, CGPa
     auto exchangeValId = graph[vtxId].exchangeValId;
     assert(codeGenInfo.exchangePool.size() > exchangeValId);
     auto writeVal = codeGenInfo.exchangePool[exchangeValId].val;
-    assert(vtxWeight == 1);
+    assert(vtxWeight == 0);
     assert(tOpName == CGToucanOPName::ExchangeWrite);
     assert(codeGenInfo.exchangePool[exchangeValId].isPadding == false);
     assert(partInfo.valueToValId.contains(writeVal));

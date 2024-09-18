@@ -31,6 +31,13 @@ bool DesignGraph::opShouldRemoveInGraph(mlir::Operation *op) {
   return false;
 }
 
+static bool isTerminalOp(Operation* op) {
+  if (isa<toucan::MemWriteOp>(op)
+    || isa<toucan::RegWriteOp>(op)
+    || isa<toucan::StopOp>(op)
+    || isa<toucan::PrintOp>(op) ) return true;
+  return false;
+}
 
 static CGToucanOPName getOpName(Operation* op) {
   if (isa<toucan::ConstantOp>(op) || isa<toucan::DefConstVectorOp>(op)) return CGToucanOPName::ConstDecl;
@@ -74,6 +81,8 @@ DesignGraph::DesignGraph(Operation *op, AnalysisManager &am) {
     } else if (auto constVecDefOp = dyn_cast<toucan::DefConstVectorOp>(stmt)) {
       auto vecSize = constVecDefOp.getHandle().getType().getLength();
       vp.weight = vecSize;
+    } else if (isTerminalOp(&stmt)) {
+      vp.weight = 0;
     } else {
       vp.weight = 1;
     }
