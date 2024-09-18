@@ -480,9 +480,9 @@ namespace toucan {
     void generateRegMemLayout(DesignGraph &graph);
 
 
-    void groupExchangeVals(mlir::SmallVector<mlir::SmallVector<mlir::SmallVector<uint32_t>>> &exchangeValIdOrdered);
-    void sortExchangeWriteOps(const mlir::SmallVector<mlir::SmallVector<mlir::SmallVector<uint32_t>>> &exchangeValIdOrdered);
-    void sortExchangeReadOps(const mlir::SmallVector<mlir::SmallVector<mlir::SmallVector<uint32_t>>> &exchangeValIdOrdered);
+    void groupExchangeVals(mlir::SmallVector<mlir::SmallVector<uint32_t>> &exchangeValIdOrdered);
+    void sortExchangeWriteOps();
+    void sortExchangeReadOps();
     void generateExchangeLayout();
 
     void sortMiddleLevelOps(uint32_t regionId, uint32_t partId, CGPartitionMetaInfo &partInfo);
