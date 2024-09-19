@@ -41,36 +41,22 @@ static uint32_t getPartWeight(const mlir::SmallVector<uint32_t> &part, const Par
   return weight;
 };
 
-void RepCutPartitioner::setPartitionTarget(uint32_t numRegions, uint32_t numPartsInEachRegion) {
+void RepCutPartitioner::setPartitionTarget() {
+  auto numRegions = cutPoints.size() + 1;
   assert(numRegions > 1);
-  assert(numPartsInEachRegion > 0);
+  assert(numRegions == regionGraphs.size());
 
-  regionPartitionNumbers.resize(numRegions, numPartsInEachRegion);
-
-  switch (numRegions) {
-    case 4: {
-      cutRatios = {0.35, 0.18, 0.18};
-      break;
-    }
-    default: {
-      // Policy: evenly distribute region size
-      cutRatios.resize(numRegions - 1, 1.0f / (numRegions));
-    }
+  for (size_t regionId = 0; regionId < numRegions; regionId++) {
+    auto &regionGraph = regionGraphs[regionId];
+    auto eachRegionVtxes = boost::num_vertices(regionGraph);
+    auto preferredPartCount = (eachRegionVtxes / PARTITION_PREFERRED_WEIGHT) + 1;
+    llvm::outs() << "Preferred Part count for region " << regionId << " is " << preferredPartCount << "\n";
+    regionPartitionNumbers.push_back(preferredPartCount);
   }
-  
-  assert(cutRatios.size() == numRegions - 1);
 }
 
 LogicalResult RepCutPartitioner::partitionAndSchedule(mlir::MLIRContext *context, DesignGraph &graph) {
 
-  // Levelize
-  llvm::outs() << "====================Levelize And Cut====================\n";
-  levelizeGraphForCut(graph);
-
-  // Cut into 2 subgraph
-  findCutPoints(graph);
-  cutGraph(graph);
-  breakDirectIOConnection(graph);
   // Clear unneeded data
   graphLevels.clear();
 

@@ -67,26 +67,59 @@ void MultiRegionScheduler::findCutPoints(DesignGraph &graph) {
   assert(graphLevels.size() > 1);
 
   uint32_t graphSize = boost::num_vertices(graph.g);
-  uint32_t regionTarget = graphSize * cutRatios[0];
+  // uint32_t regionTarget = graphSize * cutRatios[0];
 
-  uint32_t cutLevel = 0;
   uint32_t currentRegionSize = 0;
-  uint32_t cursor = 0;
 
   cutPoints.clear();
 
+  size_t totalLevels = graphLevels.size();
+  // int firstRegionLevels = std::min(static_cast<int>(graphSize * 0.4), 10);
+  // cutPoints.push_back(firstRegionLevels);
+  int firstRegionLevels = 0, firstRegionSize = 0, currentRegionLevels = 0;
+  size_t currentLevel = 0;
   for (auto &eachLevel: graphLevels) {
     currentRegionSize += eachLevel.size();
-    if (currentRegionSize >= regionTarget) {
-      llvm::outs() << "Cut after level " << cutLevel << "\n";
-
-      cutPoints.push_back(cutLevel);
-      currentRegionSize = 0;
-      cursor++;
-      regionTarget = (cutRatios.size() > cursor) ? (cutRatios[cursor] * graphSize) : (graphSize + 1);
+    currentRegionLevels += 1;
+    if (firstRegionLevels != 0) {
+      // done with first level
+      assert(cutPoints.size() > 0);
+      assert(firstRegionSize > 0);
+      if (currentRegionLevels > firstRegionLevels) {
+        if (currentRegionSize > firstRegionSize * 0.5) {
+          // cut
+          llvm::outs() << "Cut after level " << currentLevel << ", this region has " << currentRegionSize << " vtxes\n";
+          cutPoints.push_back(currentLevel);
+          currentRegionSize = 0;
+          currentRegionLevels = 0;
+        }
+      }
     }
-    cutLevel++;
+    if (firstRegionLevels == 0 && (static_cast<size_t>(graphSize * 0.4) <= currentRegionSize || currentLevel >= 10)) {
+      // save as first level
+      llvm::outs() << "Cut after level " << currentLevel << ", this region has " << currentRegionSize << " vtxes\n";
+      firstRegionLevels = currentLevel;
+      cutPoints.push_back(firstRegionLevels);
+      firstRegionSize = currentRegionSize;
+      currentRegionSize = 0;
+      currentRegionLevels = 0;
+    }
+    currentLevel++;
   }
+
+
+  // for (auto &eachLevel: graphLevels) {
+  //   currentRegionSize += eachLevel.size();
+  //   if (currentRegionSize >= regionTarget) {
+  //     llvm::outs() << "Cut after level " << cutLevel << "\n";
+
+  //     cutPoints.push_back(cutLevel);
+  //     currentRegionSize = 0;
+  //     cursor++;
+  //     regionTarget = (cutRatios.size() > cursor) ? (cutRatios[cursor] * graphSize) : (graphSize + 1);
+  //   }
+  //   cutLevel++;
+  // }
 
   return;
 }

@@ -64,7 +64,7 @@ static cl::opt<bool> gpuCodeGen("gpu", cl::desc("Generate GPU code"), cl::init(f
 static cl::opt<bool> cpuCodeGen("cpu", cl::desc("Generate CPU code (single thread)"), cl::init(false), cl::cat(mainCategory));
 static cl::opt<bool> dumpOutputMLIR("dump", cl::desc("Dump output.mlir"), cl::init(false), cl::cat(mainCategory));
 // static cl::opt<uint32_t> targetGPUSMs("gpuSMs", cl::desc("Target GPU SM count. This argument affects number of partitions in each region."), cl::init(6), cl::cat(mainCategory));
-static cl::opt<uint32_t> partitionNumRegions("numRegions", cl::desc("Partitioning region count."), cl::init(4), cl::cat(mainCategory));
+// static cl::opt<uint32_t> partitionNumRegions("numRegions", cl::desc("Partitioning region count."), cl::init(4), cl::cat(mainCategory));
 static cl::opt<float> partitionIbFactor("ibFactor", cl::desc("Partitioning target imbalance factor (1.0 > ibFactor > 0.0)."), cl::init(0.03), cl::cat(mainCategory));
 
 
@@ -163,7 +163,7 @@ static LogicalResult compileAndEmit(
         gpuCodeGenOptions.outputSymbolFilename = "GPUSimSymbols.bin";
         gpuCodeGenOptions.outputIOSymbolFilename = "GPUSimIOSymbols.bin";
         gpuCodeGenOptions.temporaryDirectory = outputDir.string();
-        gpuCodeGenOptions.numRegions = partitionNumRegions;
+        // gpuCodeGenOptions.numRegions = partitionNumRegions;
         gpuCodeGenOptions.ibFactor = partitionIbFactor;
 
         pm.addPass(toucan::createGPUCodeGenPass(gpuCodeGenOptions));

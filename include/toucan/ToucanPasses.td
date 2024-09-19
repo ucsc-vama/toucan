@@ -246,7 +246,6 @@ def GPUCodeGen: Pass<"gpu-codegen", "circt::ModuleOp"> {
     Option<"outputSymbolFilename", "outputSymbolFilename", "std::string", "", "output symbol file name">,
     Option<"outputIOSymbolFilename", "outputIOSymbolFilename", "std::string", "", "output IO symbol file name">,
     Option<"temporaryDirectory", "temporaryDirectory", "std::string", "", "Directory for temp files">,
-    Option<"numRegions", "numRegions", "uint32_t", "0", "Number of regions">,
     Option<"ibFactor", "ibFactor", "float", "0.03", "Partitioner imbalance factor">,
   ];
 }

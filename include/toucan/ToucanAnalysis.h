@@ -527,9 +527,9 @@ namespace toucan {
     float targetIb = 0.06;
     uint32_t rePartitionMaxIterations = 4;
 
-    const uint32_t PARTITION_MAX_WEIGHT = 50000;
-    const uint32_t PARTITION_PREFERRED_WEIGHT = 40000;
-    const uint32_t REPARTITION_PREFERRED_WEIGHT = 35000;
+    const uint32_t PARTITION_MAX_WEIGHT = 55000;
+    const uint32_t PARTITION_PREFERRED_WEIGHT = 50000;
+    const uint32_t REPARTITION_PREFERRED_WEIGHT = 40000;
 
     mlir::SmallVector<uint32_t> regionPartitionNumbers;
 
@@ -538,7 +538,7 @@ namespace toucan {
     };
     mlir::LogicalResult partitionAndSchedule(mlir::MLIRContext *context, DesignGraph &graph);
 
-    void setPartitionTarget(uint32_t numRegions, uint32_t numPartsInEachRegion);
+    void setPartitionTarget();
 
     private:
     std::filesystem::path outputDirectory;

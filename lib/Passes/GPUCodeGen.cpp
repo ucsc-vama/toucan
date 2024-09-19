@@ -416,13 +416,17 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
 
     auto p = RepCutPartitioner(outputDirectory.getValue());
 
-    auto rawGraphNumVtxes = boost::num_vertices(graph.g);
-    auto eachRegionVtxes = rawGraphNumVtxes / numRegions;
-    auto preferredPartCount = (eachRegionVtxes / p.PARTITION_PREFERRED_WEIGHT) + 1;
-    llvm::outs() << "Preferred Part count is " << preferredPartCount << "\n";
+    // Levelize
+    llvm::outs() << "====================Levelize And Cut====================\n";
+    p.levelizeGraphForCut(graph);
 
-    // TODO: What's the best policy to determine numPartsInEachRegion?
-    p.setPartitionTarget(numRegions, preferredPartCount);
+    // Cut into 2 subgraph
+    p.findCutPoints(graph);
+    p.cutGraph(graph);
+    p.breakDirectIOConnection(graph);
+    p.setPartitionTarget();
+
+
     assert(ibFactor > 0.0f);
     p.targetIb = ibFactor;
 
