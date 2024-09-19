@@ -157,7 +157,7 @@ LogicalResult RepCutPartitioner::partitionAndSchedule(mlir::MLIRContext *context
     llvm::outs() << msgOss.str();
 
     if (!converged) {
-      llvm::errs() << "Fail to limit partition size by repartition!\n";
+      llvm::errs() << "Region " << regionId << "Fail to limit partition size by repartition!\n";
       return failure();
     }
 
