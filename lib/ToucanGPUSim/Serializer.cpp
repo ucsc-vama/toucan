@@ -132,6 +132,8 @@ static void serializeSimPartitionInfo(std::ostream& out, const toucanGPUSim::Sim
   out.write(reinterpret_cast<const char*>(&info.valuePoolSize), sizeof(info.valuePoolSize));
   out.write(reinterpret_cast<const char*>(&info.numConstsInValuePool), sizeof(info.numConstsInValuePool));
 
+  serializeVector(out, info.constVecPool);
+
   serializeVector(out, info.ops_l0_regRead);
   serializeVector(out, info.ops_l0_exgRead);
 
@@ -157,6 +159,8 @@ static void deserializeSimPartitionInfo(std::istream& in, toucanGPUSim::SimParti
   deserializeVector(in, info.valuePool);
   in.read(reinterpret_cast<char*>(&info.valuePoolSize), sizeof(info.valuePoolSize));
   in.read(reinterpret_cast<char*>(&info.numConstsInValuePool), sizeof(info.numConstsInValuePool));
+
+  deserializeVector(in, info.constVecPool);
 
   deserializeVector(in, info.ops_l0_regRead);
   deserializeVector(in, info.ops_l0_exgRead);

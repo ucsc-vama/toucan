@@ -45,6 +45,7 @@ namespace toucanGPUSim {
     uint16_t vecLength;
     // Note: This offset is a static value!!!!
     uint16_t offset;
+    bool isConstVec;
     
     // max addr width: 16
     uint16_t index0;
@@ -60,7 +61,7 @@ namespace toucanGPUSim {
     // static
     bool hasMultipleWriter;
     // static
-    uint32_t memDepth;
+    // uint32_t memDepth;
     // static
     uint64_t memBase;
 
@@ -111,6 +112,9 @@ namespace toucanGPUSim {
     std::vector<uint8_t> valuePool;
     uint32_t valuePoolSize;
     uint32_t numConstsInValuePool;
+
+    // Vector holds const vec elements
+    std::vector<uint8_t> constVecPool;
 
     std::vector<CGRegReadMetaInfo> ops_l0_regRead;
     std::vector<CGExchangeReadMetaInfo> ops_l0_exgRead;

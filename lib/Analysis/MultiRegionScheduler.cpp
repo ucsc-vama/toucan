@@ -48,6 +48,7 @@ using namespace circt;
 
 // #define DEBUG_PRINT_LEVEL_STATUS
 // #define DEBUG_PRINT_REG_LAYOUT
+#define DEBUG_PRINT_PART_NUM_CONSTS
 
 void MultiRegionScheduler::levelizeGraphForCut(DesignGraph &graph) {
   levelizeWorker(graph.g, graphLevels);
@@ -1557,7 +1558,7 @@ void MultiRegionScheduler::collectConstantVars(PartitioningGraph &graph, CGParti
 
 // Collect const vec decls
 void MultiRegionScheduler::collectConstantVecs(PartitioningGraph &graph, CGPartitionMetaInfo &partInfo, uint32_t partId) {
-  // Collect all consts, populate value pool
+  // Collect all consts, populate constVecPool
   // ConstDecl only exists in first level
   auto numVtxes = boost::num_vertices(graph);
   for (uint32_t vtxId = 0; vtxId < numVtxes; vtxId++) {
@@ -1575,7 +1576,7 @@ void MultiRegionScheduler::collectConstantVecs(PartitioningGraph &graph, CGParti
         auto bitWidth = vecHandle.getType().getElementWidth();
         assert(bitWidth <= 4);
 
-        auto valId = partInfo.valuePool.size();
+        auto valId = partInfo.constVecPool.size();
         assert(!partInfo.valueToValId.contains(vecHandle));
         partInfo.valueToValId[vecHandle] = valId;
 
@@ -1587,7 +1588,8 @@ void MultiRegionScheduler::collectConstantVecs(PartitioningGraph &graph, CGParti
 
           auto elemValMask = static_cast<uint8_t>((1 << elemValWidth) - 1);
           uint8_t rawVal = elemValMask & static_cast<uint8_t>(elemVal.getZExtValue());
-          partInfo.valuePool.push_back({true, false, rawVal, op, 0, static_cast<uint8_t>(bitWidth), std::nullopt, 0});
+          // partInfo.valuePool.push_back({true, false, rawVal, op, 0, static_cast<uint8_t>(bitWidth), std::nullopt, 0});
+          partInfo.constVecPool.push_back(rawVal);
         }
       }
     }
@@ -1907,6 +1909,8 @@ void MultiRegionScheduler::scheduleMiddleLevel(PartitioningGraph &graph, CGParti
       auto vecHandleId = partInfo.valueToValId[vecHandle];
       assert(vecHandleId < preAllocateStartPos && "Vector value cannot directly write to register or exchange pool, thus should not be pre-allocated!");
       auto vecLength = vecHandle.getType().getLength();
+      bool isConstVec = isa<toucan::DefConstVectorOp>(vecHandle.getDefiningOp());
+      if (!isConstVec) assert(isa<toucan::DefVectorOp>(vecHandle.getDefiningOp()));
 
       for (auto userOp: vecHandle.getUsers()) {
         // Note: Only 1 user has vtxId. Other ops are not included in currentLevelOps
@@ -1943,6 +1947,7 @@ void MultiRegionScheduler::scheduleMiddleLevel(PartitioningGraph &graph, CGParti
         // nop, the op code should be 0
         opMeta.vec.vecBase = vecHandleId;
         opMeta.vec.vecLength = vecLength;
+        opMeta.vec.isConstVec = isConstVec;
         opMeta.vec.index0 = vecReadOpIndexIds[0];
         opMeta.vec.index1 = vecReadOpIndexIds[1];
         opMeta.vec.index2 = vecReadOpIndexIds[2];
@@ -2459,8 +2464,10 @@ void MultiRegionScheduler::schedule(DesignGraph &graph) {
       // create const vars for every const vecdecl.
       collectConstantVecs(currentRegionGraph, partInfo, partId);
       partInfo.numConstsInValuePool = partInfo.valuePool.size();
-      // llvm::dbgs() << "Region " << regionId << " part " << partId << " has const pool size " << partInfo.numConstsInValuePool << "\n";
 
+#ifdef DEBUG_PRINT_PART_NUM_CONSTS
+      llvm::dbgs() << "Region " << regionId << " part " << partId << " has " << partInfo.numConstsInValuePool << " const values, and constVecPool size of " << partInfo.constVecPool.size() << "\n";
+#endif
 
 #ifdef DEBUG_PRINT_LEVEL_STATUS
       llvm::dbgs() << "Level 0 has size of " << firstLevel.size() << "\n";

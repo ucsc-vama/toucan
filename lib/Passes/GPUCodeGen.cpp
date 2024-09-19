@@ -29,6 +29,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <algorithm>
 #include <memory>
 #include <filesystem>
 #include <fstream>
@@ -77,6 +78,9 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
       llvm::errs() << "Value pool size is " << partInfo.valuePoolSize << ", which exceeds UINT16_MAX. This should not happen.\n";
     }
     assert(partInfo.valuePoolSize <= UINT16_MAX && "Value pool is too large");
+
+    // copy const vec data
+    std::copy(part.constVecPool.begin(), part.constVecPool.end(), std::back_inserter(partInfo.constVecPool));
 
 #if defined (ENABLE_EXG_READ_DEBUG_PRINT) || defined (ENABLE_REG_READ_DEBUG_PRINT) || defined (ENABLE_EXG_WRITE_DEBUG_PRINT) || defined (ENABLE_REG_WRITE_DEBUG_PRINT)
     llvm::dbgs() << "Info in a new partition ========\n";
@@ -209,6 +213,7 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
 
             info.vecBase = opMeta.vec.vecBase;
             info.vecLength = opMeta.vec.vecLength;
+            info.isConstVec = opMeta.vec.isConstVec;
             info.index0 = opMeta.vec.index0;
             info.index1 = opMeta.vec.index1;
             info.index2 = opMeta.vec.index2;
@@ -228,7 +233,7 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
             toucanGPUSim::CGMemReadMetaInfo info;
 
             info.hasMultipleWriter = opMeta.memRead.hasMultipleWriter;
-            info.memDepth = opMeta.memRead.memDepth;
+            // info.memDepth = opMeta.memRead.memDepth;
             info.memBase = opMeta.memRead.memBase;
             info.en = opMeta.memRead.en;
             info.addrVec = opMeta.memRead.addrVec;
@@ -313,7 +318,7 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
 
           toucanGPUSim::CGMemWriteMetaInfo info;
           info.hasMultipleWriter = opMeta.memWrite.hasMultipleWriter;
-          info.memDepth = opMeta.memWrite.memDepth;
+          // info.memDepth = opMeta.memWrite.memDepth;
           info.memBase = opMeta.memWrite.memBase;
           info.addrVec = opMeta.memWrite.addrVec;
           info.dat = opMeta.memWrite.dat;
