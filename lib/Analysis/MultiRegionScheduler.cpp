@@ -72,6 +72,7 @@ void MultiRegionScheduler::findCutPoints(DesignGraph &graph) {
   uint32_t currentRegionSize = 0;
 
   cutPoints.clear();
+  mlir::SmallVector<uint32_t> regionSizes;
 
   size_t totalLevels = graphLevels.size();
   // int firstRegionLevels = std::min(static_cast<int>(graphSize * 0.4), 10);
@@ -90,36 +91,34 @@ void MultiRegionScheduler::findCutPoints(DesignGraph &graph) {
           // cut
           llvm::outs() << "Cut after level " << currentLevel << ", this region has " << currentRegionSize << " vtxes\n";
           cutPoints.push_back(currentLevel);
+          regionSizes.push_back(currentRegionSize);
           currentRegionSize = 0;
           currentRegionLevels = 0;
         }
       }
     }
-    if (firstRegionLevels == 0 && (static_cast<size_t>(graphSize * 0.4) <= currentRegionSize || currentLevel >= 10)) {
+    if (firstRegionLevels == 0 && (static_cast<size_t>(graphSize * 0.4) <= currentRegionSize || currentLevel >= 12)) {
       // save as first level
       llvm::outs() << "Cut after level " << currentLevel << ", this region has " << currentRegionSize << " vtxes\n";
       firstRegionLevels = currentLevel;
       cutPoints.push_back(firstRegionLevels);
       firstRegionSize = currentRegionSize;
+      regionSizes.push_back(currentRegionSize);
       currentRegionSize = 0;
       currentRegionLevels = 0;
     }
     currentLevel++;
   }
+  regionSizes.push_back(currentRegionSize);
 
+  // Merge last region to previous one if it's too small
+  if (regionSizes.size() > 2) {
+    auto numRegions = regionSizes.size();
+    if (regionSizes.back() < (regionSizes[numRegions-2] * 0.4)) {
+      cutPoints.pop_back();
+    }
+  }
 
-  // for (auto &eachLevel: graphLevels) {
-  //   currentRegionSize += eachLevel.size();
-  //   if (currentRegionSize >= regionTarget) {
-  //     llvm::outs() << "Cut after level " << cutLevel << "\n";
-
-  //     cutPoints.push_back(cutLevel);
-  //     currentRegionSize = 0;
-  //     cursor++;
-  //     regionTarget = (cutRatios.size() > cursor) ? (cutRatios[cursor] * graphSize) : (graphSize + 1);
-  //   }
-  //   cutLevel++;
-  // }
 
   return;
 }

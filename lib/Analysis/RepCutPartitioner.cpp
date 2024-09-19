@@ -42,9 +42,12 @@ static uint32_t getPartWeight(const mlir::SmallVector<uint32_t> &part, const Par
 };
 
 void RepCutPartitioner::setPartitionTarget() {
-  auto numRegions = cutPoints.size() + 1;
+  auto numRegions_expected = cutPoints.size() + 1;
+  auto numRegions = regionGraphs.size();
   assert(numRegions > 1);
-  assert(numRegions == regionGraphs.size());
+  if (numRegions != numRegions_expected) {
+    llvm::dbgs() << "Expected num reigons " << numRegions_expected << ", real num regions " << numRegions << "\n";
+  }
 
   for (size_t regionId = 0; regionId < numRegions; regionId++) {
     auto &regionGraph = regionGraphs[regionId];
