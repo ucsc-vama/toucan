@@ -132,7 +132,7 @@ void SchedulerBase::populateOpMetaDebugInfo(CGOpMetaInfo &opMeta, mlir::Operatio
   }
 }
 
-void SchedulerBase::fillDebugInfo() {
+void SchedulerBase::fillDebugInfo(bool fillSignalDebugInfo) {
   // Consider parallel
 
   // Collect io signals and extern module signals
@@ -227,6 +227,9 @@ void SchedulerBase::fillDebugInfo() {
   }
 
 
+  if (!fillSignalDebugInfo) {
+    return;
+  }
   // collect signal info
   for (size_t partId = 0; partId < codeGenInfo.partitionInfo.size(); partId++) {
     auto &partOpPool = codeGenInfo.partitionInfo[partId].opPool;

@@ -11,6 +11,7 @@ add_circt_dialect_library(
   RepCutPartitioner.cpp
   GraphUtils.cpp
   ToucanAnalysis.cpp
+  LocalValueAllocator.cpp
 
 
   DEPENDS

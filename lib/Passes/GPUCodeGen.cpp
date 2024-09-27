@@ -70,9 +70,10 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     partInfo.valuePool.resize(part.numConstsInValuePool);
     for (size_t i = 0; i < part.numConstsInValuePool; i++) {
       assert(part.valuePool[i].isConst);
-      partInfo.valuePool[i] = part.valuePool[i].value;
-    } 
-    partInfo.valuePoolSize = part.valuePool.size();
+      partInfo.valuePool[i] = part.constValuePool[i];
+    }
+    assert(part.constValuePool.size() == part.numConstsInValuePool);
+    partInfo.valuePoolSize = part.numTotalValues;
     partInfo.numConstsInValuePool = part.numConstsInValuePool;
     if (partInfo.valuePoolSize > UINT16_MAX) {
       llvm::errs() << "Value pool size is " << partInfo.valuePoolSize << ", which exceeds UINT16_MAX. This should not happen.\n";

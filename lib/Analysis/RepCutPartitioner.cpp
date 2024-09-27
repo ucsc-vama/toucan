@@ -182,7 +182,8 @@ LogicalResult RepCutPartitioner::partitionAndSchedule(mlir::MLIRContext *context
   //   eachPart.opStatistics.print();
   // }
 
-  SchedulerBase::fillDebugInfo();
+  // Do not fill signal names. Values may now be reclaimed
+  SchedulerBase::fillDebugInfo(false);
 
   return success();
 }
