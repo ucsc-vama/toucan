@@ -52,10 +52,6 @@ void LocalValueAllocator::allocateLocalValues() {
 
   // Ignore pre-allocated const and io vals
   for (auto [eachVal, lifeTime]: valToLifeTime) {
-    // save vals that needs allocation
-    // if (!valToValId.contains(eachVal)) {
-    //   unPinnedVals.insert(eachVal);
-    // }
 
     bool isPinnedVal = pinnedInputVals.contains(eachVal) || pinnedOutputVals.contains(eachVal) || constVals.contains(eachVal);
     assert(isPinnedVal == valToValId.contains(eachVal));
@@ -194,8 +190,7 @@ void LocalValueAllocator::allocateLocalValues() {
             if (continuousValSize == vecLength) break;
           }
 
-          // temp
-          continuousValSize = 0;
+
           assert(!valToValId.contains(eachVal));
 
           if (continuousValSize == vecLength) {
@@ -211,17 +206,12 @@ void LocalValueAllocator::allocateLocalValues() {
             }
           } else {
             // fail to find sufficient space for entire vector. use some new vars
-            // TODO: use part of existing vals
             uint32_t vecValIdStart = nextAvailableValId;
             valToValId[eachVal] = vecValIdStart;
 
-for (uint32_t valId = vecValIdStart; valId < vecValIdStart + vecLength; valId++) {
-  assert(!allocatedValIds.contains(valId));
-    allocatedValIds.insert(valId);
-}
             nextAvailableValId += vecLength;
 #ifdef DEBUG_PRINT_LOCAL_VAL_ALLOC
-          llvm::dbgs() << "Alloc " << vecLength << " vals for a vector\n";
+            llvm::dbgs() << "Alloc " << vecLength << " new vals for a vector\n";
 #endif
           }
 
@@ -239,9 +229,6 @@ for (uint32_t valId = vecValIdStart; valId < vecValIdStart + vecLength; valId++)
             }
           }
 
-          // temp
-          foundFreeSlot = false;
-
           if (!foundFreeSlot) {
             // we iterate all free vals but cannot fit.
             // ask for a new val id
@@ -256,8 +243,6 @@ for (uint32_t valId = vecValIdStart; valId < vecValIdStart + vecLength; valId++)
 #ifdef DEBUG_PRINT_LOCAL_VAL_ALLOC
           // llvm::dbgs() << "Alloc val " << valId << "\n";
 #endif
-assert(!allocatedValIds.contains(valId));
-allocatedValIds.insert(valId);
           assert(valId != 0);
           assert(!valToValId.contains(eachVal));
           valToValId[eachVal] = valId;
@@ -270,15 +255,11 @@ allocatedValIds.insert(valId);
         assert(availableValIds.contains(pinnedValIds));
         availableValIds.erase(pinnedValIds);
         assert(!vecValToLength.contains(eachVal));
-        // pinnedCount++;
       }
     }
 
-    // llvm::dbgs() << "When allocating, encouter " << pinnedCount << " pinned vals\n";
-
 
     // Release val ids that no longer used
-    size_t numReleases = 0;
     for (auto eachVal: valsToRelease) {
       assert(valToValId.contains(eachVal));
 
@@ -288,18 +269,13 @@ allocatedValIds.insert(valId);
         auto vecValId = valToValId[eachVal];
         for (uint32_t valId = vecValId; valId < (vecValId + vecLength); valId++) {
           availableValIds.insert(valId);
-          numReleases++;
         }
       } else {
         auto valIdToRelease = valToValId[eachVal];
         availableValIds.insert(valIdToRelease);
         assert(valIdToRelease >= numConsts);
-        numReleases++;
       }
 
-    }
-    if (numReleases != 0) {
-      llvm::dbgs() << "Release " << numReleases << " vals\n";
     }
   }
 
@@ -314,7 +290,6 @@ void LocalValueAllocator::populateInitialPinnedVals(PartitioningGraph &regionGra
 
   // assert(valuePool[0].value == 0 && valuePool[0].definingOp == nullptr);
 
-  allocatedValIds.insert(0);
 
   for (size_t valIndex = 1; valIndex < valuePool.size(); valIndex++) {
     auto eachConstVal = valuePool[valIndex];
@@ -326,24 +301,8 @@ void LocalValueAllocator::populateInitialPinnedVals(PartitioningGraph &regionGra
 
     constVals.insert(val);
 
-    // temp
     compactConstValPool.push_back(rawVal);
     valToValId[val] = valIndex;
-
-    assert(!allocatedValIds.contains(valIndex));
-    allocatedValIds.insert(valIndex);
-
-    // if (!rawConstValToValId.contains(rawVal)) {
-    //   // a new val
-    //   auto newValId = compactConstValPool.size();
-    //   rawConstValToValId[rawVal] = newValId;
-    //   compactConstValPool.push_back(rawVal);
-    //   valToValId[val] = newValId;
-    // } else {
-    //   // a existing val
-    //   auto realValId = rawConstValToValId[rawVal];
-    //   valToValId[val] = realValId;
-    // }
   }
 
   numConsts = compactConstValPool.size();
@@ -390,10 +349,6 @@ void LocalValueAllocator::populateInitialPinnedVals(PartitioningGraph &regionGra
           assert(!valToValId.contains(outputVal));
           valToValId[outputVal] = realValId;
 
-
-assert(!allocatedValIds.contains(realValId));
-allocatedValIds.insert(realValId);
-
           nextValId++;
         }
       }
@@ -420,7 +375,7 @@ allocatedValIds.insert(realValId);
     } else {
       hasInputVal = false;
       if (tOpName != CGToucanOPName::ConstDecl) {
-        llvm::dbgs() << stringifyCGToucanOPName(tOpName) << "\n";
+        llvm::outs() << stringifyCGToucanOPName(tOpName) << "\n";
         llvm_unreachable("First level op should be ConstDecl, RegRead or ExchangeRead!");
       }
     }
@@ -435,8 +390,6 @@ allocatedValIds.insert(realValId);
 
       assert(!valToValId.contains(inputVal));
       valToValId[inputVal] = realValId;
-assert(!allocatedValIds.contains(realValId));
-allocatedValIds.insert(realValId);
       nextValId++;
     }
   }
@@ -468,9 +421,7 @@ void LocalValueAllocator::collectValueLifetime(PartitioningGraph &regionGraph, c
       ret = std::max(ret, vtxUserLevel);
     }
 
-    // temp
-    // return ret;
-    return totalLevels - 1;
+    return ret;
   };
 
   levelId = 0;
@@ -537,7 +488,6 @@ void LocalValueAllocator::collectValueLifetime(PartitioningGraph &regionGraph, c
       if (hasResultVal) {
         uint32_t valLifeStart = levelId;
         uint32_t valLifeEnd = getValEndOfLife(eachVtx);
-        
 
         if (tOpName == CGToucanOPName::VecDecl) {
           // update value size

@@ -319,10 +319,6 @@ namespace toucan {
 
     // data structure for scheduling purpose
     mlir::DenseMap<mlir::Value, uint32_t> valueToValId;
-    // mlir::DenseMap<mlir::Value, uint32_t> valueToValId_preAlloc;
-    // meta info for pre-allocated values
-    // mlir::SmallVector<mlir::Value> preAlloc_values;
-    // mlir::SmallVector<CGValueMetaInfo> preAlloc_valuePool;
 
     mlir::SmallVector<CGLayerValueStatistics> opStatisticsPerLevel;
     CGOpStatistics opStatistics;
@@ -376,12 +372,8 @@ namespace toucan {
   class DesignGraph {
   public:
     PartitioningGraph g;
-    // mlir::DenseSet<uint32_t> sinkVtxs;
-    // mlir::DenseSet<mlir::Operation*> constDeclVtxs;
     mlir::DenseMap<mlir::Operation*, uint32_t> opToId;
     mlir::DenseSet<mlir::TypedValue<toucan::RegType>> regs;
-
-    // mlir::SmallVector<toucan::DefConstVectorOp*> constVecOps;
     
     DesignGraph(mlir::Operation *op, mlir::AnalysisManager &am);
 
@@ -452,7 +444,6 @@ namespace toucan {
     mlir::SmallVector<mlir::SmallVector<uint32_t>> regionNewIdToPartId;
 
 
-    // CGInfo codeGenInfo;
 
     // GPU cache line size
     uint32_t partitionPaddingSpace = 128;
@@ -467,17 +458,14 @@ namespace toucan {
     void cutGraph(DesignGraph &graph);
     void breakDirectIOConnection(DesignGraph &graph);
 
-    //
     mlir::LogicalResult levelizeAllPartitions(mlir::MLIRContext *context);
     void schedule(DesignGraph &graph);
 
 
     private:
-    // const uint32_t preAllocateStartPos = UINT32_MAX / 4;
 
     mlir::DenseMap<mlir::Operation*, uint32_t> vecDeclMovedToLaterRegion;
 
-    // void collectConstant(DesignGraph &graph, CGPartitionMetaInfo &partInfo, uint32_t partId);
     void sortRegistersForLocality(const PartitioningGraph &graph,  mlir::SmallVector<mlir::SmallVector<mlir::TypedValue<toucan::RegType>>> &regOrdered);
     void sortRegWriteOps(mlir::DenseMap<mlir::Value, uint32_t> &regValToOrder);
     void sortRegReadOps(mlir::DenseMap<mlir::Value, uint32_t> &regValToOrder);
@@ -489,15 +477,10 @@ namespace toucan {
     void sortExchangeReadOps();
     void generateExchangeLayout();
 
-    // void sortMiddleLevelOps(uint32_t regionId, uint32_t partId, CGPartitionMetaInfo &partInfo);
-
 
     void collectConstantVars(PartitioningGraph &graph, CGPartitionMetaInfo &partInfo, const mlir::SmallVector<uint32_t> firstLevelOps);
     void collectConstantVecs(PartitioningGraph &graph, CGPartitionMetaInfo &partInfo, uint32_t partId);
 
-    // Pre-allocate space ahead, to ensure value read by MemWrite and ExgWrite are scheduled together.
-    // void preAllocateLastLevel(PartitioningGraph &graph, CGPartitionMetaInfo &partInfo, CGInfo &codeGenInfo, const mlir::SmallVector<uint32_t> &lastLevel);
-    // void mergePreAllocatedLastLevelVals(CGPartitionMetaInfo &partInfo);
 
     void scheduleRegReads(PartitioningGraph &graph, CGPartitionMetaInfo &partInfo, CGInfo &codeGenInfo, const mlir::SmallVector<uint32_t> &firstLevelOps);
     void scheduleMiddleLevel(PartitioningGraph &graph, CGPartitionMetaInfo &partInfo, CGInfo &codeGenInfo, const mlir::SmallVector<uint32_t> &currentLevel, uint32_t levelId);
@@ -551,7 +534,6 @@ namespace toucan {
     const char* repcutOutputFileName = "rcp_output.txt";
     const char* repcutConsoleLogFileName = "repcut_print.txt";
 
-    // float cutR1Weight = 0.4;
     
     void dumpGraphToFile(const PartitioningGraph &g, std::string fileName) const;
 
@@ -600,14 +582,8 @@ namespace toucan {
 
     mlir::DenseSet<mlir::Value> pinnedInputVals, pinnedOutputVals, constVals;
 
-    // TEMP: check double allocation. 
-    mlir::DenseSet<uint32_t> allocatedValIds;
-
     mlir::DenseMap<mlir::Value, ValueLifeTime> valToLifeTime;
     mlir::DenseMap<mlir::Value, uint32_t> vecValToLength;
-
-    // mlir::SmallVector<mlir::Value> scheduleVals;
-
 
     size_t totalLevels;
 
