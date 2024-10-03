@@ -152,7 +152,7 @@ void SingleRegionScheduler::generateRegMemLayout(DesignGraph &graph, uint32_t pa
       }
       memMeta.bitWidth = memVal.getType().getElementWidth();
       memMeta.memDepth = memVal.getType().getDepth();
-      memMeta.hasMultipleWriter = (graph.g[vtxId].weight > 1);
+      memMeta.hasMultipleWriter = (graph.g[vtxId].opCount > 1);
 
       // 
       assert(memMeta.bitWidth <= 4);
@@ -265,8 +265,6 @@ void SingleRegionScheduler::schedule(DesignGraph &graph, uint32_t partitionRegPa
       currentLevelOps.reserve(firstLevel.size());
       for (auto vtxId: firstLevel) {
         auto tOpName = graph.g[vtxId].toucanOpName;
-        auto vtxWeight = graph.g[vtxId].weight;
-        assert(vtxWeight == 1);
 
         auto op = graph.g[vtxId].op;
         CGOpMetaInfo opMeta;
@@ -367,7 +365,6 @@ void SingleRegionScheduler::schedule(DesignGraph &graph, uint32_t partitionRegPa
       for (auto vtxId: currentLevel) {
         auto tOpName = graph.g[vtxId].toucanOpName;
         auto rawOp = graph.g[vtxId].op;
-        auto vtxWeight = graph.g[vtxId].weight;
 
         CGOpMetaInfo opMeta;
         opMeta.opName = tOpName;
@@ -377,7 +374,6 @@ void SingleRegionScheduler::schedule(DesignGraph &graph, uint32_t partitionRegPa
 
         if (tOpName == CGToucanOPName::LUT) {
           // lut
-          assert(vtxWeight == 1);
 
           auto lutOp = cast<toucan::LUTOp>(rawOp);
 
@@ -431,7 +427,6 @@ void SingleRegionScheduler::schedule(DesignGraph &graph, uint32_t partitionRegPa
 
             currentVecDeclOps.push_back(opMeta);
           }
-          assert(currentVecDeclOps.size() == vtxWeight);
 
           // Nops are ordered.
           vecDecls.push_back(currentVecDeclOps);
@@ -493,7 +488,6 @@ void SingleRegionScheduler::schedule(DesignGraph &graph, uint32_t partitionRegPa
 
             currentVecReadOps.push_back(opMeta);
           }
-          assert(currentVecReadOps.size() == vtxWeight);
 
           // Sort by offset for performance reason
           std::sort(currentVecReadOps.begin(), currentVecReadOps.end(), 
@@ -504,7 +498,6 @@ void SingleRegionScheduler::schedule(DesignGraph &graph, uint32_t partitionRegPa
 
         } else if (tOpName == CGToucanOPName::MemRead) {
           // a memread
-          assert(vtxWeight == 1);
 
           auto memReadOp = cast<toucan::MemReadOp>(rawOp);
           auto memVal = memReadOp.getMem();
@@ -681,7 +674,6 @@ void SingleRegionScheduler::schedule(DesignGraph &graph, uint32_t partitionRegPa
       for (auto vtxId: lastLevel) {
         auto vtxOpName = graph.g[vtxId].toucanOpName;
         auto rawOp = graph.g[vtxId].op;
-        auto vtxWeight = graph.g[vtxId].weight;
 
         CGOpMetaInfo opMeta;
         opMeta.op = rawOp;
@@ -690,7 +682,6 @@ void SingleRegionScheduler::schedule(DesignGraph &graph, uint32_t partitionRegPa
 
         if (vtxOpName == CGToucanOPName::RegWrite) {
           // regwrite
-          assert(vtxWeight == 1);
 
           auto regWriteOp = cast<toucan::RegWriteOp>(rawOp);
           auto regVal = regWriteOp.getReg();
@@ -763,11 +754,9 @@ void SingleRegionScheduler::schedule(DesignGraph &graph, uint32_t partitionRegPa
               memWriteOps.push_back(mwOpMeta);
             }
           }
-          assert(numMemWrites == vtxWeight);
 
         } else if (vtxOpName == CGToucanOPName::Print) {
           // print
-          assert(vtxWeight == 1);
 
           auto printOp = cast<toucan::PrintOp>(rawOp);
           auto printStr = printOp.getMsg();
@@ -787,7 +776,6 @@ void SingleRegionScheduler::schedule(DesignGraph &graph, uint32_t partitionRegPa
 
         } else if (vtxOpName == CGToucanOPName::Stop) {
           // stop
-          assert(vtxWeight == 1);
 
           auto stopOp = cast<toucan::StopOp>(rawOp);
           auto enVal = stopOp.getEn();

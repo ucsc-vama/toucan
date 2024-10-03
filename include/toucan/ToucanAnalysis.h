@@ -34,6 +34,10 @@
 #include <unordered_map>
 #include <filesystem>
 
+#define DESIGNGRAPH_EXGREAD_WEIGHT 1
+#define DESIGNGRAPH_EXGWRITE_WEIGHT 1
+#define DESIGNGRAPH_BREAK_IO_NOP_WEIGHT 0
+
 namespace toucan {
 
 
@@ -476,6 +480,8 @@ namespace toucan {
     void sortExchangeWriteOps();
     void sortExchangeReadOps();
     void generateExchangeLayout();
+
+    void doNotCutGraph(DesignGraph &graph);
 
 
     void collectConstantVars(PartitioningGraph &graph, CGPartitionMetaInfo &partInfo, const mlir::SmallVector<uint32_t> firstLevelOps);

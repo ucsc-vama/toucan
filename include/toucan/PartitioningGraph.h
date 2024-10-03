@@ -54,6 +54,7 @@ namespace toucan {
     mlir::Operation *op;
     // weight is actually number of ops in this node
     uint32_t weight;
+    uint32_t opCount;
     uint32_t exchangeValId;
     
     CGToucanOPName toucanOpName;

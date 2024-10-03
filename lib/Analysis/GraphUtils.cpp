@@ -11,6 +11,8 @@ void toucan::mergeVerticies(uint32_t dst, const mlir::SmallVector<uint32_t> &toM
   mlir::DenseSet<uint32_t> inVtxes;
   mlir::DenseSet<uint32_t> outVtxes;
 
+  uint32_t mergedOpCount = 0;
+
   // Note: it's possible if parallel edge exists
   // For example, a vector using multiple slots of same value
   auto dst_out_edges = boost::out_edges(dst, g);
@@ -27,6 +29,7 @@ void toucan::mergeVerticies(uint32_t dst, const mlir::SmallVector<uint32_t> &toM
   }
 
   for (auto vtxToMerge: toMerge) {
+    mergedOpCount += g[vtxToMerge].opCount;
     auto out_edges = boost::out_edges(vtxToMerge, g);
     for(auto ei = out_edges.first; ei != out_edges.second; ++ei) {
       auto target = boost::target(*ei, g);
@@ -44,8 +47,8 @@ void toucan::mergeVerticies(uint32_t dst, const mlir::SmallVector<uint32_t> &toM
       }
     }
   }
-  // update weight
-  g[dst].weight += toMerge.size();
+  // update op count
+  g[dst].opCount += mergedOpCount;
 }
 
 
