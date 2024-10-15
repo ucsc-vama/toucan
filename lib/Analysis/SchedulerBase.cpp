@@ -172,6 +172,8 @@ void SchedulerBase::fillDebugInfo(bool fillSignalDebugInfo) {
       return a_fragmentId > b_fragmentId;
     });
   }
+  // Note: Some register might be removed for optimization purpose, thus the debug info might not be complete.
+  /*
   // Verify fragment id correctness
   for (auto &elem: codeGenInfo.regDebugInfo) {
     auto &v = elem.getSecond();
@@ -184,6 +186,7 @@ void SchedulerBase::fillDebugInfo(bool fillSignalDebugInfo) {
       expected_id--;
     }
   }
+  */
 
 
 

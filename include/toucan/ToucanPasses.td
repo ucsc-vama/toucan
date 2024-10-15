@@ -212,6 +212,12 @@ def EnsureToucanOnly: Pass<"ensure-toucan-only", "circt::ModuleOp"> {
   let constructor = "toucan::createEnsureToucanOnlyPass()";
 }
 
+def DeduplicateRegisters: Pass<"dedup-regs", "circt::ModuleOp"> {
+  let summary = "Merge identical registers. Duplicated registers prevents coalesced GPU memory access";
+  let description = summary;
+  let constructor = "toucan::createDeduplicateRegistersPass()";
+}
+
 def MergeConst: Pass<"merge-const", "circt::ModuleOp"> {
   let summary = "Merge identical constant value and constant vector";
   let description = summary;

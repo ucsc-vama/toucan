@@ -140,6 +140,7 @@ static LogicalResult compileAndEmit(
         // Canonicalizer also works on flatten design.
         // Currently no benefits for canonicalization after flatten
         pm.addPass(toucan::createToucanCanonicalizerPass());
+        pm.addPass(toucan::createDeduplicateRegistersPass());
         pm.addPass(toucan::createMergeConstPass());
         pm.addPass(toucan::createEnsureToucanOnlyPass());
     }

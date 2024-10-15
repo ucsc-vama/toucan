@@ -20,6 +20,7 @@ add_circt_dialect_library(
   Flatten.cpp
   FactorConcatExtract.cpp
   EnsureToucanOnly.cpp
+  DeduplicateRegisters.cpp
   MergeConst.cpp
   CPUSingleThreadCodeGen.cpp
   GPUCodeGen.cpp
