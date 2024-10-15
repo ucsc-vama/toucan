@@ -298,6 +298,14 @@ void MultiRegionScheduler::cutGraph(DesignGraph &graph) {
     auto srcRegion = vtxIdToRegionId[edgeSource];
     auto dstRegion = vtxIdToRegionId[edgeTarget];
 
+    auto srcOpName = graph.g[edgeSource].toucanOpName;
+
+    if (srcOpName == CGToucanOPName::ConstDecl && srcRegion != dstRegion) {
+      // Consts are pinned at the beginning of every region's value pool.
+      // Remove cross region edges if the source is a const
+      continue;
+    }
+
     if (srcRegion == dstRegion) {
       // Internal edge
       boost::add_edge(srcNewId, dstNewId, regionGraphs[srcRegion]);
@@ -305,7 +313,6 @@ void MultiRegionScheduler::cutGraph(DesignGraph &graph) {
       // An edge that cross (possibly multipe) regions
       assert(srcRegion < dstRegion);
 
-      auto srcOpName = graph.g[edgeSource].toucanOpName;
       auto srcWeight = graph.g[edgeSource].weight;
 
       if (srcWeight == 1) {
@@ -1486,7 +1493,9 @@ void MultiRegionScheduler::collectConstantVars(PartitioningGraph &graph, CGParti
         // save op result value
         assert(rawVal == (rawVal & ((1 << bitWidth) - 1)));
 
-        partInfo.valuePool.push_back({true, false, rawVal, op, 0, static_cast<uint8_t>(bitWidth), std::nullopt, 0});
+        constValToRawValue[constOp.getResult()] = rawVal;
+
+        // partInfo.valuePool.push_back({true, false, rawVal, op, 0, static_cast<uint8_t>(bitWidth), std::nullopt, 0});
       } else {
         // Ignore const vec decls for now.
       }
@@ -2135,12 +2144,8 @@ void MultiRegionScheduler::schedule(DesignGraph &graph) {
       CGPartitionMetaInfo partInfo;
       std::memset(&partInfo.opStatistics, 0, sizeof(CGOpStatistics));
 
-      // A const zero for all luts
-      CGValueMetaInfo zeroConst = {true, false, 0, nullptr, 0, 0, std::nullopt, 0};
-      partInfo.valuePool.push_back(zeroConst);
-
       if (regionId == 0) {
-      // constant vars only exists in first region. collect them.
+      // constant var ops only exists in first region. collect them.
         collectConstantVars(currentRegionGraph, partInfo, firstLevel);
       }
       // const vecs might exists in multiple regions.
@@ -2150,7 +2155,7 @@ void MultiRegionScheduler::schedule(DesignGraph &graph) {
 
       LocalValueAllocator valAllocator;
       valAllocator.collectValueLifetime(currentRegionGraph, currentPartLevels, codeGenInfo.exchangePool);
-      valAllocator.populateInitialPinnedVals(currentRegionGraph, partInfo.valuePool, currentPartLevels, codeGenInfo.exchangePool);
+      valAllocator.populateInitialPinnedVals(currentRegionGraph, constValToRawValue, currentPartLevels, codeGenInfo.exchangePool);
       valAllocator.allocateLocalValues();
 
       std::swap(partInfo.constValuePool, valAllocator.compactConstValPool);

@@ -465,6 +465,7 @@ namespace toucan {
     private:
 
     mlir::DenseMap<mlir::Operation*, uint32_t> vecDeclMovedToLaterRegion;
+    mlir::DenseMap<mlir::Value, uint32_t> constValToRawValue;
 
     void sortRegistersForLocality(const PartitioningGraph &graph,  mlir::SmallVector<mlir::SmallVector<mlir::TypedValue<toucan::RegType>>> &regOrdered);
     void sortRegWriteOps(mlir::DenseMap<mlir::Value, uint32_t> &regValToOrder);
@@ -571,7 +572,7 @@ namespace toucan {
     void collectValueLifetime(PartitioningGraph &regionGraph, const mlir::SmallVector<mlir::SmallVector<uint32_t>> &partLevels, const mlir::SmallVector<CGExchangeValueMetaInfo> &exchangePool);
 
     // Populate const vals and RegWrite/ExchangeWrite. Those values are pinned
-    void populateInitialPinnedVals(PartitioningGraph &regionGraph, const mlir::SmallVector<CGValueMetaInfo> &valuePool, const mlir::SmallVector<mlir::SmallVector<uint32_t>> &partLevels, const mlir::SmallVector<CGExchangeValueMetaInfo> &exchangePool);
+    void populateInitialPinnedVals(PartitioningGraph &regionGraph, const mlir::DenseMap<mlir::Value, uint32_t> constValToRawValue, const mlir::SmallVector<mlir::SmallVector<uint32_t>> &partLevels, const mlir::SmallVector<CGExchangeValueMetaInfo> &exchangePool);
 
 
     private:

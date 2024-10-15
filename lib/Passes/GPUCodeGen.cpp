@@ -66,10 +66,8 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     toucanGPUSim::SimPartitionInfo partInfo;
     // have at least 2 levels. one for input, one for output
     assert(part.opPool.size() >= 2);
-
     partInfo.valuePool.resize(part.numConstsInValuePool);
     for (size_t i = 0; i < part.numConstsInValuePool; i++) {
-      assert(part.valuePool[i].isConst);
       partInfo.valuePool[i] = part.constValuePool[i];
     }
     assert(part.constValuePool.size() == part.numConstsInValuePool);
@@ -96,7 +94,6 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     uint32_t er_bulk_size = 0;
     toucanGPUSim::CGExchangeReadMetaInfo er_bulk_start, er_last = {0, 0};
 #endif
-    
 
     for (size_t i = 0; i < part.opPool[0].size(); i++) {
       auto &opMeta = part.opPool[0][i];

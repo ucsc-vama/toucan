@@ -282,27 +282,24 @@ void LocalValueAllocator::allocateLocalValues() {
   numTotalValSize = nextAvailableValId;
 }
 
-void LocalValueAllocator::populateInitialPinnedVals(PartitioningGraph &regionGraph, const mlir::SmallVector<CGValueMetaInfo> &valuePool, const mlir::SmallVector<mlir::SmallVector<uint32_t>> &partLevels, const mlir::SmallVector<CGExchangeValueMetaInfo> &exchangePool) {
+void LocalValueAllocator::populateInitialPinnedVals(PartitioningGraph &regionGraph, const mlir::DenseMap<mlir::Value, uint32_t> constValToRawValue, const mlir::SmallVector<mlir::SmallVector<uint32_t>> &partLevels, const mlir::SmallVector<CGExchangeValueMetaInfo> &exchangePool) {
   
   mlir::DenseMap<uint8_t, uint32_t> rawConstValToValId;
   // rawConstValToValId[0] = 0;
-  compactConstValPool.push_back(0);  
 
-  // assert(valuePool[0].value == 0 && valuePool[0].definingOp == nullptr);
+  // In each value pool, populate all possible const values (4 bits, 0 to 15)
+  compactConstValPool.clear();
+  compactConstValPool.reserve(16);
+  for (int i = 0; i < 16; i++) {
+    compactConstValPool.push_back(i);
+  }
 
-
-  for (size_t valIndex = 1; valIndex < valuePool.size(); valIndex++) {
-    auto eachConstVal = valuePool[valIndex];
-    assert(eachConstVal.isConst);
-
-    assert(eachConstVal.definingOp != nullptr);
-    auto val = cast<toucan::ConstantOp>(eachConstVal.definingOp).getResult();
-    auto rawVal = eachConstVal.value;
-
-    constVals.insert(val);
-
-    compactConstValPool.push_back(rawVal);
-    valToValId[val] = valIndex;
+  for (auto [eachConstVal, rawVal]: constValToRawValue) {
+    assert(rawVal < 16);
+    // for const vals, valId is the same as rawVal
+    uint32_t valId = rawVal;
+    valToValId[eachConstVal] = valId;
+    constVals.insert(eachConstVal);
   }
 
   numConsts = compactConstValPool.size();
@@ -337,6 +334,7 @@ void LocalValueAllocator::populateInitialPinnedVals(PartitioningGraph &regionGra
 
         if (valToValId.contains(outputVal)) {
           // It's ok if this exgwrite reads from const pool
+          assert(tOpName != CGToucanOPName::ExchangeWrite);
           assert(constVals.contains(outputVal));
         } else {
           pinnedOutputVals.insert(outputVal);
