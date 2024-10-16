@@ -218,6 +218,12 @@ def DeduplicateRegisters: Pass<"dedup-regs", "circt::ModuleOp"> {
   let constructor = "toucan::createDeduplicateRegistersPass()";
 }
 
+def RemoveConstRegs: Pass<"remove-const-regs", "circt::ModuleOp"> {
+  let summary = "Remove registers that are connected to constant values.";
+  let description = summary;
+  let constructor = "toucan::createRemoveConstRegsPass()";
+}
+
 def MergeConst: Pass<"merge-const", "circt::ModuleOp"> {
   let summary = "Merge identical constant value and constant vector";
   let description = summary;
