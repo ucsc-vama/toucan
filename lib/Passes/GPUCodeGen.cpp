@@ -256,7 +256,6 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
 #ifdef ENABLE_REG_WRITE_DEBUG_PRINT
     uint32_t rw_bulk_size = 0;
     toucanGPUSim::CGRegWriteMetaInfo rw_last, rw_bulk_start;
-    llvm::dbgs() << "This part has " << partInfo.numConstsInValuePool << " const vals at the begining of value pool\n";
 #endif
     
 
