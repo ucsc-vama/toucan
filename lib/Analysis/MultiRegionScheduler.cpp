@@ -1022,20 +1022,20 @@ void MultiRegionScheduler::sortRegistersForLocality(const PartitioningGraph &gra
 
 
   // schedule
+  // put read only vals to a separate section (to satisfy alignment requirement)
+  if (!sortedReadOnlyVals.empty()) {
+#ifdef DEBUG_PRINT_REG_LAYOUT
+    llvm::dbgs() << "  Standalone section for " << sortedReadOnlyVals.size() << " read only regs\n";
+#endif
+    regOrdered.emplace_back();
+    std::copy(sortedReadOnlyVals.begin(), sortedReadOnlyVals.end(), std::back_inserter(regOrdered.back()));
+  }
+
   for (size_t partId = 0; partId < numWriteParts; partId++) {
 #ifdef DEBUG_PRINT_REG_LAYOUT
     llvm::dbgs() << "Schedule for writer part " << partId << "\n";
 #endif
     regOrdered.emplace_back();
-
-    if (partId == 0) {
-      // first group for writer part 0. put read only vals
-#ifdef DEBUG_PRINT_REG_LAYOUT
-      llvm::dbgs() << "  First writer part. Append all " << sortedReadOnlyVals.size() << " read only regs\n";
-#endif
-      std::copy(sortedReadOnlyVals.begin(), sortedReadOnlyVals.end(), std::back_inserter(regOrdered.back()));
-    }
-
 
 #ifdef DEBUG_PRINT_REG_LAYOUT
     llvm::dbgs() << "  Append " << groupedSharedReadVals[partId].size() << " share regs\n";
@@ -1244,6 +1244,7 @@ void MultiRegionScheduler::generateRegMemLayout(DesignGraph &graph) {
   mlir::DenseMap<mlir::Value, uint32_t> regValToOrder;
 
   // 2. Allocate storage for all registers
+  size_t sortedRegPoolSize = 0;
   for (auto &eachSection: regPoolOrdered) {
     for (auto &regVal: eachSection) {
       // allocate storate for every register
@@ -1271,7 +1272,10 @@ void MultiRegionScheduler::generateRegMemLayout(DesignGraph &graph) {
       regValToOrder[regVal] = regId + 1;
     }
     // add padding regs
-    for (size_t i = 0; i < partitionPaddingSpace; i++) {
+    sortedRegPoolSize += eachSection.size();
+    auto extraSpace = getExtraAlignmentSpace(sortedRegPoolSize, partitionAlignment);
+    sortedRegPoolSize += extraSpace;
+    for (size_t i = 0; i < extraSpace; i++) {
       CGRegMetaInfo paddingRegMeta;
 
       paddingRegMeta.isPadding = true;
@@ -1415,21 +1419,24 @@ void MultiRegionScheduler::generateExchangeLayout() {
 
   for (const auto &eachWriterPart: exchangeValIdOrdered) {
     expectedExchangePoolSize += eachWriterPart.size();
-    expectedExchangePoolSize += partitionPaddingSpace;
+    expectedExchangePoolSize += getExtraAlignmentSpace(expectedExchangePoolSize, partitionAlignment);
   }
 
   exchangePoolReorderIdMap.resize(expectedExchangePoolSize, UINT32_MAX);
 
   // region -> writer part -> valId. Needs padding
   uint32_t nextValId = 0;
-
+  size_t sortedExchangePoolSize = 0;
   for (const auto &eachWriterPart: exchangeValIdOrdered) {
     for (const auto eachExchangeValId: eachWriterPart) {
       exchangePoolReorderIdMap[eachExchangeValId] = nextValId;
       nextValId++;
     }
     // add padding
-    for (size_t i = 0; i < partitionPaddingSpace; i++) {
+    sortedExchangePoolSize += eachWriterPart.size();
+    size_t paddingSpace = getExtraAlignmentSpace(sortedExchangePoolSize, partitionAlignment);
+    sortedExchangePoolSize += paddingSpace;
+    for (size_t i = 0; i < paddingSpace; i++) {
       CGExchangeValueMetaInfo paddingValMeta;
       paddingValMeta.isPadding = true;
       paddingValMeta.writerId = UINT32_MAX;

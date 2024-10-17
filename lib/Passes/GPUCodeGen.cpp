@@ -248,16 +248,13 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
       }
     }
 
-#ifdef ENABLE_EXG_WRITE_DEBUG_PRINT
     uint32_t ew_bulk_size = 0;
-    toucanGPUSim::CGExchangeWriteMetaInfo ew_last, ew_bulk_start;
-#endif
+    uint32_t ew_bulk_start_local = 0;
+    uint32_t ew_bulk_start_exchange = 0;  
 
-#ifdef ENABLE_REG_WRITE_DEBUG_PRINT
     uint32_t rw_bulk_size = 0;
-    toucanGPUSim::CGRegWriteMetaInfo rw_last, rw_bulk_start;
-#endif
-    
+    uint32_t rw_bulk_start_dat = 0;
+    uint32_t rw_bulk_start_reg = 0;
 
     // ops, last level
     for (size_t i = 0; i < part.opPool.back().size(); i++) {
@@ -284,28 +281,23 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
           break;
         }
         case CGToucanOPName::RegWrite: {
+          // special handling for regWrites
           assert(opMeta.regWrite.dat <= UINT16_MAX);
 
-          toucanGPUSim::CGRegWriteMetaInfo info;
-          info.reg = opMeta.regWrite.reg;
-          info.dat = opMeta.regWrite.dat;
-
-#ifdef ENABLE_REG_WRITE_DEBUG_PRINT
-          if (info.reg == rw_last.reg + 1 && info.dat == rw_last.dat + 1) {
-            // bulk
-            rw_bulk_size += 1;
-          } else {
-            // a new bulk
-            if (rw_bulk_size != 0) {
-              llvm::dbgs() << "Reg write bulk, from data " << rw_bulk_start.dat << " to reg " << rw_bulk_start.reg << ", bulk size " << rw_bulk_size << "\n";
-            }
+          if (rw_bulk_size == 0) {
+            rw_bulk_start_dat = opMeta.regWrite.dat;
+            rw_bulk_start_reg = opMeta.regWrite.reg;
             rw_bulk_size = 1;
-            rw_bulk_start = info;
+          } else {
+            if (opMeta.regWrite.dat == rw_bulk_start_dat + rw_bulk_size && opMeta.regWrite.reg == rw_bulk_start_reg + rw_bulk_size) {
+              // bulk
+              rw_bulk_size += 1;
+            } else {
+              // a new bulk. This should not happen
+              assert(false && "Each partition should only write to a contiguous range of registers");
+            }
           }
-          rw_last = info;
-#endif
 
-          partInfo.ops_last_regWrite.push_back(info);
           break;
         }
         case CGToucanOPName::MemWrite: {
@@ -327,26 +319,20 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
         case CGToucanOPName::ExchangeWrite: {
           assert(opMeta.exgWrite.localVal <= UINT16_MAX);
 
-          toucanGPUSim::CGExchangeWriteMetaInfo info;
-          info.localVal = opMeta.exgWrite.localVal;
-          info.exchangeVal = opMeta.exgWrite.exchangeVal;
-
-#ifdef ENABLE_EXG_WRITE_DEBUG_PRINT
-          if (info.localVal == ew_last.localVal + 1 && info.exchangeVal == ew_last.exchangeVal + 1) {
-            // bulk
-            ew_bulk_size += 1;
-          } else {
-            // a new bulk
-            if (ew_bulk_size != 0) {
-              llvm::dbgs() << "Exchange write bulk, from local pool " << ew_bulk_start.localVal << " to exchange pool " << ew_bulk_start.exchangeVal << ", bulk size " << ew_bulk_size << "\n";
-            }
+          if (ew_bulk_size == 0) {
+            ew_bulk_start_local = opMeta.exgWrite.localVal;
+            ew_bulk_start_exchange = opMeta.exgWrite.exchangeVal;
             ew_bulk_size = 1;
-            ew_bulk_start = info;
+          } else {
+            if (opMeta.exgWrite.localVal == ew_bulk_start_local + ew_bulk_size && opMeta.exgWrite.exchangeVal == ew_bulk_start_exchange + ew_bulk_size) {
+              // bulk
+              ew_bulk_size += 1;
+            } else {
+              // a new bulk. This should not happen
+              assert(false && "Each partition should only write to a contiguous range of exchange pool");
+            }
           }
-          ew_last = info;
-#endif
-          
-          partInfo.ops_last_exgWrite.push_back(info);
+
           break;
         }
         default: {
@@ -355,17 +341,55 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
       }
     }
 
+    // add extra padding
+    if (rw_bulk_size != 0) {
+      rw_bulk_size += getExtraAlignmentSpace(rw_bulk_size, 16);
+    }
+
+    if (ew_bulk_size != 0) {
+      ew_bulk_size += getExtraAlignmentSpace(ew_bulk_size, 16);
+    }
+
+    // special handling for exchange writes
 #ifdef ENABLE_EXG_WRITE_DEBUG_PRINT
     if (ew_bulk_size != 0) {
-      llvm::dbgs() << "Exchange write bulk, from local pool " << ew_bulk_start.localVal << " to exchange pool " << ew_bulk_start.exchangeVal << ", bulk size " << ew_bulk_size << "\n";
+      llvm::dbgs() << "Exchange write bulk, from local pool " << ew_bulk_start_local << " to exchange pool " << ew_bulk_start_exchange << ", bulk size " << ew_bulk_size << "\n";
     }
 #endif
 
+    if (ew_bulk_size != 0) {
+      assert(ew_bulk_start_local == 16 && "Local data should starts from shared memory addr 16");
+      assert(ew_bulk_start_exchange % 16 == 0 && "Register should be aligned to 16B");
+      assert(ew_bulk_size < UINT16_MAX && "Register write count should fit in uint16");
+
+      toucanGPUSim::CGExchangeWriteMetaInfo info;
+      info.localVal = ew_bulk_start_local;
+      info.exchangeVal = ew_bulk_start_exchange;
+      info.count = ew_bulk_size;
+
+      partInfo.ops_last_exgWrite.push_back(info);
+    }
+
+    // special handling for regWrites
 #ifdef ENABLE_REG_WRITE_DEBUG_PRINT
     if (rw_bulk_size != 0) {
-      llvm::dbgs() << "Reg write bulk, from data " << rw_bulk_start.dat << " to reg " << rw_bulk_start.reg << ", bulk size " << rw_bulk_size << "\n";
+      llvm::dbgs() << "Reg write bulk, from data " << rw_bulk_start_dat << " to reg " << rw_bulk_start_reg << ", bulk size " << rw_bulk_size << "\n";
     }
 #endif
+    if (rw_bulk_size != 0) {
+      assert(rw_bulk_start_dat + rw_bulk_size - 1 <= UINT16_MAX);
+      // Note: This is guarenteed by LocalValueAllocator
+      assert(rw_bulk_start_dat == 16 && "Local data should starts from shared memory addr 16");
+      assert(rw_bulk_start_reg % 16 == 0 && "Register should be aligned to 16B");
+      assert(rw_bulk_size < UINT16_MAX && "Register write count should fit in uint16");
+
+      toucanGPUSim::CGRegWriteMetaInfo info;
+      info.reg = rw_bulk_start_reg;
+      info.dat = rw_bulk_start_dat;
+      info.count = rw_bulk_size;
+
+      partInfo.ops_last_regWrite.push_back(info);
+    }
 
     designInfo.parts.push_back(std::move(partInfo));
   }

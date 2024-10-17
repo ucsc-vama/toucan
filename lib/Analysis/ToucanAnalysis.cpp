@@ -40,3 +40,12 @@ void CGOpStatistics::print() const {
   printMember(numExchangeReads, "ExchangeRead");
   printMember(numExchangeWrites, "ExchangeWrite");
 }
+
+size_t toucan::getExtraAlignmentSpace(size_t valSize, size_t alignment) {
+  size_t extraSpace = alignment - (valSize % alignment);
+  if (extraSpace == alignment) {
+    return 0;
+  }
+  return extraSpace;
+}
+

@@ -23,6 +23,7 @@ namespace toucanGPUSim {
   };
 
   struct CGExchangeWriteMetaInfo {
+    uint16_t count;
     uint16_t localVal;
     uint32_t exchangeVal;
   };
@@ -83,6 +84,7 @@ namespace toucanGPUSim {
   struct CGRegWriteMetaInfo {
     uint32_t reg;
     uint16_t dat;
+    uint16_t count;
   };
   struct CGMemWriteMetaInfo {
     // const

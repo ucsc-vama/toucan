@@ -367,6 +367,7 @@ namespace toucan {
     uint32_t chunkSize = 20000;
   };
 
+  size_t getExtraAlignmentSpace(size_t valSize, size_t alignment);
 
 
   class DesignGraph {
@@ -446,7 +447,8 @@ namespace toucan {
 
 
     // GPU cache line size
-    uint32_t partitionPaddingSpace = 128;
+    const uint32_t partitionAlignment = 128;
+    // uint32_t partitionPaddingSpace = 128;
     uint32_t memPaddingSpace = 128;
     // if a memory has multiple writer, add extra padding to avoid possible write conflict. 
     // 4 => each memory element (4bits) takes 32 bits (4B)
