@@ -42,7 +42,7 @@ using namespace circt;
 using namespace mlir;
 using namespace llvm;
 
-#define DEBUG_TYPE "DeduplicateRegisters"
+#define DEBUG_TYPE "RemoveConstRegs"
 
 
 // TODO: dump merged register list for future use (waveform, for example)
