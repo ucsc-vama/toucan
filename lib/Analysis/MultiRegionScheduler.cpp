@@ -1791,6 +1791,13 @@ void MultiRegionScheduler::scheduleMiddleLevel(PartitioningGraph &graph, CGParti
     }
   }
 
+  std::sort(lutOps.begin(), lutOps.end(), [](const CGOpMetaInfo& a, const CGOpMetaInfo& b) {
+    uint32_t a_key = (a.lut.op0 << 8) | (a.lut.op1 << 4) | a.lut.op2;
+    uint32_t b_key = (b.lut.op0 << 8) | (b.lut.op1 << 4) | b.lut.op2;
+
+    return a_key < b_key;
+  });
+
   // Record number of luts/memreads/vecreads for later performance tuning
   CGLayerValueStatistics stats;
   std::memset(&stats, 0, sizeof(CGLayerValueStatistics));
