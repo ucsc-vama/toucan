@@ -11,6 +11,7 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/Operation.h"
+#include "mlir/IR/Value.h"
 #include "mlir/IR/Visitors.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/IR/Threading.h"
@@ -82,24 +83,77 @@ struct DeduplicateRegisters : toucan::impl::DeduplicateRegistersBase<Deduplicate
 
       // auto regValNamehint = getSVNameHintAttr(op);
 
+      // merge sameRegWriteOps -> op
+      // find an op that has both reader and writer
+      mlir::DenseSet<mlir::TypedValue<toucan::RegType>> regsHasReader;
+      // Note: here every register has a writer
+      // mlir::DenseSet<mlir::Value> regsHasWriter;
+      mlir::SmallVector<mlir::TypedValue<toucan::RegType>> regsToMerge;
+      for (auto eachRegWrite: sameRegWriteOps) {
+        auto currentReg = eachRegWrite.getReg();
+        regsToMerge.push_back(currentReg);
+        for (auto eachUser: currentReg.getUsers()) {
+          if (isa<toucan::RegReadOp>(eachUser)) {
+            regsHasReader.insert(currentReg);
+            break;
+          }
+        }
+      }
+
+      auto targetReg = regVal;
+      bool regHasReader = !regsHasReader.empty();
+
+      if ((!regsHasReader.empty()) && (!regsHasReader.contains(targetReg))) {
+        // need a reg read, but current reg has no reader
+        for (auto eachReg: regsHasReader) {
+          // pick any reg
+          targetReg = eachReg;
+          break;
+        }
+      }
+
+      mlir::Value regReadVal;
+      if (regHasReader) {
+        bool foundRegReadVal = false;
+        for (auto eachUserOp: targetReg.getUsers()) {
+          if (auto regReadOp = dyn_cast<toucan::RegReadOp>(eachUserOp)) {
+            regReadVal = regReadOp.getResult();
+            foundRegReadVal = true;
+            break;
+          }
+        }
+        assert(foundRegReadVal);
+      }
+
+
+
+      // merge
       for (auto eachRegWrite: sameRegWriteOps) {
         auto regValToMerge = eachRegWrite.getReg();
-        
-        if (eachRegWrite != op) {
-          // Merge this reg with current op reg
-          assert(regValToMerge != regVal);
+
+        if (regValToMerge != targetReg) {
+
 
           auto regValDefOp = regValToMerge.getDefiningOp();
-
-
-          // auto toMergeRegValNamehint = getSVNameHintAttr(eachRegWrite);
-          // LLVM_DEBUG(llvm::dbgs() << "Merging " << regValNamehint << " with " << toMergeRegValNamehint << "\n");
-
-          regValToMerge.replaceAllUsesWith(regVal);
-
-          toRemove.insert(eachRegWrite);
           toRemove.insert(regValDefOp);
 
+          for (auto eachRegUserOp: regValToMerge.getUsers()) {
+            if (auto regWriteOp = dyn_cast<toucan::RegWriteOp>(eachRegUserOp)) {
+              // a writer. simply remove
+              toRemove.insert(regWriteOp);
+            } else if (auto regReadOp = dyn_cast<toucan::RegReadOp>(eachRegUserOp)) {
+              assert(regHasReader);
+              auto readResult_old = regReadOp.getResult();
+              readResult_old.replaceAllUsesWith(regReadVal);
+              toRemove.insert(regReadOp);
+            } else {
+              assert(false);
+            }
+          }
+
+          // This replacement breaks dependency of old reg values
+          // And ensures no error happens when erasing ops without order (mlir::DenseSet is not expected to guarentee orders)
+          regValToMerge.replaceAllUsesWith(targetReg);
           dedupCnt++;
         }
       }
