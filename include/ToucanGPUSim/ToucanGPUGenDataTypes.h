@@ -9,12 +9,15 @@
 #include <fstream>
 
 
+#define POLICY_PACKED_MAX_COPY_INT_COUNT 4
+
 namespace toucanGPUSim {
 
   // Reg read, only appear in first level
   struct CGRegReadMetaInfo {
     uint32_t reg;
     uint16_t result;
+    uint16_t byteCount;
   };
 
   struct CGExchangeReadMetaInfo {

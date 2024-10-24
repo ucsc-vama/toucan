@@ -85,10 +85,8 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     llvm::dbgs() << "Info in a new partition ========\n";
 #endif
 
-#ifdef ENABLE_REG_READ_DEBUG_PRINT
-    uint32_t rr_bulk_size = 0;
-    toucanGPUSim::CGRegReadMetaInfo rr_bulk_start, rr_last = {0, 0};
-#endif
+    mlir::SmallVector<toucanGPUSim::CGRegReadMetaInfo> regReadBulks;
+    toucanGPUSim::CGRegReadMetaInfo rr_bulk = {0, 0, 0};
 
 #ifdef ENABLE_EXG_READ_DEBUG_PRINT
     uint32_t er_bulk_size = 0;
@@ -102,26 +100,27 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
         case CGToucanOPName::RegRead: {
           assert(opMeta.regRead.result <= UINT16_MAX);
 
-          toucanGPUSim::CGRegReadMetaInfo info;
-          info.reg = opMeta.regRead.reg;
-          info.result = static_cast<uint16_t>(opMeta.regRead.result);
 
-#ifdef ENABLE_REG_READ_DEBUG_PRINT
-          if (info.reg == rr_last.reg + 1 && info.result == rr_last.result + 1) {
-            // bulk
-            rr_bulk_size += 1;
+          if (rr_bulk.byteCount == 0) {
+            // begin
+            rr_bulk.byteCount = 1;
+            rr_bulk.reg = opMeta.regRead.reg;
+            rr_bulk.result = opMeta.regRead.result;
           } else {
-            // a new bulk
-            if (rr_bulk_size != 0) {
-              llvm::dbgs() << "Reg read bulk, from reg " << rr_bulk_start.reg << " to local " << rr_bulk_start.result << ", bulk size " << rr_bulk_size << "\n";
-            }
-            rr_bulk_size = 1;
-            rr_bulk_start = info;
-          }
-          rr_last = info;
-#endif
+            if ((rr_bulk.reg + rr_bulk.byteCount == opMeta.regRead.reg) && (rr_bulk.result + rr_bulk.byteCount == opMeta.regRead.result)) {
+              // continus 
+              rr_bulk.byteCount++;
+            } else {
+              // break
+              regReadBulks.push_back(rr_bulk);
 
-          partInfo.ops_l0_regRead.push_back(info);
+              rr_bulk.byteCount = 1;
+              rr_bulk.reg = opMeta.regRead.reg;
+              rr_bulk.result = opMeta.regRead.result;
+            }
+          }
+
+          // partInfo.ops_l0_regRead.push_back(info);
           break;
         }
         case CGToucanOPName::ExchangeRead: {
@@ -157,11 +156,128 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
       }
     }
 
+    if (rr_bulk.byteCount != 0) {
+      regReadBulks.push_back(rr_bulk);
+    }
+
 #ifdef ENABLE_REG_READ_DEBUG_PRINT
-    if (rr_bulk_size != 0) {
-      llvm::dbgs() << "Reg read bulk, from reg " << rr_bulk_start.reg << " to local " << rr_bulk_start.result << ", bulk size " << rr_bulk_size << "\n";
+    for (auto eachBulk: regReadBulks) {
+      llvm::dbgs() << "Reg read bulk, from reg " << eachBulk.reg << " to local " << eachBulk.result << ", bulk size " << eachBulk.byteCount << "\n";
     }
 #endif
+
+    // use packed SIMD for reg reads if possible
+    mlir::SmallVector<toucanGPUSim::CGRegReadMetaInfo> raw_reg_read_ops;
+    for (auto bulk: regReadBulks) {
+      if (bulk.byteCount == 1) {
+        // nothing we can do for 1 byte reads. simply copy them
+        raw_reg_read_ops.push_back(bulk);
+      } else {
+        auto alignment_padding_bytes = getExtraAlignmentSpace(bulk.reg, 4 * GPU_THREAD_WARP_SIZE);
+        auto tail_bytes = (bulk.reg + bulk.byteCount) % (GPU_THREAD_WARP_SIZE * 4);
+
+        auto bytes_to_pack = bulk.byteCount - alignment_padding_bytes - tail_bytes;
+        if ((bulk.byteCount < (GPU_THREAD_WARP_SIZE * 4)) || (bytes_to_pack < (GPU_THREAD_WARP_SIZE * 4))) {
+          // too small for packed SIMD
+          for (int i = 0; i < bulk.byteCount; i++) {
+            toucanGPUSim::CGRegReadMetaInfo info;
+            info.byteCount = 1;
+            info.reg = bulk.reg + i;
+            info.result = bulk.result + i;
+            raw_reg_read_ops.push_back(info);
+          }
+        } else {
+          // large bulk, worth packed SIMD copy
+          assert(bytes_to_pack <= bulk.byteCount && "bytes_to_pack should not underflow");
+
+          // copy heading aligment bytes
+          for (size_t i = 0; i < alignment_padding_bytes; i++) {
+            toucanGPUSim::CGRegReadMetaInfo info;
+            info.byteCount = 1;
+            info.reg = bulk.reg + i;
+            info.result = bulk.result + i;
+            raw_reg_read_ops.push_back(info);
+          }
+
+          // reg should be aligned
+          assert((bulk.reg + alignment_padding_bytes) % 4 == 0);
+          assert(bytes_to_pack <= bulk.byteCount);
+
+          // TODO: possible bug: is it MAX_COPY_BYTES or MAX_COPY_INTS?
+
+
+          auto numCopyIterations = bytes_to_pack / (GPU_THREAD_WARP_SIZE * 4);
+          assert(bytes_to_pack % (GPU_THREAD_WARP_SIZE * 4) == 0);
+          auto numWarpNeeded = (numCopyIterations + POLICY_PACKED_MAX_COPY_INT_COUNT - 1) / POLICY_PACKED_MAX_COPY_INT_COUNT;
+          size_t copy_offset = alignment_padding_bytes;
+
+          for (size_t warp_id = 0; warp_id < numWarpNeeded; warp_id++) {
+            auto iterations = (warp_id + 1 == numWarpNeeded) ? (numCopyIterations - warp_id * POLICY_PACKED_MAX_COPY_INT_COUNT) : POLICY_PACKED_MAX_COPY_INT_COUNT;
+
+            for (size_t i = 0; i < GPU_THREAD_WARP_SIZE; i++) {
+              // assign task for every threads in a warp
+              toucanGPUSim::CGRegReadMetaInfo info;
+              info.byteCount = iterations * 4;
+              info.reg = bulk.reg + copy_offset + iterations * 4 * i;
+              info.result = bulk.result + copy_offset + iterations * 4 * i;
+              raw_reg_read_ops.push_back(info);
+            }
+
+            copy_offset += iterations * GPU_THREAD_WARP_SIZE * 4;
+          }
+
+          // tail
+          assert(copy_offset + tail_bytes == bulk.byteCount);
+          for (size_t i = 0; i < tail_bytes; i++) {
+            toucanGPUSim::CGRegReadMetaInfo info;
+            info.byteCount = 1;
+            info.reg = bulk.reg + copy_offset + i;
+            info.result = bulk.result + copy_offset + i;
+            raw_reg_read_ops.push_back(info);
+          }
+        }
+      }
+    }
+
+    // sort (stable) by byte size, then add padding
+    assert(partInfo.ops_l0_regRead.empty());
+    partInfo.ops_l0_regRead.reserve(raw_reg_read_ops.size() + GPU_THREAD_WARP_SIZE);
+
+    std::stable_sort(raw_reg_read_ops.begin(), raw_reg_read_ops.end(), [&](const toucanGPUSim::CGRegReadMetaInfo a, const toucanGPUSim::CGRegReadMetaInfo b) {
+      return a.byteCount < b.byteCount;
+    });
+
+    // insert proper padding
+    uint16_t last_copy_byte_count = 0;
+    for (auto op: raw_reg_read_ops) {
+      if (last_copy_byte_count == 1 && op.byteCount != 1) {
+        // done
+        auto numPaddingOps = getExtraAlignmentSpace(partInfo.ops_l0_regRead.size(), GPU_THREAD_WARP_SIZE);
+        for (size_t i = 0; i < numPaddingOps; i++) {
+          // insert a dummy copy (0 bytes)
+          partInfo.ops_l0_regRead.push_back({0, 0, 0});
+        }
+      }
+      last_copy_byte_count = op.byteCount;
+      partInfo.ops_l0_regRead.push_back(op);
+    }
+
+#ifdef ENABLE_REG_READ_DEBUG_PRINT
+    mlir::SmallVector<uint32_t> copyCounts;
+    copyCounts.resize(POLICY_PACKED_MAX_COPY_INT_COUNT * 4 + 1, 0);
+
+    for (auto op: partInfo.ops_l0_regRead) {
+      copyCounts[op.byteCount]++;
+    }
+
+    for (size_t numBytes = 0; numBytes < POLICY_PACKED_MAX_COPY_INT_COUNT * 4 + 1; numBytes++) {
+      auto opCount = copyCounts[numBytes];
+      if (opCount != 0) {
+        llvm::dbgs() << " " << opCount << " ops write to " << numBytes << " bytes\n";
+      }
+    }
+#endif
+
 #ifdef ENABLE_EXG_READ_DEBUG_PRINT
     if (er_bulk_size != 0) {
       llvm::dbgs() << "Exchange read bulk, from exchange pool " << er_bulk_start.exchangeVal << " to local " << er_bulk_start.localVal << ", bulk size " << er_bulk_size << "\n";

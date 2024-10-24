@@ -34,6 +34,8 @@
 #include <unordered_map>
 #include <filesystem>
 
+#define GPU_THREAD_WARP_SIZE 32
+
 namespace toucan {
 
 
