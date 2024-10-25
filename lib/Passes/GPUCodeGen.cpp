@@ -30,6 +30,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <algorithm>
+#include <iterator>
 #include <memory>
 #include <filesystem>
 #include <fstream>
@@ -61,112 +62,11 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
   toucanGPUSim::SimDesignInfo designInfo;
   toucanGPUSim::SimDebugInfo debugInfo;
 
-
-  void populateSinglePartition(const CGPartitionMetaInfo &part, uint32_t regionId, uint32_t partId) {
-    toucanGPUSim::SimPartitionInfo partInfo;
-    // have at least 2 levels. one for input, one for output
-    assert(part.opPool.size() >= 2);
-    partInfo.valuePool.resize(part.numConstsInValuePool);
-    for (size_t i = 0; i < part.numConstsInValuePool; i++) {
-      partInfo.valuePool[i] = part.constValuePool[i];
-    }
-    assert(part.constValuePool.size() == part.numConstsInValuePool);
-    partInfo.valuePoolSize = part.numTotalValues;
-    partInfo.numConstsInValuePool = part.numConstsInValuePool;
-    if (partInfo.valuePoolSize > UINT16_MAX) {
-      llvm::errs() << "Value pool size is " << partInfo.valuePoolSize << ", which exceeds UINT16_MAX. This should not happen.\n";
-    }
-    assert(partInfo.valuePoolSize <= UINT16_MAX && "Value pool is too large");
-
-    // copy const vec data
-    std::copy(part.constVecPool.begin(), part.constVecPool.end(), std::back_inserter(partInfo.constVecPool));
-
-#if defined (ENABLE_EXG_READ_DEBUG_PRINT) || defined (ENABLE_REG_READ_DEBUG_PRINT) || defined (ENABLE_EXG_WRITE_DEBUG_PRINT) || defined (ENABLE_REG_WRITE_DEBUG_PRINT)
-    llvm::dbgs() << "Info in a new partition ========\n";
-#endif
-
-    mlir::SmallVector<toucanGPUSim::CGRegReadMetaInfo> regReadBulks;
-    toucanGPUSim::CGRegReadMetaInfo rr_bulk = {0, 0, 0};
-
-#ifdef ENABLE_EXG_READ_DEBUG_PRINT
-    uint32_t er_bulk_size = 0;
-    toucanGPUSim::CGExchangeReadMetaInfo er_bulk_start, er_last = {0, 0};
-#endif
-
-    for (size_t i = 0; i < part.opPool[0].size(); i++) {
-      auto &opMeta = part.opPool[0][i];
-
-      switch (opMeta.opName) {
-        case CGToucanOPName::RegRead: {
-          assert(opMeta.regRead.result <= UINT16_MAX);
-
-
-          if (rr_bulk.byteCount == 0) {
-            // begin
-            rr_bulk.byteCount = 1;
-            rr_bulk.reg = opMeta.regRead.reg;
-            rr_bulk.result = opMeta.regRead.result;
-          } else {
-            if ((rr_bulk.reg + rr_bulk.byteCount == opMeta.regRead.reg) && (rr_bulk.result + rr_bulk.byteCount == opMeta.regRead.result)) {
-              // continus 
-              rr_bulk.byteCount++;
-            } else {
-              // break
-              regReadBulks.push_back(rr_bulk);
-
-              rr_bulk.byteCount = 1;
-              rr_bulk.reg = opMeta.regRead.reg;
-              rr_bulk.result = opMeta.regRead.result;
-            }
-          }
-
-          // partInfo.ops_l0_regRead.push_back(info);
-          break;
-        }
-        case CGToucanOPName::ExchangeRead: {
-          assert(opMeta.exgRead.localVal <= UINT16_MAX);
-
-          toucanGPUSim::CGExchangeReadMetaInfo info;
-          info.exchangeVal = opMeta.exgRead.exchangeVal;
-          info.localVal = opMeta.exgRead.localVal;
-
-#ifdef ENABLE_EXG_READ_DEBUG_PRINT
-          if (info.exchangeVal == er_last.exchangeVal + 1 && info.localVal == er_last.localVal + 1) {
-            // bulk
-            er_bulk_size += 1;
-          } else {
-            // a new bulk
-            if (er_bulk_size != 0) {
-              llvm::dbgs() << "Exchange read bulk, from exchange pool " << er_bulk_start.exchangeVal << " to local " << er_bulk_start.localVal << ", bulk size " << er_bulk_size << "\n";
-            }
-            er_bulk_size = 1;
-            er_bulk_start = info;
-          }
-          er_last = info;
-#endif
-
-          // llvm::dbgs() << "Exchange read, from exchange pool " << info.exchangeVal << " to local pool " << info.localVal << "\n";
-
-          partInfo.ops_l0_exgRead.push_back(info);
-          break;
-        }
-        default: {
-          llvm_unreachable("Unknow op name appears in first level");
-        }
-      }
-    }
-
-    if (rr_bulk.byteCount != 0) {
-      regReadBulks.push_back(rr_bulk);
-    }
-
-#ifdef ENABLE_REG_READ_DEBUG_PRINT
-    for (auto eachBulk: regReadBulks) {
-      llvm::dbgs() << "Reg read bulk, from reg " << eachBulk.reg << " to local " << eachBulk.result << ", bulk size " << eachBulk.byteCount << "\n";
-    }
-#endif
-
+  static void packRegRead(mlir::SmallVector<toucanGPUSim::CGRegReadMetaInfo> &regReadBulks) {
     // use packed SIMD for reg reads if possible
+    assert(!regReadBulks.empty());
+
+    // allocate thread work
     mlir::SmallVector<toucanGPUSim::CGRegReadMetaInfo> raw_reg_read_ops;
     for (auto bulk: regReadBulks) {
       if (bulk.byteCount == 1) {
@@ -203,9 +103,6 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
           assert((bulk.reg + alignment_padding_bytes) % 4 == 0);
           assert(bytes_to_pack <= bulk.byteCount);
 
-          // TODO: possible bug: is it MAX_COPY_BYTES or MAX_COPY_INTS?
-
-
           auto numCopyIterations = bytes_to_pack / (GPU_THREAD_WARP_SIZE * 4);
           assert(bytes_to_pack % (GPU_THREAD_WARP_SIZE * 4) == 0);
           auto numWarpNeeded = (numCopyIterations + POLICY_PACKED_MAX_COPY_INT_COUNT - 1) / POLICY_PACKED_MAX_COPY_INT_COUNT;
@@ -240,8 +137,8 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     }
 
     // sort (stable) by byte size, then add padding
-    assert(partInfo.ops_l0_regRead.empty());
-    partInfo.ops_l0_regRead.reserve(raw_reg_read_ops.size() + GPU_THREAD_WARP_SIZE);
+    regReadBulks.clear();
+    assert(!raw_reg_read_ops.empty());
 
     std::stable_sort(raw_reg_read_ops.begin(), raw_reg_read_ops.end(), [&](const toucanGPUSim::CGRegReadMetaInfo a, const toucanGPUSim::CGRegReadMetaInfo b) {
       return a.byteCount < b.byteCount;
@@ -252,35 +149,278 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     for (auto op: raw_reg_read_ops) {
       if (last_copy_byte_count == 1 && op.byteCount != 1) {
         // done
-        auto numPaddingOps = getExtraAlignmentSpace(partInfo.ops_l0_regRead.size(), GPU_THREAD_WARP_SIZE);
+        auto numPaddingOps = getExtraAlignmentSpace(regReadBulks.size(), GPU_THREAD_WARP_SIZE);
         for (size_t i = 0; i < numPaddingOps; i++) {
           // insert a dummy copy (0 bytes)
-          partInfo.ops_l0_regRead.push_back({0, 0, 0});
+          regReadBulks.push_back({0, 0, 0});
         }
       }
       last_copy_byte_count = op.byteCount;
-      partInfo.ops_l0_regRead.push_back(op);
+      regReadBulks.push_back(op);
+    }
+  }
+
+  static void packExgRead(mlir::SmallVector<toucanGPUSim::CGExchangeReadMetaInfo> &exgReadBulks) {
+    // use packed SIMD for exg reads if possible
+    assert(!exgReadBulks.empty());
+
+    // allocate thread work
+    mlir::SmallVector<toucanGPUSim::CGExchangeReadMetaInfo> raw_exg_read_ops;
+    for (auto bulk: exgReadBulks) {
+      if (bulk.byteCount == 1) {
+        // nothing we can do for 1 byte reads. simply copy them
+        raw_exg_read_ops.push_back(bulk);
+      } else {
+        auto alignment_padding_bytes = getExtraAlignmentSpace(bulk.exchangeVal, 4 * GPU_THREAD_WARP_SIZE);
+        auto tail_bytes = (bulk.exchangeVal + bulk.byteCount) % (GPU_THREAD_WARP_SIZE * 4);
+
+        auto bytes_to_pack = bulk.byteCount - alignment_padding_bytes - tail_bytes;
+        if ((bulk.byteCount < (GPU_THREAD_WARP_SIZE * 4)) || (bytes_to_pack < (GPU_THREAD_WARP_SIZE * 4))) {
+          // too small for packed SIMD
+          for (int i = 0; i < bulk.byteCount; i++) {
+            toucanGPUSim::CGExchangeReadMetaInfo info;
+            info.byteCount = 1;
+            info.exchangeVal = bulk.exchangeVal + i;
+            info.localVal = bulk.localVal + i;
+            raw_exg_read_ops.push_back(info);
+          }
+        } else {
+          // large bulk, worth packed SIMD copy
+          assert(bytes_to_pack <= bulk.byteCount && "bytes_to_pack should not underflow");
+
+          // copy heading aligment bytes
+          for (size_t i = 0; i < alignment_padding_bytes; i++) {
+            toucanGPUSim::CGExchangeReadMetaInfo info;
+            info.byteCount = 1;
+            info.exchangeVal = bulk.exchangeVal + i;
+            info.localVal = bulk.localVal + i;
+            raw_exg_read_ops.push_back(info);
+          }
+
+          // reg should be aligned
+          assert((bulk.exchangeVal + alignment_padding_bytes) % 4 == 0);
+          assert(bytes_to_pack <= bulk.byteCount);
+
+          auto numCopyIterations = bytes_to_pack / (GPU_THREAD_WARP_SIZE * 4);
+          assert(bytes_to_pack % (GPU_THREAD_WARP_SIZE * 4) == 0);
+          auto numWarpNeeded = (numCopyIterations + POLICY_PACKED_MAX_COPY_INT_COUNT - 1) / POLICY_PACKED_MAX_COPY_INT_COUNT;
+          size_t copy_offset = alignment_padding_bytes;
+
+          for (size_t warp_id = 0; warp_id < numWarpNeeded; warp_id++) {
+            auto iterations = (warp_id + 1 == numWarpNeeded) ? (numCopyIterations - warp_id * POLICY_PACKED_MAX_COPY_INT_COUNT) : POLICY_PACKED_MAX_COPY_INT_COUNT;
+
+            for (size_t i = 0; i < GPU_THREAD_WARP_SIZE; i++) {
+              // assign task for every threads in a warp
+              toucanGPUSim::CGExchangeReadMetaInfo info;
+              info.byteCount = iterations * 4;
+              info.exchangeVal = bulk.exchangeVal + copy_offset + iterations * 4 * i;
+              info.localVal = bulk.localVal + copy_offset + iterations * 4 * i;
+              raw_exg_read_ops.push_back(info);
+            }
+
+            copy_offset += iterations * GPU_THREAD_WARP_SIZE * 4;
+          }
+
+          // tail
+          assert(copy_offset + tail_bytes == bulk.byteCount);
+          for (size_t i = 0; i < tail_bytes; i++) {
+            toucanGPUSim::CGExchangeReadMetaInfo info;
+            info.byteCount = 1;
+            info.exchangeVal = bulk.exchangeVal + copy_offset + i;
+            info.localVal = bulk.localVal + copy_offset + i;
+            raw_exg_read_ops.push_back(info);
+          }
+        }
+      }
+    }
+
+    // sort (stable) by byte size, then add padding
+    exgReadBulks.clear();
+    assert(!raw_exg_read_ops.empty());
+
+    std::stable_sort(raw_exg_read_ops.begin(), raw_exg_read_ops.end(), [&](const toucanGPUSim::CGExchangeReadMetaInfo a, const toucanGPUSim::CGExchangeReadMetaInfo b) {
+      return a.byteCount < b.byteCount;
+    });
+
+    // insert proper padding
+    uint16_t last_copy_byte_count = 0;
+    for (auto op: raw_exg_read_ops) {
+      if (last_copy_byte_count == 1 && op.byteCount != 1) {
+        // done
+        auto numPaddingOps = getExtraAlignmentSpace(exgReadBulks.size(), GPU_THREAD_WARP_SIZE);
+        for (size_t i = 0; i < numPaddingOps; i++) {
+          // insert a dummy copy (0 bytes)
+          exgReadBulks.push_back({0, 0, 0});
+        }
+      }
+      last_copy_byte_count = op.byteCount;
+      exgReadBulks.push_back(op);
+    }
+  }
+
+
+  void populateSinglePartition(const CGPartitionMetaInfo &part, uint32_t regionId, uint32_t partId) {
+    toucanGPUSim::SimPartitionInfo partInfo;
+    // have at least 2 levels. one for input, one for output
+    assert(part.opPool.size() >= 2);
+    partInfo.valuePool.resize(part.numConstsInValuePool);
+    for (size_t i = 0; i < part.numConstsInValuePool; i++) {
+      partInfo.valuePool[i] = part.constValuePool[i];
+    }
+    assert(part.constValuePool.size() == part.numConstsInValuePool);
+    partInfo.valuePoolSize = part.numTotalValues;
+    partInfo.numConstsInValuePool = part.numConstsInValuePool;
+    if (partInfo.valuePoolSize > UINT16_MAX) {
+      llvm::errs() << "Value pool size is " << partInfo.valuePoolSize << ", which exceeds UINT16_MAX. This should not happen.\n";
+    }
+    assert(partInfo.valuePoolSize <= UINT16_MAX && "Value pool is too large");
+
+    // copy const vec data
+    std::copy(part.constVecPool.begin(), part.constVecPool.end(), std::back_inserter(partInfo.constVecPool));
+
+#if defined (ENABLE_EXG_READ_DEBUG_PRINT) || defined (ENABLE_REG_READ_DEBUG_PRINT) || defined (ENABLE_EXG_WRITE_DEBUG_PRINT) || defined (ENABLE_REG_WRITE_DEBUG_PRINT)
+    llvm::dbgs() << "Info in a new partition ========\n";
+#endif
+
+    mlir::SmallVector<toucanGPUSim::CGRegReadMetaInfo> regReadBulks;
+    toucanGPUSim::CGRegReadMetaInfo rr_bulk = {0, 0, 0};
+
+    mlir::SmallVector<toucanGPUSim::CGExchangeReadMetaInfo> exgReadBulks;
+    toucanGPUSim::CGExchangeReadMetaInfo er_bulk = {0, 0, 0};
+
+    for (size_t i = 0; i < part.opPool[0].size(); i++) {
+      auto &opMeta = part.opPool[0][i];
+
+      switch (opMeta.opName) {
+        case CGToucanOPName::RegRead: {
+          assert(opMeta.regRead.result <= UINT16_MAX);
+
+
+          if (rr_bulk.byteCount == 0) {
+            // begin
+            rr_bulk.byteCount = 1;
+            rr_bulk.reg = opMeta.regRead.reg;
+            rr_bulk.result = opMeta.regRead.result;
+          } else {
+            if ((rr_bulk.reg + rr_bulk.byteCount == opMeta.regRead.reg) && (rr_bulk.result + rr_bulk.byteCount == opMeta.regRead.result)) {
+              // continus 
+              rr_bulk.byteCount++;
+            } else {
+              // break
+              regReadBulks.push_back(rr_bulk);
+
+              rr_bulk.byteCount = 1;
+              rr_bulk.reg = opMeta.regRead.reg;
+              rr_bulk.result = opMeta.regRead.result;
+            }
+          }
+
+          // partInfo.ops_l0_regRead.push_back(info);
+          break;
+        }
+        case CGToucanOPName::ExchangeRead: {
+          assert(opMeta.exgRead.localVal <= UINT16_MAX);
+
+          if (er_bulk.byteCount == 0) {
+            // begin
+            er_bulk.byteCount = 1;
+            er_bulk.exchangeVal = opMeta.exgRead.exchangeVal;
+            er_bulk.localVal = opMeta.exgRead.localVal;
+          } else {
+            if ((er_bulk.exchangeVal + er_bulk.byteCount == opMeta.exgRead.exchangeVal) && (er_bulk.localVal + er_bulk.byteCount == opMeta.exgRead.localVal)) {
+              // continus 
+              er_bulk.byteCount++;
+            } else {
+              // break
+              exgReadBulks.push_back(er_bulk);
+
+              er_bulk.byteCount = 1;
+              er_bulk.exchangeVal = opMeta.exgRead.exchangeVal;
+              er_bulk.localVal = opMeta.exgRead.localVal;
+            }
+          }
+
+          // partInfo.ops_l0_exgRead.push_back(info);
+          break;
+        }
+        default: {
+          llvm_unreachable("Unknow op name appears in first level");
+        }
+      }
+    }
+
+    if (rr_bulk.byteCount != 0) {
+      regReadBulks.push_back(rr_bulk);
+    }
+
+    if (er_bulk.byteCount != 0) {
+      exgReadBulks.push_back(er_bulk);
     }
 
 #ifdef ENABLE_REG_READ_DEBUG_PRINT
-    mlir::SmallVector<uint32_t> copyCounts;
-    copyCounts.resize(POLICY_PACKED_MAX_COPY_INT_COUNT * 4 + 1, 0);
+    for (auto eachBulk: regReadBulks) {
+      llvm::dbgs() << "Reg read bulk, from reg " << eachBulk.reg << " to local " << eachBulk.result << ", bulk size " << eachBulk.byteCount << "\n";
+    }
+#endif
+
+#ifdef ENABLE_EXG_READ_DEBUG_PRINT
+    for (auto eachBulk: exgReadBulks) {
+      llvm::dbgs() << "Exchange read bulk, from exchange pool " << eachBulk.exchangeVal << " to local " << eachBulk.localVal << ", bulk size " << eachBulk.byteCount << "\n";
+    }
+#endif
+
+    // use packed SIMD for reg reads if possible
+    if (!regReadBulks.empty()) {
+      packRegRead(regReadBulks);
+      
+      partInfo.ops_l0_regRead.reserve(regReadBulks.size());
+      std::copy(regReadBulks.begin(), regReadBulks.end(), std::back_inserter(partInfo.ops_l0_regRead));
+    }
+
+
+#ifdef ENABLE_REG_READ_DEBUG_PRINT
+    mlir::SmallVector<uint32_t> rr_copyCounts;
+    rr_copyCounts.resize(POLICY_PACKED_MAX_COPY_INT_COUNT * 4 + 1, 0);
 
     for (auto op: partInfo.ops_l0_regRead) {
-      copyCounts[op.byteCount]++;
+      rr_copyCounts[op.byteCount]++;
     }
 
     for (size_t numBytes = 0; numBytes < POLICY_PACKED_MAX_COPY_INT_COUNT * 4 + 1; numBytes++) {
-      auto opCount = copyCounts[numBytes];
+      auto opCount = rr_copyCounts[numBytes];
       if (opCount != 0) {
         llvm::dbgs() << " " << opCount << " ops write to " << numBytes << " bytes\n";
       }
     }
 #endif
 
+    // use packed SIMD for exchange reads if possible
+    if (!exgReadBulks.empty()) {
+      llvm::dbgs() << "Exgread ops bulks " << exgReadBulks.size() << "\n";
+
+      packExgRead(exgReadBulks);
+      
+      partInfo.ops_l0_exgRead.reserve(exgReadBulks.size());
+      std::copy(exgReadBulks.begin(), exgReadBulks.end(), std::back_inserter(partInfo.ops_l0_exgRead));
+    }
+
+
 #ifdef ENABLE_EXG_READ_DEBUG_PRINT
-    if (er_bulk_size != 0) {
-      llvm::dbgs() << "Exchange read bulk, from exchange pool " << er_bulk_start.exchangeVal << " to local " << er_bulk_start.localVal << ", bulk size " << er_bulk_size << "\n";
+    mlir::SmallVector<uint32_t> er_copyCounts;
+    er_copyCounts.resize(POLICY_PACKED_MAX_COPY_INT_COUNT * 4 + 1, 0);
+
+    llvm::dbgs() << "Exgread ops " << partInfo.ops_l0_exgRead.size() << "\n";
+
+    for (auto op: partInfo.ops_l0_exgRead) {
+      assert(op.byteCount < er_copyCounts.size());
+      er_copyCounts[op.byteCount]++;
+    }
+
+    for (size_t numBytes = 0; numBytes < POLICY_PACKED_MAX_COPY_INT_COUNT * 4 + 1; numBytes++) {
+      auto opCount = er_copyCounts[numBytes];
+      if (opCount != 0) {
+        llvm::dbgs() << " Exchange read: " << opCount << " ops write to " << numBytes << " bytes\n";
+      }
     }
 #endif
 

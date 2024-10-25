@@ -9,6 +9,7 @@
 #include <fstream>
 
 
+// Note: 4 may not be the best number
 #define POLICY_PACKED_MAX_COPY_INT_COUNT 4
 
 namespace toucanGPUSim {
@@ -23,6 +24,7 @@ namespace toucanGPUSim {
   struct CGExchangeReadMetaInfo {
     uint32_t exchangeVal;
     uint16_t localVal;
+    uint16_t byteCount;
   };
 
   struct CGExchangeWriteMetaInfo {
