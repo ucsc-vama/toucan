@@ -34,6 +34,10 @@
 #include <unordered_map>
 #include <filesystem>
 
+#define DESIGNGRAPH_EXGREAD_WEIGHT 1
+#define DESIGNGRAPH_EXGWRITE_WEIGHT 1
+#define DESIGNGRAPH_BREAK_IO_NOP_WEIGHT 0
+
 #define GPU_THREAD_WARP_SIZE 32
 
 namespace toucan {
@@ -482,6 +486,8 @@ namespace toucan {
     void sortExchangeReadOps();
     void generateExchangeLayout();
 
+    void doNotCutGraph(DesignGraph &graph);
+
 
     void collectConstantVars(PartitioningGraph &graph, CGPartitionMetaInfo &partInfo, const mlir::SmallVector<uint32_t> firstLevelOps);
     void collectConstantVecs(PartitioningGraph &graph, CGPartitionMetaInfo &partInfo, uint32_t partId);
@@ -517,8 +523,8 @@ namespace toucan {
     float targetIb = 0.06;
     uint32_t rePartitionMaxIterations = 4;
 
-    const uint32_t PARTITION_MAX_WEIGHT = 55000;
-    const uint32_t PARTITION_PREFERRED_WEIGHT = 50000;
+    const uint32_t PARTITION_MAX_WEIGHT = 50000;
+    const uint32_t PARTITION_PREFERRED_WEIGHT = 45000;
     const uint32_t REPARTITION_PREFERRED_WEIGHT = 40000;
 
     mlir::SmallVector<uint32_t> regionPartitionNumbers;

@@ -41,18 +41,29 @@ static uint32_t getPartWeight(const mlir::SmallVector<uint32_t> &part, const Par
   return weight;
 };
 
+static uint64_t getRegionWeight(const PartitioningGraph &graph) {
+  uint64_t totalWeight = 0;
+  auto vtxRange = boost::vertices(graph);
+  for (auto it = vtxRange.first; it != vtxRange.second; it++) {
+    auto vtxId = *it;
+    auto vtxWeight = graph[vtxId].weight;
+    totalWeight += vtxWeight;
+  }
+  return totalWeight;
+}
+
 void RepCutPartitioner::setPartitionTarget() {
   auto numRegions_expected = cutPoints.size() + 1;
   auto numRegions = regionGraphs.size();
-  assert(numRegions > 1);
+  assert(numRegions > 0);
   if (numRegions != numRegions_expected) {
     llvm::dbgs() << "Expected num reigons " << numRegions_expected << ", real num regions " << numRegions << "\n";
   }
 
   for (size_t regionId = 0; regionId < numRegions; regionId++) {
     auto &regionGraph = regionGraphs[regionId];
-    auto eachRegionVtxes = boost::num_vertices(regionGraph);
-    auto preferredPartCount = (eachRegionVtxes / PARTITION_PREFERRED_WEIGHT) + 1;
+    auto eachRegionWeight = getRegionWeight(regionGraph);
+    auto preferredPartCount = (eachRegionWeight / PARTITION_PREFERRED_WEIGHT) + 1;
     llvm::outs() << "Preferred Part count for region " << regionId << " is " << preferredPartCount << "\n";
     regionPartitionNumbers.push_back(preferredPartCount);
   }

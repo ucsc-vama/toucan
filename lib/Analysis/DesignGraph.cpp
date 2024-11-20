@@ -31,12 +31,29 @@ bool DesignGraph::opShouldRemoveInGraph(mlir::Operation *op) {
   return false;
 }
 
-static bool isTerminalOp(Operation* op) {
-  if (isa<toucan::MemWriteOp>(op)
-    || isa<toucan::RegWriteOp>(op)
-    || isa<toucan::StopOp>(op)
-    || isa<toucan::PrintOp>(op) ) return true;
-  return false;
+
+static uint32_t getOpWeight(Operation* op) {
+  if (isa<toucan::RegReadOp>(op)) return 1;
+
+  // terminal ops: their input values are alive to the last
+  if (isa<toucan::RegWriteOp>(op)) return 1;
+  if (isa<toucan::MemWriteOp>(op)) return 2;
+  if (isa<toucan::PrintOp>(op)) return 1;
+  if (isa<toucan::StopOp>(op)) return 1;
+
+  if (auto vecDeclOp = dyn_cast<toucan::DefVectorOp>(op)) {
+    auto vecSize = vecDeclOp.getHandle().getType().getLength();
+    return vecSize;
+  }
+  return 0;
+}
+
+static uint32_t getOpCount(Operation* op) {
+  if (auto vecDeclOp = dyn_cast<toucan::DefVectorOp>(op)) {
+    auto vecSize = vecDeclOp.getHandle().getType().getLength();
+    return vecSize;
+  }
+  return 1;
 }
 
 static CGToucanOPName getOpName(Operation* op) {
@@ -75,18 +92,9 @@ DesignGraph::DesignGraph(Operation *op, AnalysisManager &am) {
 
     PartitioningGraphNodeProperty vp;
     vp.op = &stmt;
-    if (auto vecDefOp = dyn_cast<toucan::DefVectorOp>(stmt)) {
-      auto vecSize = vecDefOp.getHandle().getType().getLength();
-      vp.weight = vecSize;
-    } else if (auto constVecDefOp = dyn_cast<toucan::DefConstVectorOp>(stmt)) {
-      // auto vecSize = constVecDefOp.getHandle().getType().getLength();
-      vp.weight = 0;
-    } else if (isTerminalOp(&stmt)) {
-      vp.weight = 0;
-    } else {
-      vp.weight = 1;
-    }
+    vp.weight = getOpWeight(&stmt);
     vp.toucanOpName = getOpName(&stmt);
+    vp.opCount = getOpCount(&stmt);
     vp.exchangeValId = 0;
     auto newVertex = boost::add_vertex(vp, rawGraph);
 

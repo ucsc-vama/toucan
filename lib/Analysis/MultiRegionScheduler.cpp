@@ -46,7 +46,7 @@ using namespace llvm;
 using namespace circt;
 
 
-// #define DEBUG_PRINT_LEVEL_STATUS
+#define DEBUG_PRINT_LEVEL_STATUS
 // #define DEBUG_PRINT_REG_LAYOUT
 
 void MultiRegionScheduler::levelizeGraphForCut(DesignGraph &graph) {
@@ -54,10 +54,14 @@ void MultiRegionScheduler::levelizeGraphForCut(DesignGraph &graph) {
 
   // debug print
 #ifdef DEBUG_PRINT_LEVEL_STATUS
+  size_t totalVtxes = boost::num_vertices(graph.g);
+  size_t accumulatedVtxes = 0;
   llvm::dbgs() << "Graph has " << graphLevels.size() << " levels\n";
   for (size_t levelId = 0; levelId < graphLevels.size(); levelId++) {
     auto &currentLevel = graphLevels[levelId];
-    llvm::dbgs() << "  Level " << levelId << " has " << currentLevel.size() << " verticies\n";
+    accumulatedVtxes += currentLevel.size();
+    float percentage = accumulatedVtxes * 100.0f / totalVtxes;
+    llvm::dbgs() << "  Level " << levelId << " has " << currentLevel.size() << " verticies (" << percentage << "%)\n";
   }
 #endif
 }
@@ -71,6 +75,8 @@ void MultiRegionScheduler::findCutPoints(DesignGraph &graph) {
   uint32_t currentRegionSize = 0;
 
   cutPoints.clear();
+  // cutPoints.push_back(20);
+  return;
   mlir::SmallVector<uint32_t> regionSizes;
 
   size_t totalLevels = graphLevels.size();
@@ -122,7 +128,27 @@ void MultiRegionScheduler::findCutPoints(DesignGraph &graph) {
   return;
 }
 
+// No need to cut.
+void MultiRegionScheduler::doNotCutGraph(DesignGraph &graph) {
+  assert(cutPoints.empty());
+  regionGraphs.clear();
+  regionGraphs.push_back(graph.g);
+
+  uint32_t numVtxes = boost::num_vertices(graph.g);
+
+  regionNewIdToVtxId.clear();
+  regionNewIdToVtxId.emplace_back();
+  regionNewIdToVtxId[0].reserve(numVtxes);
+  for (uint32_t vtxId = 0; vtxId < numVtxes; vtxId++) {
+    regionNewIdToVtxId[0].push_back(vtxId);
+  }
+}
+
 void MultiRegionScheduler::cutGraph(DesignGraph &graph) {
+  if (cutPoints.empty()) {
+    doNotCutGraph(graph);
+    return;
+  }
   assert(graphLevels.size() > 1);
   assert(!cutPoints.empty());
   int32_t prevCutPoint = -1;
@@ -313,9 +339,10 @@ void MultiRegionScheduler::cutGraph(DesignGraph &graph) {
       // An edge that cross (possibly multipe) regions
       assert(srcRegion < dstRegion);
 
-      auto srcWeight = graph.g[edgeSource].weight;
+      auto srcOpName = graph.g[edgeSource].toucanOpName;
+      auto srcOpCount = graph.g[edgeSource].opCount;
 
-      if (srcWeight == 1) {
+      if (srcOpCount == 1) {
         // unmerged vtx: lut, mem, etc, and vecDecl with only 1 user
         if (!writerToExchangeValId.contains(edgeSource)) {
           // Allocate a new exchange val, if it's not already exist
@@ -334,7 +361,8 @@ void MultiRegionScheduler::cutGraph(DesignGraph &graph) {
           // Create ExchangeWrite for srcRegion
           PartitioningGraphNodeProperty vp;
           vp.op = nullptr;
-          vp.weight = 0;
+          vp.weight = DESIGNGRAPH_EXGWRITE_WEIGHT;
+          vp.opCount = 0;
           vp.exchangeValId = valId;
           vp.toucanOpName = CGToucanOPName::ExchangeWrite;
 
@@ -356,7 +384,8 @@ void MultiRegionScheduler::cutGraph(DesignGraph &graph) {
           // Create ExchangeRead
           PartitioningGraphNodeProperty vp;
           vp.op = nullptr;
-          vp.weight = 1;
+          vp.weight = DESIGNGRAPH_EXGREAD_WEIGHT;
+          vp.opCount = 0;
           vp.exchangeValId = exchangeValId;
           vp.toucanOpName = CGToucanOPName::ExchangeRead;
 
@@ -379,7 +408,7 @@ void MultiRegionScheduler::cutGraph(DesignGraph &graph) {
         assert(dstNewId < boost::num_vertices(regionGraphs[dstRegion]));
         boost::add_edge(exchangeReadVtxId, dstNewId, regionGraphs[dstRegion]);
       } else {
-        // Even though it's possible for a VecDecl to have weight more than 1,
+        // Even though it's possible for a VecDecl to have op count more than 1,
         // VecDecl and its user should not cross region boundary
         // Thus VecDecl should NOT appear here
         assert(srcOpName != CGToucanOPName::VecDecl);
@@ -400,7 +429,7 @@ void MultiRegionScheduler::cutGraph(DesignGraph &graph) {
           auto vecHandle = vecReadOp.getHandle();
           auto vecUsers = vecHandle.getUsers();
 
-          assert(llvm::range_size(vecUsers) == srcWeight);
+          assert(llvm::range_size(vecUsers) == srcOpCount);
 
           vecReadValToExchangeId.clear();
           vecReadValUsersInOtherRegion.clear();
@@ -442,7 +471,8 @@ void MultiRegionScheduler::cutGraph(DesignGraph &graph) {
             // Create ExchangeWrite for srcRegion
             PartitioningGraphNodeProperty vp;
             vp.op = nullptr;
-            vp.weight = 0;
+            vp.weight = DESIGNGRAPH_EXGWRITE_WEIGHT;
+            vp.opCount = 0;
             vp.exchangeValId = valId;
             vp.toucanOpName = CGToucanOPName::ExchangeWrite;
 
@@ -480,7 +510,8 @@ void MultiRegionScheduler::cutGraph(DesignGraph &graph) {
                   // Create ExchangeRead
                   PartitioningGraphNodeProperty vp;
                   vp.op = nullptr;
-                  vp.weight = 1;
+                  vp.weight = DESIGNGRAPH_EXGREAD_WEIGHT;
+                  vp.opCount = 0;
                   vp.exchangeValId = exchangeValId;
                   vp.toucanOpName = CGToucanOPName::ExchangeRead;
 
@@ -660,7 +691,8 @@ void MultiRegionScheduler::breakDirectIOConnection(DesignGraph &graph) {
         // Insert nop
         PartitioningGraphNodeProperty vp;
         vp.op = newNop;
-        vp.weight = 1;
+        vp.weight = DESIGNGRAPH_BREAK_IO_NOP_WEIGHT;
+        vp.opCount = 1;
         vp.exchangeValId = UINT32_MAX;
         vp.toucanOpName = CGToucanOPName::LUT;
 
@@ -834,8 +866,10 @@ LogicalResult MultiRegionScheduler::levelizeAllPartitions(mlir::MLIRContext *con
 
 
 void MultiRegionScheduler::sortRegistersForLocality(const PartitioningGraph &graph,  mlir::SmallVector<mlir::SmallVector<mlir::TypedValue<toucan::RegType>>> &regOrdered) {
+  assert(!regionPartLevels.empty());
+  assert(!regionNewIdToVtxId.empty());
   regOrdered.clear();
-
+llvm::dbgs() << "point 0\n";
   mlir::SmallVector<mlir::SmallVector<uint32_t>> partToRegReads;
   mlir::SmallVector<mlir::SmallVector<uint32_t>> partToRegWrites;
   // Collect all reg reads (only appears at first level of region 0)
@@ -904,7 +938,6 @@ void MultiRegionScheduler::sortRegistersForLocality(const PartitioningGraph &gra
       regValToWriterDataVal[regVal] = dataVal;
     }
   }
-
 
 #ifdef DEBUG_PRINT_REG_LAYOUT
   llvm::dbgs() << "In total, there are " << regValsWithMultipleReads.size() << " shared reads\n";
@@ -1316,7 +1349,7 @@ void MultiRegionScheduler::generateRegMemLayout(DesignGraph &graph) {
       }
       memMeta.bitWidth = memVal.getType().getElementWidth();
       memMeta.memDepth = memVal.getType().getDepth();
-      memMeta.hasMultipleWriter = (graph.g[vtxId].weight > 1);
+      memMeta.hasMultipleWriter = (graph.g[vtxId].opCount > 1);
 
       // if a memory has multiple writer, add extra padding to avoid possible write conflict
       assert(memMeta.bitWidth <= 4);
@@ -1556,8 +1589,6 @@ void MultiRegionScheduler::scheduleRegReads(PartitioningGraph &graph, CGPartitio
 
   for (auto vtxId: firstLevelOps) {
     auto tOpName = graph[vtxId].toucanOpName;
-    auto vtxWeight = graph[vtxId].weight;
-    assert(vtxWeight == 1);
 
     auto op = graph[vtxId].op;
     CGOpMetaInfo opMeta;
@@ -1624,7 +1655,7 @@ void MultiRegionScheduler::scheduleMiddleLevel(PartitioningGraph &graph, CGParti
   for (auto vtxId: currentLevel) {
     auto tOpName = graph[vtxId].toucanOpName;
     auto rawOp = graph[vtxId].op;
-    auto vtxWeight = graph[vtxId].weight;
+    auto vtxOpCount = graph[vtxId].opCount;
 
     CGOpMetaInfo opMeta;
     opMeta.opName = tOpName;
@@ -1634,7 +1665,7 @@ void MultiRegionScheduler::scheduleMiddleLevel(PartitioningGraph &graph, CGParti
 
     if (tOpName == CGToucanOPName::LUT) {
       // lut
-      assert(vtxWeight == 1);
+      assert(vtxOpCount == 1);
 
       auto lutOp = cast<toucan::LUTOp>(rawOp);
 
@@ -1688,7 +1719,7 @@ void MultiRegionScheduler::scheduleMiddleLevel(PartitioningGraph &graph, CGParti
 
         currentVecDeclOps.push_back(opMeta);
       }
-      assert(currentVecDeclOps.size() == vtxWeight);
+      assert(currentVecDeclOps.size() == vtxOpCount);
 
       // Nops are ordered.
       vecDecls.push_back(currentVecDeclOps);
@@ -1752,7 +1783,7 @@ void MultiRegionScheduler::scheduleMiddleLevel(PartitioningGraph &graph, CGParti
 
         currentVecReadOps.push_back(opMeta);
       }
-      assert(currentVecReadOps.size() == vtxWeight);
+      assert(currentVecReadOps.size() == vtxOpCount);
 
       // Sort by offset for performance reason
       std::sort(currentVecReadOps.begin(), currentVecReadOps.end(), 
@@ -1763,7 +1794,7 @@ void MultiRegionScheduler::scheduleMiddleLevel(PartitioningGraph &graph, CGParti
 
     } else if (tOpName == CGToucanOPName::MemRead) {
       // a memread
-      assert(vtxWeight == 1);
+      assert(vtxOpCount == 1);
 
       auto memReadOp = cast<toucan::MemReadOp>(rawOp);
       auto memVal = memReadOp.getMem();
@@ -1892,7 +1923,6 @@ void MultiRegionScheduler::scheduleLastLevel(PartitioningGraph &graph, CGPartiti
   for (auto vtxId: lastLevel) {
     auto vtxOpName = graph[vtxId].toucanOpName;
     auto rawOp = graph[vtxId].op;
-    auto vtxWeight = graph[vtxId].weight;
 
     CGOpMetaInfo opMeta;
     opMeta.op = rawOp;
@@ -1901,7 +1931,6 @@ void MultiRegionScheduler::scheduleLastLevel(PartitioningGraph &graph, CGPartiti
 
     if (vtxOpName == CGToucanOPName::RegWrite) {
       // regwrite
-      assert(vtxWeight == 0);
 
       auto regWriteOp = cast<toucan::RegWriteOp>(rawOp);
       auto regVal = regWriteOp.getReg();
@@ -1964,7 +1993,6 @@ void MultiRegionScheduler::scheduleLastLevel(PartitioningGraph &graph, CGPartiti
 
     } else if (vtxOpName == CGToucanOPName::Print) {
       // print
-      assert(vtxWeight == 0);
 
       auto printOp = cast<toucan::PrintOp>(rawOp);
       auto printStr = printOp.getMsg();
@@ -1984,7 +2012,6 @@ void MultiRegionScheduler::scheduleLastLevel(PartitioningGraph &graph, CGPartiti
 
     } else if (vtxOpName == CGToucanOPName::Stop) {
       // stop
-      assert(vtxWeight == 0);
 
       auto stopOp = cast<toucan::StopOp>(rawOp);
       auto enVal = stopOp.getEn();
@@ -2035,11 +2062,11 @@ void MultiRegionScheduler::scheduleExchangeReads(PartitioningGraph &graph, CGPar
     auto tOpName = graph[vtxId].toucanOpName;
     // ConstDecl may also appear. Do nothing.
     if (tOpName == CGToucanOPName::ConstDecl) continue;
-    auto vtxWeight = graph[vtxId].weight;
+    auto vtxOpCount = graph[vtxId].opCount;
     auto exchangeValId = graph[vtxId].exchangeValId;
     assert(codeGenInfo.exchangePool.size() > exchangeValId);
     auto readVal = codeGenInfo.exchangePool[exchangeValId].val;
-    assert(vtxWeight == 1);
+    assert(vtxOpCount == 0);
     assert(tOpName == CGToucanOPName::ExchangeRead);
     assert(codeGenInfo.exchangePool[exchangeValId].isPadding == false);
 
@@ -2076,11 +2103,9 @@ void MultiRegionScheduler::scheduleExchangeWrites(PartitioningGraph &graph, CGPa
 
   for (auto vtxId: lastLevel) {
     auto tOpName = graph[vtxId].toucanOpName;
-    auto vtxWeight = graph[vtxId].weight;
     auto exchangeValId = graph[vtxId].exchangeValId;
     assert(codeGenInfo.exchangePool.size() > exchangeValId);
     auto writeVal = codeGenInfo.exchangePool[exchangeValId].val;
-    assert(vtxWeight == 0);
     assert(tOpName == CGToucanOPName::ExchangeWrite);
     assert(codeGenInfo.exchangePool[exchangeValId].isPadding == false);
     assert(partInfo.valueToValId.contains(writeVal));
