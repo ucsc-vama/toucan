@@ -6,6 +6,7 @@
 #include "mlir/IR/Value.h"
 #include "toucan/ToucanOps.h"
 #include "toucan/ToucanUtils.h"
+#include "llvm/ADT/APInt.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
@@ -27,6 +28,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/STLFunctionalExtras.h"
+#include <mutex>
 #include <utility>
 
 #include "toucan/ToucanDialect.h"
@@ -140,6 +142,57 @@ namespace toucan {
   }
   void removeIOSignalMarker(mlir::Operation *op) {
     op->removeAttr(getIOSignalMarkerAttrName());
+  }
+
+  mlir::StringRef getMulIDAttrName() {
+    return "MulID";
+  }
+
+  bool hasMulId(mlir::Operation *op) {
+    if (op->hasAttr(getMulIDAttrName())) {
+      return true;
+    }
+    return false;
+  }
+
+  int getMulId(Operation *op) {
+    if (op->hasAttr(getMulIDAttrName())) {
+      // auto ret = op->getAttrOfType<IntegerAttr>(getMulIDAttrName()).getValue().getSExtValue();
+      auto ret = op->getAttrOfType<IntegerAttr>(getMulIDAttrName()).getInt();
+
+      return ret;
+    }
+    return -1;
+  }
+
+  IntegerAttr getMulIdAttr(Operation *op) {
+    return op->getAttrOfType<IntegerAttr>(getMulIDAttrName());
+  }
+
+  void setMulId(Operation *op, IntegerAttr id) {
+    op->setAttr(getMulIDAttrName(), id);
+  }
+
+  mlir::StringRef getAddIDAttrName() {
+    return "AddID";
+  }
+
+  bool hasAddId(mlir::Operation *op) {
+    if (op->hasAttr(getAddIDAttrName())) {
+      return true;
+    }
+    return false;
+  }
+
+  int getAddId(Operation *op) {
+    if (op->hasAttr(getAddIDAttrName())) {
+      return op->getAttrOfType<IntegerAttr>(getAddIDAttrName()).getInt();
+    }
+    return -1;
+  }
+
+  void setAddId(Operation *op, IntegerAttr id) {
+    op->setAttr(getAddIDAttrName(), id);
   }
 
   std::vector<std::tuple<int, int>> split_signal_4B(int bit_width) {

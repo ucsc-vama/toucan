@@ -8,6 +8,7 @@
 #include "circt/Dialect/Seq/SeqOps.h"
 
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -40,6 +41,7 @@
 
 #include <memory>
 #include <atomic>
+#include <mutex>
 
 
 #define GEN_PASS_DEF_LOWERCOMBTO4B_2
@@ -47,6 +49,7 @@
 
 #include "toucan/ToucanOps.h"
 #include "toucan/ToucanUtils.h"
+#include "toucan/ToucanConfigs.h"
 
 using namespace toucan;
 using namespace circt;
@@ -59,10 +62,34 @@ static std::atomic<uint64_t> numCombAddInModules;
 static std::atomic<uint64_t> numCombSubInModules;
 static std::atomic<uint64_t> numCombMuxInModules;
 
+
+#ifdef TOUCAN_DEBUG_TRACE_ADD
+static std::atomic<int> nextAddId;
+#endif
+
 struct AddSubCore {
   public:
   Value addCore(Operation *op, PatternRewriter &rewriter, Value lhsValue, Value rhsValue, Value base_carry, std::optional<StringAttr> namehint) const {
     auto inputValWidth = hw::getBitWidth(lhsValue.getType());
+
+    bool needTrace = false;
+    bool opHasMulId = false;
+#ifdef TOUCAN_DEBUG_TRACE_MUL
+    // int mulId;
+    IntegerAttr mulIdAttr;
+    opHasMulId = hasMulId(op);
+    if (opHasMulId) {
+      // mulId = getMulId(op);
+      // mulIdAttr = rewriter.getI32IntegerAttr(mulId);
+      mulIdAttr = getMulIdAttr(op);
+    }
+#endif
+
+#ifdef TOUCAN_DEBUG_TRACE_ADD
+    auto addId = nextAddId.fetch_add(1);
+    auto addIdAttr = rewriter.getI32IntegerAttr(addId);
+    needTrace = !opHasMulId;
+#endif
 
     auto lhsValues = split_value_4B(op, lhsValue, rewriter);
     auto rhsValues = split_value_4B(op, rhsValue, rewriter);
@@ -78,12 +105,34 @@ struct AddSubCore {
       auto addOp = rewriter.create<toucan::LUTOp>(op->getLoc(), toucan::LUTOpName::LUT_Add, last_carry, lhs, rhs);
       auto addValue = addOp.getResult();
       results.push_back(addValue);
-
+#ifdef TOUCAN_DEBUG_TRACE_MUL
+      // copy mul id
+      if (opHasMulId) {
+        setMulId(addOp, mulIdAttr);
+      }
+#endif
+#ifdef TOUCAN_DEBUG_TRACE_ADD
+      if (needTrace) {
+        setAddId(addOp, addIdAttr);
+      }
+#endif
       if (pos != 0) {
         // Not first one, generate carry signal
         auto carryOp = rewriter.create<toucan::LUTOp>(op->getLoc(), toucan::LUTOpName::LUT_Carry, last_carry, lhs, rhs);
         auto carryValue = carryOp.getResult();
         last_carry = carryValue;
+
+#ifdef TOUCAN_DEBUG_TRACE_MUL
+        // copy mul id
+        if (opHasMulId) {
+          setMulId(carryOp, mulIdAttr);
+        }
+#endif
+#ifdef TOUCAN_DEBUG_TRACE_ADD
+        if (needTrace) {
+          setAddId(carryOp, addIdAttr);
+        }
+#endif
       }
     }
 
@@ -213,6 +262,10 @@ struct LowerCombTo4B_2Pass : toucan::impl::LowerCombTo4B_2Base<LowerCombTo4B_2Pa
     numCombAddInModules = 0;
     numCombSubInModules = 0;
     numCombMuxInModules = 0;
+
+#ifdef TOUCAN_DEBUG_TRACE_ADD
+    nextAddId = 0;
+#endif
 
     RewritePatternSet owningPatterns(context);
     ConversionTarget conversionTarget(*context);

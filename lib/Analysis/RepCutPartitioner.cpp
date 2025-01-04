@@ -10,6 +10,9 @@
 #include "mlir/Support/LogicalResult.h"
 #include "toucan/PartitioningGraph.h"
 #include "toucan/ToucanAnalysis.h"
+#include "toucan/ToucanAttributes.h"
+#include "toucan/ToucanOps.h"
+#include "toucan/ToucanUtils.h"
 
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
@@ -26,6 +29,8 @@
 #include <iomanip>
 
 #include <numeric>
+
+#include "toucan/ToucanConfigs.h"
 
 using namespace toucan;
 
@@ -206,7 +211,25 @@ void RepCutPartitioner::dumpGraphToFile(const PartitioningGraph &g, std::string 
 
   auto numVtxes = boost::num_vertices(g);
   for (uint32_t vtx = 0; vtx < numVtxes; vtx++) {
-    ofs << stringifyCGToucanOPName(g[vtx].toucanOpName) << ' ' << g[vtx].weight;
+    ofs << stringifyCGToucanOPName(g[vtx].toucanOpName);
+
+#ifdef TOUCAN_DEBUG_TRACE_OP
+    if (g[vtx].toucanOpName == CGToucanOPName::LUT) {
+      assert(isa<toucan::LUTOp>(g[vtx].op));
+      auto lutOp = cast<toucan::LUTOp>(g[vtx].op);
+      ofs << "-" << stringifyLUTOpName(lutOp.getOpName()).str();
+      if (hasMulId(lutOp)) {
+        auto mulId = getMulId(lutOp);
+        // llvm::dbgs() << mulId << "\n";
+        ofs << "-m" << mulId;
+      } else if (hasAddId(lutOp)) {
+        auto addId = getAddId(lutOp);
+        // llvm::dbgs() << addId << "\n";
+        ofs << "-a" << addId;
+      }
+    }
+#endif
+    ofs << ' ' << g[vtx].weight;
     
     for (auto ei = boost::out_edges(vtx, g); ei.first != ei.second; ++ei.first) {
       auto u = boost::target(*ei.first, g);

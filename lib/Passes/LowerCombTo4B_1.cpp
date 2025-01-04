@@ -45,6 +45,7 @@
 #define GEN_PASS_DEF_LOWERCOMBTO4B_1
 #include "toucan/ToucanPassCommon.h"
 
+#include "toucan/ToucanConfigs.h"
 #include "toucan/ToucanOps.h"
 #include "toucan/ToucanUtils.h"
 
@@ -68,6 +69,10 @@ static std::atomic<uint64_t> numCombMulInModules;
 static std::atomic<uint64_t> numCombParityInModules;
 static std::atomic<uint64_t> numShiftToArrayInModules;
 static std::atomic<uint64_t> numArrayReadFromShiftInModules;
+
+#ifdef TOUCAN_DEBUG_TRACE_MUL
+static std::atomic<int> nextMulId;
+#endif
 
 struct LowerCombReplicateOp: OpRewritePattern<comb::ReplicateOp> {
   using OpRewritePattern<comb::ReplicateOp>::OpRewritePattern;
@@ -713,7 +718,12 @@ struct LowerCombMulOp: OpRewritePattern<comb::MulOp> {
     assert(inputs.size() == 2);
     auto lhsValue = inputs[0];
     auto rhsValue = inputs[1];
-    
+
+#ifdef TOUCAN_DEBUG_TRACE_MUL
+    auto mulId = nextMulId.fetch_add(1);
+    auto mulIdAttr = rewriter.getI32IntegerAttr(mulId);
+#endif
+
     assert(hw::getBitWidth(lhsValue.getType()) == hw::getBitWidth(rhsValue.getType()));
     auto inputBitWidth = hw::getBitWidth(lhsValue.getType());
     if (static_cast<size_t>(inputBitWidth) > maxMulWidth) {
@@ -759,6 +769,11 @@ struct LowerCombMulOp: OpRewritePattern<comb::MulOp> {
         auto mulLoOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Mul_Lo, lhs, rhs);
         auto mulHiOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Mul_Hi, lhs, rhs);
 
+#ifdef TOUCAN_DEBUG_TRACE_MUL
+        setMulId(mulHiOp, mulIdAttr);
+        setMulId(mulLoOp, mulIdAttr);
+#endif
+
         auto loVal = mulLoOp.getResult();
         auto hiVal = mulHiOp.getResult();
 
@@ -791,6 +806,9 @@ struct LowerCombMulOp: OpRewritePattern<comb::MulOp> {
         auto rhs = (i+1 < addition_inputs.size()) ? addition_inputs[i+1] : addZeroConstValue;
 
         auto addOp = rewriter.create<comb::AddOp>(op.getLoc(), ValueRange({lhs, rhs}), false);
+#ifdef TOUCAN_DEBUG_TRACE_MUL
+        setMulId(addOp, mulIdAttr);
+#endif
         auto addValue = addOp.getResult();
         outputs.push_back(addValue);
       }
@@ -803,7 +821,9 @@ struct LowerCombMulOp: OpRewritePattern<comb::MulOp> {
     // Shrink to desired width
     auto shrinkOp = rewriter.create<comb::ExtractOp>(op.getLoc(), rawResult, 0, inputBitWidth);
     auto result = shrinkOp.getResult();
-
+#ifdef TOUCAN_DEBUG_TRACE_MUL
+        setMulId(shrinkOp, mulIdAttr);
+#endif
     // Note: the shrinkOp may be removed later. Keep namehints in rawResult
     // No fragment id for now, will be expand later by lowerAddOp
     copyCustomizedAttrs(rawResult.getDefiningOp(), result.getDefiningOp());
@@ -912,7 +932,9 @@ struct LowerCombTo4B_1Pass : toucan::impl::LowerCombTo4B_1Base<LowerCombTo4B_1Pa
     numCombParityInModules = 0;
     numShiftToArrayInModules = 0;
     numArrayReadFromShiftInModules = 0;
-
+#ifdef TOUCAN_DEBUG_TRACE_MUL
+    nextMulId = 0;
+#endif
     RewritePatternSet owningPatterns(context);
     ConversionTarget conversionTarget(*context);
     

@@ -69,6 +69,16 @@ namespace toucan {
   void setIOSignalMarker(mlir::Operation *op);
   void removeIOSignalMarker(mlir::Operation *op);
 
+  mlir::StringRef getMulIDAttrName();
+  bool hasMulId(mlir::Operation *op);
+  int getMulId(mlir::Operation *op);
+  mlir::IntegerAttr getMulIdAttr(mlir::Operation *op);
+  void setMulId(mlir::Operation *op, mlir::IntegerAttr id);
+  mlir::StringRef getAddIDAttrName();
+  bool hasAddId(mlir::Operation *op);
+  int getAddId(mlir::Operation *op);
+  void setAddId(mlir::Operation *op, mlir::IntegerAttr id);
+
 
   // mlir::StringRef getMemMaskFragmentIDAttr();
   // void setMemMaskFragmentIDAttr(mlir::Operation *op, mlir::IntegerAttr &id);
