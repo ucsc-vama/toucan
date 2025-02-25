@@ -141,6 +141,55 @@ def VectorReadOp : ToucanOp<"vec_read", [Pure]> {
   let assemblyFormat = "$handle `[` type($indicies) $indicies `+` $offset `]` `out_range` type($out_range_value) $out_range_value attr-dict `:` type($handle) `->` type($result)";
 }
 
+def VectorLogicOp : ToucanOp<"vec_logic", [Pure]> {
+  let summary = "vec logical operations";
+  let description = summary;
+
+  let arguments = (ins
+    VecLogicOpNameAttr: $opName,
+    VecType: $v1,
+    VecType: $v2
+  );
+  let results = (outs HWIntegerType: $result);
+
+  let hasVerifier = 1;
+
+  let builders = [
+    OpBuilder<(ins "toucan::VecLogicOpName": $opName, "mlir::Value": $v1, "mlir::Value": $v2), [{
+      // output should be a vector
+      auto resultType = $_builder.getIntegerType(1);
+      build($_builder, $_state, resultType, opName, v1, v2);
+    }]>,
+  ];
+
+  let assemblyFormat = "$opName $v1 $v2 attr-dict `:` type($v1) type($v2) `->` type($result)";
+}
+
+def VectorArithOp : ToucanOp<"vec_arith", [Pure]> {
+  let summary = "vec arithmetic operations";
+  let description = summary;
+
+  let arguments = (ins
+    VecArithOpNameAttr: $opName,
+    VecType: $v1,
+    VecType: $v2
+  );
+  let results = (outs VecType: $result);
+
+  let hasVerifier = 1;
+
+  let builders = [
+    OpBuilder<(ins "toucan::VecArithOpName": $opName, "mlir::Value": $v1, "mlir::Value": $v2), [{
+      auto resultVecLength = v1.getType().cast<VecType>().getLength();
+      auto resultVecElemType = v1.getType().cast<VecType>().getElementType();
+      auto vecType = $_builder.getAttr<toucan::VecType>(false, resultVecLength, resultVecElemType);
+      return build($_builder, $_state, vecType, opName, v1, v2);
+    }]>,
+  ];
+
+  let assemblyFormat = "$opName $v1 $v2 attr-dict `:` type($v1) type($v2) `->` type($result)";
+}
+
 def MemReadOp: ToucanOp<"mem_read", [Pure]> {
   let summary = "memory read";
   let description = summary;

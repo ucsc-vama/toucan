@@ -185,6 +185,42 @@ LogicalResult MemReadOp::verify() {
   return success();
 }
 
+LogicalResult VectorArithOp::verify() {
+  auto v1Length = getV1().getType().getLength();
+  auto v1Width = getV1().getType().getElementWidth();
+
+  auto v2Length = getV2().getType().getLength();
+  auto v2Width = getV2().getType().getElementWidth();
+  
+  if (v1Length != v2Length) {
+    return emitError() << "Vector arith should have identical input vectors";
+  }
+
+  if (v1Width != v2Width) {
+    return emitError() << "Vector arith should have identical input vectors";
+  }
+
+  return success();
+}
+
+LogicalResult VectorLogicOp::verify() {
+  auto v1Length = getV1().getType().getLength();
+  auto v1Width = getV1().getType().getElementWidth();
+
+  auto v2Length = getV2().getType().getLength();
+  auto v2Width = getV2().getType().getElementWidth();
+  
+  if (v1Length != v2Length) {
+    return emitError() << "Vector arith should have identical input vectors";
+  }
+
+  if (v1Width != v2Width) {
+    return emitError() << "Vector arith should have identical input vectors";
+  }
+
+  return success();
+}
+
 size_t LUTOp::getResultWidth1(toucan::LUTOpName opName, ValueRange inputs) {
   switch (opName) {
     case LUTOpName::LUT_Rep1b: return 4;
