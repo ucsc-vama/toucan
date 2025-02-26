@@ -51,6 +51,7 @@ namespace toucan {
     void populateLUT_XorR();
 
     // 2 inputs
+    void populateLUT_Add();
     void populateLUT_And();
     void populateLUT_Or();
     void populateLUT_Xor();
@@ -61,12 +62,9 @@ namespace toucan {
     // void populateLUT_Shr2();
     // void populateLUT_Shr3();
     void populateLUT_Cmp_Eq();
-    void populateLUT_Mul_Hi();
-    void populateLUT_Mul_Lo();
-    void populateLUT_Carry();
+    void populateLUT_Cmp_Lt();
 
     // 3 inputs
-    void populateLUT_Add();
     void populateLUT_Mux();
     void populateLUT_Shl();
     void populateLUT_DShr();
