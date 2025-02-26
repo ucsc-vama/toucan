@@ -20,10 +20,12 @@ let cppNamespace = "toucan" in {
         I32EnumAttrCase<"LUT_Shl1",   10, "shl1">,
         I32EnumAttrCase<"LUT_Shl2",   11, "shl2">,
         I32EnumAttrCase<"LUT_Shl3",   12, "shl3">,
+        I32EnumAttrCase<"LUT_Cmp_Eq", 13, "cmp_eq">,
+        I32EnumAttrCase<"LUT_Cmp_Lt", 14, "cmp_lt">,
         // Shr ops are just placeholder. They have same truth table as shl ops
-        I32EnumAttrCase<"LUT_Shr1",   13, "shr1">,
-        I32EnumAttrCase<"LUT_Shr2",   14, "shr2">,
-        I32EnumAttrCase<"LUT_Shr3",   15, "shr3">,
+        I32EnumAttrCase<"LUT_Shr1",   15, "shr1">,
+        I32EnumAttrCase<"LUT_Shr2",   16, "shr2">,
+        I32EnumAttrCase<"LUT_Shr3",   17, "shr3">,
     ]> ;
 
     def VecLogicOpNameAttr: I32EnumAttr<"VecLogicOpName", "vector logic operations", [
