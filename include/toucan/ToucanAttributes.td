@@ -36,7 +36,7 @@ let cppNamespace = "toucan" in {
         I32EnumAttrCase<"VecArith_Add",    0, "vaadd">,
         I32EnumAttrCase<"VecArith_Sub",    1, "vasub">,
         I32EnumAttrCase<"VecArith_Mul",    2, "vamul">,
-        // TODO: VecArith_Mul and VecArith_Div
+        // TODO: VecArith_Rem and VecArith_Div
     ]>;
 
 }
