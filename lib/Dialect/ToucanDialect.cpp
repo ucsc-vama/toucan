@@ -114,11 +114,9 @@ size_t LUTOp::getLegalOperandCount(toucan::LUTOpName opName) {
     case LUTOpName::LUT_Shr2:
     case LUTOpName::LUT_Shr3:
     case LUTOpName::LUT_Cmp_Eq:
-    case LUTOpName::LUT_Mul_Hi:
-    case LUTOpName::LUT_Mul_Lo:
-      return 2;
-    case LUTOpName::LUT_Carry:
+    case LUTOpName::LUT_Cmp_Lt:
     case LUTOpName::LUT_Add:
+      return 2;
     case LUTOpName::LUT_Mux:
     case LUTOpName::LUT_DShl:
     case LUTOpName::LUT_DShr:
@@ -137,15 +135,7 @@ LogicalResult LUTOp::verify() {
       return emitError() << "Operand has a max width of 4";
     }
   }
-  switch (getOpName()) {
-    case LUTOpName::LUT_Carry: {
-      if (hw::getBitWidth(getInputs()[0].getType()) != 1) {
-        return emitError() << "First operand of carry op must have width of 1";
-      }
-      break;
-    }
-    default: return success();
-  }
+
   return success();
 }
 
@@ -248,12 +238,13 @@ size_t LUTOp::getResultWidth2(toucan::LUTOpName opName, ValueRange inputs) {
       return std::max(lhsSize, rhsSize);
     }
     
-    case LUTOpName::LUT_Mul_Hi:
-    case LUTOpName::LUT_Mul_Lo: {
-      return 4;
-    } 
-    
+    case LUTOpName::LUT_Cmp_Lt:
     case LUTOpName::LUT_Cmp_Eq: return 1;
+
+    case LUTOpName::LUT_Add: {
+      // Note: Add always returns 4 bits. Use extract to limit output width
+      return 4;
+    }
 
     default: ;
   }
@@ -267,10 +258,6 @@ size_t LUTOp::getResultWidth3(toucan::LUTOpName opName, ValueRange inputs) {
     assert(hw::getBitWidth(inputs[0].getType()) <= 2);
   }
 
-  // Note: Add always returns 4 bits. Use extract to limit output width
-  if (opName == toucan::LUTOpName::LUT_Add) return 4;
-  if (opName == toucan::LUTOpName::LUT_Carry) return 1;
-
   auto lhsWidth = hw::getBitWidth(inputs[1].getType());
   auto rhsWidth = hw::getBitWidth(inputs[2].getType());
 
@@ -281,45 +268,30 @@ size_t LUTOp::getResultWidth3(toucan::LUTOpName opName, ValueRange inputs) {
 static inline LogicalResult canonicalize_LUT_Add(LUTOp &op, PatternRewriter &rewriter) {
   auto inputs = op.getInputs();
 
-  auto carry = inputs[0];
-  auto lhs = inputs[1];
-  auto rhs = inputs[2];
+  auto lhs = inputs[0];
+  auto rhs = inputs[1];
 
-  auto carry_isConstZero = value_is_const_zero(carry);
   auto lhs_isConstZero = value_is_const_zero(lhs);
   auto rhs_isConstZero = value_is_const_zero(rhs);
 
-  if (lhs_isConstZero && rhs_isConstZero && carry_isConstZero) {
+  if (lhs_isConstZero && rhs_isConstZero) {
     rewriter.replaceOp(op, lhs);
     return success();
-  } else if (lhs_isConstZero && carry_isConstZero) {
+  } else if (lhs_isConstZero) {
     rewriter.replaceOp(op, rhs);
     return success();
-  } else if (rhs_isConstZero && carry_isConstZero) {
+  } else if (rhs_isConstZero) {
     rewriter.replaceOp(op, lhs);
     return success();
   }
   return failure();
 }
 
-static inline LogicalResult canonicalize_LUT_Carry(LUTOp &op, PatternRewriter &rewriter) {
-  auto inputs = op.getInputs();
-
-  auto lhs = inputs[1];
-  auto rhs = inputs[2];
-  if (value_is_const_zero(lhs) && value_is_const_zero(rhs)) {
-    auto constI1Zero = rewriter.create<toucan::ConstantOp>(op.getLoc(), APInt(1, 0)).getResult();
-    rewriter.replaceOp(op, constI1Zero);
-    return success();
-  }
-  return failure();
-}
 
 LogicalResult LUTOp::canonicalize(LUTOp op, PatternRewriter &rewriter) {
   auto opName = op.getOpName();
   auto inputs = op.getInputs();
 
-  // TODO: calculate at compile time if all inputs are const
 
   switch(opName) {
     case LUTOpName::LUT_And: {
@@ -372,15 +344,9 @@ LogicalResult LUTOp::canonicalize(LUTOp op, PatternRewriter &rewriter) {
     case LUTOpName::LUT_Shr1:
     case LUTOpName::LUT_Shr2:
     case LUTOpName::LUT_Shr3:
-    case LUTOpName::LUT_Cmp_Eq:
-    case LUTOpName::LUT_Mul_Hi:
-    case LUTOpName::LUT_Mul_Lo:
       break;
     case LUTOpName::LUT_Add: {
       return canonicalize_LUT_Add(op, rewriter);
-    }
-    case LUTOpName::LUT_Carry: {
-      return canonicalize_LUT_Carry(op, rewriter);
     }
     case LUTOpName::LUT_Mux: {
       assert(inputs.size() == 3);
@@ -405,6 +371,8 @@ LogicalResult LUTOp::canonicalize(LUTOp op, PatternRewriter &rewriter) {
     case LUTOpName::LUT_DShr:
     case LUTOpName::LUT_XorR:
     case LUTOpName::LUT_Nop:
+    case LUTOpName::LUT_Cmp_Eq:
+    case LUTOpName::LUT_Cmp_Lt:
     break;
   }
   return failure();
