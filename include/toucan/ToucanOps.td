@@ -156,7 +156,7 @@ def VectorLogicOp : ToucanOp<"vec_logic", [Pure]> {
 
   let builders = [
     OpBuilder<(ins "toucan::VecLogicOpName": $opName, "mlir::Value": $v1, "mlir::Value": $v2), [{
-      // output should be a vector
+      // inputs should be a vector
       auto resultType = $_builder.getIntegerType(1);
       build($_builder, $_state, resultType, opName, v1, v2);
     }]>,
