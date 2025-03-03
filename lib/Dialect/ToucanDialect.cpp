@@ -47,6 +47,7 @@ void ToucanDialect::initialize() {
 #include "toucan/Toucan.cpp.inc"
 
 #include "toucan/ToucanUtils.h"
+#include "toucan/ToucanVecOpLimits.h"
 
 LogicalResult PrintOp::canonicalize(PrintOp op, PatternRewriter &rewriter) {
   auto enSignal = op.getEn();
@@ -216,6 +217,10 @@ LogicalResult VectorArithOp::verify() {
     return emitError() << "Vector arith should have identical input vectors";
   }
 
+  if (v1Width > TOUCAN_VEC_OP_MAX_WIDTH) {
+    return emitError("Vector width is too large.");
+  }
+
   return success();
 }
 
@@ -232,6 +237,10 @@ LogicalResult VectorLogicOp::verify() {
 
   if (v1Width != v2Width) {
     return emitError() << "Vector arith should have identical input vectors";
+  }
+
+  if (v1Width > TOUCAN_VEC_OP_MAX_WIDTH) {
+    return emitError("Vector width is too large.");
   }
 
   return success();

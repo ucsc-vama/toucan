@@ -757,7 +757,7 @@ struct LowerCombICmpOp: OpRewritePattern<comb::ICmpOp> {
 struct LowerCombMulOp: OpRewritePattern<comb::MulOp> {
   using OpRewritePattern<comb::MulOp>::OpRewritePattern;
 
-  const size_t maxMulWidth = 256;
+  const size_t maxMulWidth = 128;
 
   LogicalResult matchAndRewrite(comb::MulOp op, PatternRewriter &rewriter) const final {
     auto inputs = op.getInputs();
