@@ -266,8 +266,9 @@ size_t LUTOp::getResultWidth2(toucan::LUTOpName opName, ValueRange inputs) {
 
     case LUTOpName::LUT_Cmp_Eq: return 1;
 
+    case LUTOpName::LUT_Sub:
     case LUTOpName::LUT_Add: {
-      // Note: Add always returns 4 bits. Use extract to limit output width
+      // Note: Add and sub always returns 4 bits. Use extract to limit output width
       return 4;
     }
 

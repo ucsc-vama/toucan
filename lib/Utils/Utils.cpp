@@ -535,23 +535,23 @@ namespace toucan {
     return true;
   }
 
-  // mlir::Value signExt_4b(mlir::RewriterBase &rewriter, mlir::Location loc, mlir::Value val) {
-  //   auto valBitWidth = hw::getBitWidth(val.getType());
-  //   assert(valBitWidth <= 4);
+  mlir::Value signExt_4b(mlir::RewriterBase &rewriter, mlir::Location loc, mlir::Value val) {
+    auto valBitWidth = hw::getBitWidth(val.getType());
+    assert(valBitWidth <= 4);
 
-  //   if (valBitWidth == 4) return val;
+    if (valBitWidth == 4) return val;
 
-  //   // padding
-  //   auto extractMSBOp = rewriter.create<comb::ExtractOp>(loc, val, valBitWidth - 1, 1);
-  //   auto msb = extractMSBOp.getResult();
+    // padding
+    auto extractMSBOp = rewriter.create<comb::ExtractOp>(loc, val, valBitWidth - 1, 1);
+    auto msb = extractMSBOp.getResult();
 
-  //   auto msbRepOp = rewriter.create<toucan::LUTOp>(loc, LUTOpName::LUT_Rep1b, msb);
-  //   auto fillingBits = removeHighBits(rewriter, loc, msbRepOp, 4 - valBitWidth);
+    auto msbRepOp = rewriter.create<toucan::LUTOp>(loc, LUTOpName::LUT_Rep1b, msb);
+    auto fillingBits = removeHighBits(rewriter, loc, msbRepOp, 4 - valBitWidth);
 
-  //   auto concatOp = rewriter.create<comb::ConcatOp>(loc, ValueRange{fillingBits, val});
+    auto concatOp = rewriter.create<comb::ConcatOp>(loc, ValueRange{fillingBits, val});
 
-  //   return concatOp.getResult();
-  // }
+    return concatOp.getResult();
+  }
   
   // Sign-extend a value to align with 4b. If value is already aligned, add extra 4 bits
   Value signExtValueToNext4b(PatternRewriter &rewriter, mlir::Location loc, Value val) {

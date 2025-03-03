@@ -6,6 +6,7 @@
 
 #include "mlir/IR/Value.h"
 #include "mlir/Pass/AnalysisManager.h"
+#include "toucan/PartitioningGraph.h"
 #include "toucan/ToucanAnalysis.h"
 #include "toucan/ToucanOps.h"
 
@@ -94,6 +95,7 @@ DesignGraph::DesignGraph(Operation *op, AnalysisManager &am) {
     vp.op = &stmt;
     vp.weight = getOpWeight(&stmt);
     vp.toucanOpName = getOpName(&stmt);
+    assert(vp.toucanOpName != CGToucanOPName::ShouldNotAppear);
     vp.opCount = getOpCount(&stmt);
     vp.exchangeValId = 0;
     auto newVertex = boost::add_vertex(vp, rawGraph);

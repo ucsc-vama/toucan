@@ -30,8 +30,6 @@
 
 #include <numeric>
 
-#include "toucan/ToucanConfigs.h"
-
 using namespace toucan;
 
 using namespace mlir;
@@ -213,22 +211,6 @@ void RepCutPartitioner::dumpGraphToFile(const PartitioningGraph &g, std::string 
   for (uint32_t vtx = 0; vtx < numVtxes; vtx++) {
     ofs << stringifyCGToucanOPName(g[vtx].toucanOpName);
 
-#ifdef TOUCAN_DEBUG_TRACE_OP
-    if (g[vtx].toucanOpName == CGToucanOPName::LUT) {
-      assert(isa<toucan::LUTOp>(g[vtx].op));
-      auto lutOp = cast<toucan::LUTOp>(g[vtx].op);
-      ofs << "-" << stringifyLUTOpName(lutOp.getOpName()).str();
-      if (hasMulId(lutOp)) {
-        auto mulId = getMulId(lutOp);
-        // llvm::dbgs() << mulId << "\n";
-        ofs << "-m" << mulId;
-      } else if (hasAddId(lutOp)) {
-        auto addId = getAddId(lutOp);
-        // llvm::dbgs() << addId << "\n";
-        ofs << "-a" << addId;
-      }
-    }
-#endif
     ofs << ' ' << g[vtx].weight;
     
     for (auto ei = boost::out_edges(vtx, g); ei.first != ei.second; ++ei.first) {

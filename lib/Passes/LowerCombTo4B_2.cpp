@@ -49,7 +49,6 @@
 
 #include "toucan/ToucanOps.h"
 #include "toucan/ToucanUtils.h"
-#include "toucan/ToucanConfigs.h"
 
 using namespace toucan;
 using namespace circt;
@@ -63,93 +62,83 @@ static std::atomic<uint64_t> numCombSubInModules;
 static std::atomic<uint64_t> numCombMuxInModules;
 
 
-#ifdef TOUCAN_DEBUG_TRACE_ADD
-static std::atomic<int> nextAddId;
-#endif
-
 struct AddSubCore {
   public:
-  Value addCore(Operation *op, PatternRewriter &rewriter, Value lhsValue, Value rhsValue, Value base_carry, std::optional<StringAttr> namehint) const {
+  enum AddOrSub {
+    Add,
+    Sub
+  };
+
+
+  Value addSubCore(AddOrSub addOrSub, Operation *op, PatternRewriter &rewriter, Value lhsValue, Value rhsValue, std::optional<StringAttr> namehint) const {
     auto inputValWidth = hw::getBitWidth(lhsValue.getType());
+    assert(hw::getBitWidth(rhsValue.getType()) == inputValWidth);
 
-    bool needTrace = false;
-    bool opHasMulId = false;
-#ifdef TOUCAN_DEBUG_TRACE_MUL
-    // int mulId;
-    IntegerAttr mulIdAttr;
-    opHasMulId = hasMulId(op);
-    if (opHasMulId) {
-      // mulId = getMulId(op);
-      // mulIdAttr = rewriter.getI32IntegerAttr(mulId);
-      mulIdAttr = getMulIdAttr(op);
-    }
-#endif
-
-#ifdef TOUCAN_DEBUG_TRACE_ADD
-    auto addId = nextAddId.fetch_add(1);
-    auto addIdAttr = rewriter.getI32IntegerAttr(addId);
-    needTrace = !opHasMulId;
-#endif
-
-    auto lhsValues = split_value_4B(op, lhsValue, rewriter);
-    auto rhsValues = split_value_4B(op, rhsValue, rewriter);
-
-    SmallVector<Value> results;
-    auto last_carry = base_carry;
-    for (size_t i = 0; i < lhsValues.size(); i++) {
-      auto pos = lhsValues.size() - 1 - i;
-
-      auto lhs = lhsValues[pos];
-      auto rhs = rhsValues[pos];
-
-      auto addOp = rewriter.create<toucan::LUTOp>(op->getLoc(), toucan::LUTOpName::LUT_Add, last_carry, lhs, rhs);
-      auto addValue = addOp.getResult();
-      results.push_back(addValue);
-#ifdef TOUCAN_DEBUG_TRACE_MUL
-      // copy mul id
-      if (opHasMulId) {
-        setMulId(addOp, mulIdAttr);
+    if (inputValWidth <= 4) {
+      // small add. Simply use an add LUT
+      LUTOpName opName;
+      if (addOrSub == AddOrSub::Add) {
+        opName = LUTOpName::LUT_Add;
+      } else {
+        assert(addOrSub == AddOrSub::Sub);
+        opName = LUTOpName::LUT_Sub;
       }
-#endif
-#ifdef TOUCAN_DEBUG_TRACE_ADD
-      if (needTrace) {
-        setAddId(addOp, addIdAttr);
+
+      auto lutOp = rewriter.create<toucan::LUTOp>(op->getLoc(), opName, lhsValue, rhsValue);
+      auto result = lutOp.getResult();
+
+      if (inputValWidth != 4) {
+        auto extractOp = rewriter.create<comb::ExtractOp>(op->getLoc(), lutOp.getResult(), 0, inputValWidth);
+        result = extractOp.getResult();
       }
-#endif
-      if (pos != 0) {
-        // Not first one, generate carry signal
-        auto carryOp = rewriter.create<toucan::LUTOp>(op->getLoc(), toucan::LUTOpName::LUT_Carry, last_carry, lhs, rhs);
-        auto carryValue = carryOp.getResult();
-        last_carry = carryValue;
 
-#ifdef TOUCAN_DEBUG_TRACE_MUL
-        // copy mul id
-        if (opHasMulId) {
-          setMulId(carryOp, mulIdAttr);
-        }
-#endif
-#ifdef TOUCAN_DEBUG_TRACE_ADD
-        if (needTrace) {
-          setAddId(carryOp, addIdAttr);
-        }
-#endif
+      if (namehint) {
+        setSVNameHintAttr(result.getDefiningOp(), namehint.value());
       }
+
+      return result;
+    } else {
+      // large value. use vector op
+
+      auto lhsPadding = padding_with_0_and_align_4b(op, rewriter, lhsValue);
+      auto rhsPadding = padding_with_0_and_align_4b(op, rewriter, rhsValue);
+
+      auto lhsValues = split_value_4B(op, lhsPadding, rewriter);
+      auto rhsValues = split_value_4B(op, rhsPadding, rewriter);
+
+      auto lhsVecDeclOp = rewriter.create<toucan::DefVectorOp>(op->getLoc(), lhsValues);
+      auto rhsVecDeclOp = rewriter.create<toucan::DefVectorOp>(op->getLoc(), rhsValues);
+
+      auto lhsVecHandle = lhsVecDeclOp.getHandle();
+      auto rhsVecHandle = rhsVecDeclOp.getHandle();
+
+      VecArithOpName opName;
+      if (addOrSub == AddOrSub::Add) {
+        opName = VecArithOpName::VecArith_Add;
+      } else {
+        assert(addOrSub == AddOrSub::Sub);
+        opName = VecArithOpName::VecArith_Sub;
+      }
+
+      auto vecOp = rewriter.create<toucan::VectorArithOp>(op->getLoc(), opName, lhsVecHandle, rhsVecHandle);
+      auto vecAddResultVec = vecOp.getResult();
+
+      // attachNameHintAndFragmentId(rewriter, results, namehint);
+
+      auto resultVal = convertFullVectorBackToValue(rewriter, op->getLoc(), vecAddResultVec);
+
+      auto resultValWidth = hw::getBitWidth(resultVal.getType());
+      if (inputValWidth != resultValWidth) {
+        assert(inputValWidth < resultValWidth);
+        // Need clear top bits
+        auto extractOp = rewriter.create<comb::ExtractOp>(op->getLoc(), resultVal, 0, inputValWidth);
+        resultVal = extractOp.getResult();
+      }
+
+      return resultVal;
     }
-
-    // Concat
-    std::reverse(results.begin(), results.end());
-
-    if (inputValWidth % 4 != 0) {
-      // Need clear top bits
-      auto extractOp = rewriter.create<comb::ExtractOp>(op->getLoc(), results[0], 0, inputValWidth % 4);
-      results[0] = extractOp.getResult();
-    }
-
-    attachNameHintAndFragmentId(rewriter, results, namehint);
-    auto concatOp = rewriter.create<comb::ConcatOp>(op->getLoc(), results);
-    
-    return concatOp.getResult();
   }
+
 };
 
 
@@ -158,8 +147,6 @@ struct LowerCombAddOp: OpRewritePattern<comb::AddOp>, AddSubCore {
   using OpRewritePattern<comb::AddOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(comb::AddOp op, PatternRewriter &rewriter) const final {
-    auto const1BOp = rewriter.create<hw::ConstantOp>(op.getLoc(), rewriter.getI1Type(), 0);
-    auto constZero1B = const1BOp.getResult();
 
     auto inputs = op.getInputs();
     if (inputs.size() != 2) {
@@ -170,12 +157,15 @@ struct LowerCombAddOp: OpRewritePattern<comb::AddOp>, AddSubCore {
 
     auto lhs = inputs[0];
     auto rhs = inputs[1];
+    assert(hw::getBitWidth(lhs.getType()) == hw::getBitWidth(rhs.getType()));
 
     auto optionalNameHint = getSVNameHintAttr(op);;
-    auto addResult = addCore(op.getOperation(), rewriter, lhs, rhs, constZero1B, optionalNameHint);
+    auto addResult = addSubCore(AddOrSub::Add, op.getOperation(), rewriter, lhs, rhs, optionalNameHint);
+
+    assert(hw::getBitWidth(addResult.getType()) == hw::getBitWidth(lhs.getType()));
 
     rewriter.replaceOp(op, addResult);
-    
+
     return success();
   }
 };
@@ -186,23 +176,17 @@ struct LowerCombSubOp: OpRewritePattern<comb::SubOp>, AddSubCore {
   LogicalResult matchAndRewrite(comb::SubOp op, PatternRewriter &rewriter) const final {
     numCombSubInModules++;
 
-    auto const1BOp = rewriter.create<hw::ConstantOp>(op.getLoc(), rewriter.getI1Type(), 1);
-    auto constOne1B = const1BOp.getResult();
-
     auto lhs = op.getLhs();
     auto rhs = op.getRhs();
+    assert(hw::getBitWidth(lhs.getType()) == hw::getBitWidth(rhs.getType()));
 
-    auto rhsValueWidth = hw::getBitWidth(rhs.getType());
-    auto constOneOp = rewriter.create<hw::ConstantOp>(op.getLoc(), APInt(rhsValueWidth, -1, true));
-    auto notRhsOp = rewriter.create<comb::XorOp>(op.getLoc(), ValueRange({rhs, constOneOp.getResult()}), false);
+    auto optionalNameHint = getSVNameHintAttr(op);;
+    auto subResult = addSubCore(AddOrSub::Sub, op.getOperation(), rewriter, lhs, rhs, optionalNameHint);
 
-    auto notRhs = notRhsOp.getResult();
+    assert(hw::getBitWidth(subResult.getType()) == hw::getBitWidth(lhs.getType()));
 
-    auto optionalNameHint = getSVNameHintAttr(op);
-    auto addResult = addCore(op.getOperation(), rewriter, lhs, notRhs, constOne1B, optionalNameHint);
+    rewriter.replaceOp(op, subResult);
 
-    rewriter.replaceOp(op, addResult);
-    
     return success();
   }
 };
@@ -263,9 +247,6 @@ struct LowerCombTo4B_2Pass : toucan::impl::LowerCombTo4B_2Base<LowerCombTo4B_2Pa
     numCombSubInModules = 0;
     numCombMuxInModules = 0;
 
-#ifdef TOUCAN_DEBUG_TRACE_ADD
-    nextAddId = 0;
-#endif
 
     RewritePatternSet owningPatterns(context);
     ConversionTarget conversionTarget(*context);

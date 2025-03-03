@@ -47,7 +47,6 @@
 #define GEN_PASS_DEF_LOWERCOMBTO4B_1
 #include "toucan/ToucanPassCommon.h"
 
-#include "toucan/ToucanConfigs.h"
 #include "toucan/ToucanOps.h"
 #include "toucan/ToucanUtils.h"
 
@@ -72,9 +71,6 @@ static std::atomic<uint64_t> numCombParityInModules;
 static std::atomic<uint64_t> numShiftToArrayInModules;
 static std::atomic<uint64_t> numArrayReadFromShiftInModules;
 
-#ifdef TOUCAN_DEBUG_TRACE_MUL
-static std::atomic<int> nextMulId;
-#endif
 
 struct LowerCombReplicateOp: OpRewritePattern<comb::ReplicateOp> {
   using OpRewritePattern<comb::ReplicateOp>::OpRewritePattern;
@@ -500,7 +496,10 @@ struct LowerCombICmpOp: OpRewritePattern<comb::ICmpOp> {
     return notOp.getResult();
   }
 
-
+  // Unlike padding_with_0_and_align_4b,
+  // This step ensures add at least 1 bit (in fact adds 1~4 bits)
+  // Ensures the leading bits is always 0
+  // Thus convert an unsigned ICmp to signed.
   Value paddingValueWithZeroForIcmp(comb::ICmpOp &op, PatternRewriter &rewriter, Value val) const {
     auto inputValueWidth = hw::getBitWidth(val.getType());
 
@@ -518,22 +517,22 @@ struct LowerCombICmpOp: OpRewritePattern<comb::ICmpOp> {
 
 
   Value icmpEqCore(comb::ICmpOp &op, PatternRewriter &rewriter, Value lhsValue, Value rhsValue) const {
-    assert(hw::getBitWidth(lhsValue.getType()) % 4 == 0);
     assert(hw::getBitWidth(lhsValue.getType()) == hw::getBitWidth(rhsValue.getType()));
+    auto inputBitWidth = hw::getBitWidth(lhsValue.getType());
 
-    auto lhsValues = split_value_4B(op.getOperation(), lhsValue, rewriter);
-    auto rhsValues = split_value_4B(op.getOperation(), rhsValue, rewriter);
-
-    assert(lhsValues.size() == rhsValues.size());
-    assert(!lhsValues.empty());
-
-    if (lhsValues.size() == 1) {
+    if (inputBitWidth <= 4) {
       // only 1 element. In this case, simply use LUT
-      auto cmpLutOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Cmp_Eq, lhsValues[0], rhsValues[0]);
+      auto cmpLutOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Cmp_Eq, lhsValue, rhsValue);
 
       return cmpLutOp.getResult();
     } else {
       // multiple elements. Use VecLogicOp
+      auto lhsPadding = padding_with_0_and_align_4b(op, rewriter, lhsValue);
+      auto rhsPadding = padding_with_0_and_align_4b(op, rewriter, rhsValue);
+
+      auto lhsValues = split_value_4B(op.getOperation(), lhsPadding, rewriter);
+      auto rhsValues = split_value_4B(op.getOperation(), rhsPadding, rewriter);
+
       auto lhsVecDeclOp = rewriter.create<toucan::DefVectorOp>(op.getLoc(), lhsValues);
       auto rhsVecDeclOp = rewriter.create<toucan::DefVectorOp>(op.getLoc(), rhsValues);
 
@@ -548,28 +547,23 @@ struct LowerCombICmpOp: OpRewritePattern<comb::ICmpOp> {
 
   Value icmpLTCore(comb::ICmpOp &op, PatternRewriter &rewriter, Value lhs, Value rhs) const {
     // This is actually a SLT impl
-    assert(hw::getBitWidth(lhs.getType()) % 4 == 0);
     assert(hw::getBitWidth(lhs.getType()) == hw::getBitWidth(rhs.getType()));
+    auto inputBitWidth = hw::getBitWidth(lhs.getType());
 
-    auto sExtLhs = signExtValueToNext4b(rewriter, op.getLoc(), lhs);
-    auto sExtRhs = signExtValueToNext4b(rewriter, op.getLoc(), rhs);
-
-    auto lhsValues = split_value_4B(op.getOperation(), sExtLhs, rewriter);
-    auto rhsValues = split_value_4B(op.getOperation(), sExtRhs, rewriter);
-
-    assert(lhsValues.size() == rhsValues.size());
-    assert(!lhsValues.empty());
-
-    if (lhsValues.size() == 1) {
+    if (inputBitWidth <= 4) {
       // only 1 element. In this case, simply use LUT
-      assert(hw::getBitWidth(lhsValues[0].getType()) == 4);
-      auto subLutOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Sub, lhsValues[0], rhsValues[0]);
+      auto subLutOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Sub, lhs, rhs);
 
       auto extractMSBOp = rewriter.create<comb::ExtractOp>(op.getLoc(), subLutOp.getResult(), 3, 1);
 
       return extractMSBOp.getResult();
     } else {
       // multiple elements. Use VecLogicOp
+      assert(inputBitWidth % 4 == 0);
+
+      auto lhsValues = split_value_4B(op.getOperation(), lhs, rewriter);
+      auto rhsValues = split_value_4B(op.getOperation(), rhs, rewriter);
+
       auto lhsVecDeclOp = rewriter.create<toucan::DefVectorOp>(op.getLoc(), lhsValues);
       auto rhsVecDeclOp = rewriter.create<toucan::DefVectorOp>(op.getLoc(), rhsValues);
 
@@ -584,26 +578,16 @@ struct LowerCombICmpOp: OpRewritePattern<comb::ICmpOp> {
 
   Value icmpLECore(comb::ICmpOp &op, PatternRewriter &rewriter, Value lhs, Value rhs) const {
     // This is in fact a SLE impl
-    assert(hw::getBitWidth(lhs.getType()) % 4 == 0);
     assert(hw::getBitWidth(lhs.getType()) == hw::getBitWidth(rhs.getType()));
+    auto inputBitWidth = hw::getBitWidth(lhs.getType());
 
-    auto sExtLhs = signExtValueToNext4b(rewriter, op.getLoc(), lhs);
-    auto sExtRhs = signExtValueToNext4b(rewriter, op.getLoc(), rhs);
-
-    auto lhsValues = split_value_4B(op.getOperation(), sExtLhs, rewriter);
-    auto rhsValues = split_value_4B(op.getOperation(), sExtRhs, rewriter);
-
-    assert(lhsValues.size() == rhsValues.size());
-    assert(!lhsValues.empty());
-
-    if (lhsValues.size() == 1) {
+    if (inputBitWidth <= 4) {
       // only 1 element. In this case, simply use LUT
-      assert(hw::getBitWidth(lhsValues[0].getType()) == 4);
-      auto subLutOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Sub, lhsValues[0], rhsValues[0]);
+      auto subLutOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Sub, lhs, rhs);
 
       auto extractMSBOp = rewriter.create<comb::ExtractOp>(op.getLoc(), subLutOp.getResult(), 3, 1);
 
-      auto cmpEqLutOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Cmp_Eq, lhsValues[0], rhsValues[0]);
+      auto cmpEqLutOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Cmp_Eq, lhs, rhs);
 
       auto isLessThan = extractMSBOp.getResult();
       auto isEqual = cmpEqLutOp.getResult();
@@ -613,6 +597,12 @@ struct LowerCombICmpOp: OpRewritePattern<comb::ICmpOp> {
       return orOp.getResult();
     } else {
       // multiple elements. Use VecLogicOp
+      // Note: add at least 1 extra bit
+      assert(inputBitWidth % 4 == 0);
+
+      auto lhsValues = split_value_4B(op.getOperation(), lhs, rewriter);
+      auto rhsValues = split_value_4B(op.getOperation(), rhs, rewriter);
+
       auto lhsVecDeclOp = rewriter.create<toucan::DefVectorOp>(op.getLoc(), lhsValues);
       auto rhsVecDeclOp = rewriter.create<toucan::DefVectorOp>(op.getLoc(), rhsValues);
 
@@ -644,10 +634,14 @@ struct LowerCombICmpOp: OpRewritePattern<comb::ICmpOp> {
     auto inputValueWidth = hw::getBitWidth(lhsValue.getType());
     assert(inputValueWidth == hw::getBitWidth(rhsValue.getType()));
 
-    auto paddingLhsValue = paddingValueWithZeroForIcmp(op, rewriter, lhsValue);
-    auto paddingRhsValue = paddingValueWithZeroForIcmp(op, rewriter, rhsValue);
+    if (inputValueWidth <= 4) {
+      return icmpLTCore(op, rewriter, lhsValue, rhsValue);
+    } else {
+      auto paddingLhsValue = paddingValueWithZeroForIcmp(op, rewriter, lhsValue);
+      auto paddingRhsValue = paddingValueWithZeroForIcmp(op, rewriter, rhsValue);
 
-    return icmpLTCore(op, rewriter, paddingLhsValue, paddingRhsValue);
+      return icmpLTCore(op, rewriter, paddingLhsValue, paddingRhsValue);
+    }
   }
 
   Value LowerCombICmpULE(comb::ICmpOp &op, PatternRewriter &rewriter) const {
@@ -657,10 +651,14 @@ struct LowerCombICmpOp: OpRewritePattern<comb::ICmpOp> {
     auto inputValueWidth = hw::getBitWidth(lhsValue.getType());
     assert(inputValueWidth == hw::getBitWidth(rhsValue.getType()));
 
-    auto paddingLhsValue = paddingValueWithZeroForIcmp(op, rewriter, lhsValue);
-    auto paddingRhsValue = paddingValueWithZeroForIcmp(op, rewriter, rhsValue);
+    if (inputValueWidth <= 4) {
+      return icmpLECore(op, rewriter, lhsValue, rhsValue);
+    } else {
+      auto paddingLhsValue = paddingValueWithZeroForIcmp(op, rewriter, lhsValue);
+      auto paddingRhsValue = paddingValueWithZeroForIcmp(op, rewriter, rhsValue);
 
-    return icmpLECore(op, rewriter, paddingLhsValue, paddingRhsValue);
+      return icmpLECore(op, rewriter, paddingLhsValue, paddingRhsValue);
+    }
   }
 
   Value LowerCombICmpSLT(comb::ICmpOp &op, PatternRewriter &rewriter) const {
@@ -670,10 +668,17 @@ struct LowerCombICmpOp: OpRewritePattern<comb::ICmpOp> {
     auto inputValueWidth = hw::getBitWidth(lhsValue.getType());
     assert(inputValueWidth == hw::getBitWidth(rhsValue.getType()));
 
-    auto sExtLhsValue = signExtValueToNext4b(rewriter, op.getLoc(), lhsValue);
-    auto sExtRhsValue = signExtValueToNext4b(rewriter, op.getLoc(), rhsValue);
+    if (inputValueWidth <= 4) {
+      auto sExtLhsValue = signExt_4b(rewriter, op.getLoc(), lhsValue);
+      auto sExtRhsValue = signExt_4b(rewriter, op.getLoc(), rhsValue);
 
-    return icmpLTCore(op, rewriter, sExtLhsValue, sExtRhsValue);
+      return icmpLTCore(op, rewriter, sExtLhsValue, sExtRhsValue);
+    } else {
+      auto sExtLhsValue = signExtValueToNext4b(rewriter, op.getLoc(), lhsValue);
+      auto sExtRhsValue = signExtValueToNext4b(rewriter, op.getLoc(), rhsValue);
+
+      return icmpLTCore(op, rewriter, sExtLhsValue, sExtRhsValue);
+    }
   }
 
   Value LowerCombICmpSLE(comb::ICmpOp &op, PatternRewriter &rewriter) const {
@@ -683,10 +688,17 @@ struct LowerCombICmpOp: OpRewritePattern<comb::ICmpOp> {
     auto inputValueWidth = hw::getBitWidth(lhsValue.getType());
     assert(inputValueWidth == hw::getBitWidth(rhsValue.getType()));
 
-    auto sExtLhsValue = signExtValueToNext4b(rewriter, op.getLoc(), lhsValue);
-    auto sExtRhsValue = signExtValueToNext4b(rewriter, op.getLoc(), rhsValue);
+    if (inputValueWidth <= 4) {
+      auto sExtLhsValue = signExt_4b(rewriter, op.getLoc(), lhsValue);
+      auto sExtRhsValue = signExt_4b(rewriter, op.getLoc(), rhsValue);
 
-    return icmpLECore(op, rewriter, sExtLhsValue, sExtRhsValue);
+      return icmpLECore(op, rewriter, sExtLhsValue, sExtRhsValue);
+    } else {
+      auto sExtLhsValue = signExtValueToNext4b(rewriter, op.getLoc(), lhsValue);
+      auto sExtRhsValue = signExtValueToNext4b(rewriter, op.getLoc(), rhsValue);
+
+      return icmpLECore(op, rewriter, sExtLhsValue, sExtRhsValue);
+    }
   }
 
   LogicalResult matchAndRewrite(comb::ICmpOp op, PatternRewriter &rewriter) const final {
@@ -889,9 +901,7 @@ struct LowerCombTo4B_1Pass : toucan::impl::LowerCombTo4B_1Base<LowerCombTo4B_1Pa
     numCombParityInModules = 0;
     numShiftToArrayInModules = 0;
     numArrayReadFromShiftInModules = 0;
-#ifdef TOUCAN_DEBUG_TRACE_MUL
-    nextMulId = 0;
-#endif
+
     RewritePatternSet owningPatterns(context);
     ConversionTarget conversionTarget(*context);
     

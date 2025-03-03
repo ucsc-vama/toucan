@@ -120,7 +120,7 @@ namespace toucan {
 
   bool isElementsFullWidth(mlir::SmallVector<mlir::Value> &vals);
 
-  // mlir::Value signExt_4b(mlir::RewriterBase &rewriter, mlir::Location loc, mlir::Value val);
+  mlir::Value signExt_4b(mlir::RewriterBase &rewriter, mlir::Location loc, mlir::Value val);
 
   mlir::Value signExtValueToNext4b(mlir::PatternRewriter &rewriter, mlir::Location loc, mlir::Value val);
 
