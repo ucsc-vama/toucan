@@ -114,8 +114,8 @@ size_t LUTOp::getLegalOperandCount(toucan::LUTOpName opName) {
     case LUTOpName::LUT_Shr2:
     case LUTOpName::LUT_Shr3:
     case LUTOpName::LUT_Cmp_Eq:
-    case LUTOpName::LUT_Cmp_Lt:
     case LUTOpName::LUT_Add:
+    case LUTOpName::LUT_Sub:
       return 2;
     case LUTOpName::LUT_Mux:
     case LUTOpName::LUT_DShl:
@@ -136,6 +136,32 @@ LogicalResult LUTOp::verify() {
     }
   }
 
+  switch (getOpName()) {
+    case LUTOpName::LUT_Rep1b: {
+      if (getInputs().size() != 1) {
+        return emitError("Rep1b should have only 1 input");
+      }
+      if (hw::getBitWidth(getInputs().front().getType()) != 1) {
+        return emitError("Rep1b input should only be 1 bit");
+      }
+      break;
+    }
+
+    default: {}
+  }
+
+  return success();
+}
+
+LogicalResult StaticVectorSegmentReadOp::verify() {
+  auto vecElemWidth = getHandle().getType().getElementWidth();
+  if (vecElemWidth != 4) {
+    return emitError("StaticVectorSegmentRead only accept vector with every element width is 4");
+  }
+  auto resultWidth = hw::getBitWidth(getResult().getType());
+  if (resultWidth != 4) {
+    return emitError("StaticVectorSegmentRead should only return a value with width of 4");
+  }
   return success();
 }
 
@@ -237,8 +263,7 @@ size_t LUTOp::getResultWidth2(toucan::LUTOpName opName, ValueRange inputs) {
       auto rhsSize = hw::getBitWidth(inputs[1].getType());
       return std::max(lhsSize, rhsSize);
     }
-    
-    case LUTOpName::LUT_Cmp_Lt:
+
     case LUTOpName::LUT_Cmp_Eq: return 1;
 
     case LUTOpName::LUT_Add: {
@@ -372,7 +397,7 @@ LogicalResult LUTOp::canonicalize(LUTOp op, PatternRewriter &rewriter) {
     case LUTOpName::LUT_XorR:
     case LUTOpName::LUT_Nop:
     case LUTOpName::LUT_Cmp_Eq:
-    case LUTOpName::LUT_Cmp_Lt:
+    case LUTOpName::LUT_Sub:
     break;
   }
   return failure();

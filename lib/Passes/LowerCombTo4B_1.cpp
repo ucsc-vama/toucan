@@ -13,6 +13,7 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/Operation.h"
+#include "mlir/IR/Value.h"
 #include "mlir/IR/ValueRange.h"
 #include "mlir/IR/Visitors.h"
 #include "mlir/Rewrite/FrozenRewritePatternSet.h"
@@ -38,6 +39,7 @@
 #include "llvm/Support/Format.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <memory>
 #include <atomic>
 
@@ -514,71 +516,113 @@ struct LowerCombICmpOp: OpRewritePattern<comb::ICmpOp> {
     return paddingValue;
   }
 
-  // Sign-extend a value to align with 4b. If value is already aligned, add extra 4 bits
-  Value sExtValueForIcmp(comb::ICmpOp &op, PatternRewriter &rewriter, Value val) const {
-    auto inputValueWidth = hw::getBitWidth(val.getType());
-
-    auto paddingTargetWidth = ((inputValueWidth & 0x3) == 0) ? inputValueWidth + 4 : ((inputValueWidth + 3) & (~0x3));
-
-    auto extractTopBitOp = rewriter.create<comb::ExtractOp>(op.getLoc(), val, inputValueWidth - 1, 1);
-    auto topBitVal = extractTopBitOp.getResult();
-
-    auto repOp = rewriter.create<comb::ReplicateOp>(op.getLoc(), topBitVal, paddingTargetWidth - inputValueWidth);
-    auto fillingVal = repOp.getResult();
-
-    // Temp value, don't need namehint
-    auto sExtOp = rewriter.create<comb::ConcatOp>(op.getLoc(), ValueRange({fillingVal, val}));
-    auto sExtValue = sExtOp.getResult();
-
-    return sExtValue;
-  }
 
   Value icmpEqCore(comb::ICmpOp &op, PatternRewriter &rewriter, Value lhsValue, Value rhsValue) const {
+    assert(hw::getBitWidth(lhsValue.getType()) % 4 == 0);
+    assert(hw::getBitWidth(lhsValue.getType()) == hw::getBitWidth(rhsValue.getType()));
 
     auto lhsValues = split_value_4B(op.getOperation(), lhsValue, rewriter);
     auto rhsValues = split_value_4B(op.getOperation(), rhsValue, rewriter);
 
-    SmallVector<Value> eqOutputs;
-    for (auto &&[lhs, rhs]: zip(lhsValues, rhsValues)) {
-      auto eqOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Cmp_Eq, lhs, rhs);
-      eqOutputs.push_back(eqOp.getResult());
+    assert(lhsValues.size() == rhsValues.size());
+    assert(!lhsValues.empty());
+
+    if (lhsValues.size() == 1) {
+      // only 1 element. In this case, simply use LUT
+      auto cmpLutOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Cmp_Eq, lhsValues[0], rhsValues[0]);
+
+      return cmpLutOp.getResult();
+    } else {
+      // multiple elements. Use VecLogicOp
+      auto lhsVecDeclOp = rewriter.create<toucan::DefVectorOp>(op.getLoc(), lhsValues);
+      auto rhsVecDeclOp = rewriter.create<toucan::DefVectorOp>(op.getLoc(), rhsValues);
+
+      auto lhsVecHandle = lhsVecDeclOp.getHandle();
+      auto rhsVecHandle = rhsVecDeclOp.getHandle();
+
+      auto vecCmpEqOp = rewriter.create<toucan::VectorLogicOp>(op.getLoc(), toucan::VecLogicOpName::VecLogic_Eq, lhsVecHandle, rhsVecHandle);
+
+      return vecCmpEqOp.getResult();
     }
-    // create reduce tree of And
-
-    auto constOp = rewriter.create<hw::ConstantOp>(op.getLoc(), rewriter.getI1Type(), 1);
-    auto constVal = constOp.getResult();
-
-    SmallVector<Value> level_outputs;
-
-    while (eqOutputs.size() > 1) {
-      for (size_t i = 0; i < (eqOutputs.size() + 1) / 2; i++) {
-        auto pos = i * 2;
-        auto andLhs = eqOutputs[pos];
-        pos += 1;
-        auto andRhs = (eqOutputs.size() > pos) ? eqOutputs[pos] : constVal;
-
-        auto andOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_And, andLhs, andRhs);
-        level_outputs.push_back(andOp.getResult());
-      }
-      eqOutputs.clear();
-      std::swap(eqOutputs, level_outputs);
-    }
-    assert(eqOutputs.size() == 1);
-
-    return eqOutputs[0];
   }
 
   Value icmpLTCore(comb::ICmpOp &op, PatternRewriter &rewriter, Value lhs, Value rhs) const {
     // This is actually a SLT impl
-    auto subOp = rewriter.create<comb::SubOp>(op.getLoc(), lhs, rhs);
-    auto subValue = subOp.getResult();
-    auto subValueWidth = hw::getBitWidth(subValue.getType());
-    assert(subValueWidth > 0);
+    assert(hw::getBitWidth(lhs.getType()) % 4 == 0);
+    assert(hw::getBitWidth(lhs.getType()) == hw::getBitWidth(rhs.getType()));
 
-    auto extractMSBOp = rewriter.create<comb::ExtractOp>(op.getLoc(), subValue, subValueWidth - 1, 1);
-    auto msbValue = extractMSBOp.getResult();
+    auto sExtLhs = signExtValueToNext4b(rewriter, op.getLoc(), lhs);
+    auto sExtRhs = signExtValueToNext4b(rewriter, op.getLoc(), rhs);
 
-    return msbValue;
+    auto lhsValues = split_value_4B(op.getOperation(), sExtLhs, rewriter);
+    auto rhsValues = split_value_4B(op.getOperation(), sExtRhs, rewriter);
+
+    assert(lhsValues.size() == rhsValues.size());
+    assert(!lhsValues.empty());
+
+    if (lhsValues.size() == 1) {
+      // only 1 element. In this case, simply use LUT
+      assert(hw::getBitWidth(lhsValues[0].getType()) == 4);
+      auto subLutOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Sub, lhsValues[0], rhsValues[0]);
+
+      auto extractMSBOp = rewriter.create<comb::ExtractOp>(op.getLoc(), subLutOp.getResult(), 3, 1);
+
+      return extractMSBOp.getResult();
+    } else {
+      // multiple elements. Use VecLogicOp
+      auto lhsVecDeclOp = rewriter.create<toucan::DefVectorOp>(op.getLoc(), lhsValues);
+      auto rhsVecDeclOp = rewriter.create<toucan::DefVectorOp>(op.getLoc(), rhsValues);
+
+      auto lhsVecHandle = lhsVecDeclOp.getHandle();
+      auto rhsVecHandle = rhsVecDeclOp.getHandle();
+
+      auto vecCmpOp = rewriter.create<toucan::VectorLogicOp>(op.getLoc(), toucan::VecLogicOpName::VecLogic_Lt, lhsVecHandle, rhsVecHandle);
+
+      return vecCmpOp.getResult();
+    }
+  }
+
+  Value icmpLECore(comb::ICmpOp &op, PatternRewriter &rewriter, Value lhs, Value rhs) const {
+    // This is in fact a SLE impl
+    assert(hw::getBitWidth(lhs.getType()) % 4 == 0);
+    assert(hw::getBitWidth(lhs.getType()) == hw::getBitWidth(rhs.getType()));
+
+    auto sExtLhs = signExtValueToNext4b(rewriter, op.getLoc(), lhs);
+    auto sExtRhs = signExtValueToNext4b(rewriter, op.getLoc(), rhs);
+
+    auto lhsValues = split_value_4B(op.getOperation(), sExtLhs, rewriter);
+    auto rhsValues = split_value_4B(op.getOperation(), sExtRhs, rewriter);
+
+    assert(lhsValues.size() == rhsValues.size());
+    assert(!lhsValues.empty());
+
+    if (lhsValues.size() == 1) {
+      // only 1 element. In this case, simply use LUT
+      assert(hw::getBitWidth(lhsValues[0].getType()) == 4);
+      auto subLutOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Sub, lhsValues[0], rhsValues[0]);
+
+      auto extractMSBOp = rewriter.create<comb::ExtractOp>(op.getLoc(), subLutOp.getResult(), 3, 1);
+
+      auto cmpEqLutOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Cmp_Eq, lhsValues[0], rhsValues[0]);
+
+      auto isLessThan = extractMSBOp.getResult();
+      auto isEqual = cmpEqLutOp.getResult();
+
+      auto orOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Or, isLessThan, isEqual);
+
+      return orOp.getResult();
+    } else {
+      // multiple elements. Use VecLogicOp
+      auto lhsVecDeclOp = rewriter.create<toucan::DefVectorOp>(op.getLoc(), lhsValues);
+      auto rhsVecDeclOp = rewriter.create<toucan::DefVectorOp>(op.getLoc(), rhsValues);
+
+      auto lhsVecHandle = lhsVecDeclOp.getHandle();
+      auto rhsVecHandle = rhsVecDeclOp.getHandle();
+
+      auto vecCmpOp = rewriter.create<toucan::VectorLogicOp>(op.getLoc(), toucan::VecLogicOpName::VecLogic_Le, lhsVecHandle, rhsVecHandle);
+
+      return vecCmpOp.getResult();
+    }
   }
 
   Value LowerCombICmpEQ(comb::ICmpOp &op, PatternRewriter &rewriter) const {
@@ -616,12 +660,7 @@ struct LowerCombICmpOp: OpRewritePattern<comb::ICmpOp> {
     auto paddingLhsValue = paddingValueWithZeroForIcmp(op, rewriter, lhsValue);
     auto paddingRhsValue = paddingValueWithZeroForIcmp(op, rewriter, rhsValue);
 
-    auto ultValue = icmpLTCore(op, rewriter, paddingLhsValue, paddingRhsValue);
-    auto eqValue = icmpEqCore(op, rewriter, paddingLhsValue, paddingRhsValue);
-
-    auto orOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Or, ultValue, eqValue);
-
-    return orOp.getResult();
+    return icmpLECore(op, rewriter, paddingLhsValue, paddingRhsValue);
   }
 
   Value LowerCombICmpSLT(comb::ICmpOp &op, PatternRewriter &rewriter) const {
@@ -631,8 +670,8 @@ struct LowerCombICmpOp: OpRewritePattern<comb::ICmpOp> {
     auto inputValueWidth = hw::getBitWidth(lhsValue.getType());
     assert(inputValueWidth == hw::getBitWidth(rhsValue.getType()));
 
-    auto sExtLhsValue = sExtValueForIcmp(op, rewriter, lhsValue);
-    auto sExtRhsValue = sExtValueForIcmp(op, rewriter, rhsValue);
+    auto sExtLhsValue = signExtValueToNext4b(rewriter, op.getLoc(), lhsValue);
+    auto sExtRhsValue = signExtValueToNext4b(rewriter, op.getLoc(), rhsValue);
 
     return icmpLTCore(op, rewriter, sExtLhsValue, sExtRhsValue);
   }
@@ -644,15 +683,10 @@ struct LowerCombICmpOp: OpRewritePattern<comb::ICmpOp> {
     auto inputValueWidth = hw::getBitWidth(lhsValue.getType());
     assert(inputValueWidth == hw::getBitWidth(rhsValue.getType()));
 
-    auto sExtLhsValue = sExtValueForIcmp(op, rewriter, lhsValue);
-    auto sExtRhsValue = sExtValueForIcmp(op, rewriter, rhsValue);
+    auto sExtLhsValue = signExtValueToNext4b(rewriter, op.getLoc(), lhsValue);
+    auto sExtRhsValue = signExtValueToNext4b(rewriter, op.getLoc(), rhsValue);
 
-    auto sltValue = icmpLTCore(op, rewriter, sExtLhsValue, sExtRhsValue);
-    auto eqValue = icmpEqCore(op, rewriter, sExtLhsValue, sExtRhsValue);
-
-    auto orOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Or, sltValue, eqValue);
-
-    return orOp.getResult();
+    return icmpLECore(op, rewriter, sExtLhsValue, sExtRhsValue);
   }
 
   LogicalResult matchAndRewrite(comb::ICmpOp op, PatternRewriter &rewriter) const final {
@@ -719,11 +753,6 @@ struct LowerCombMulOp: OpRewritePattern<comb::MulOp> {
     auto lhsValue = inputs[0];
     auto rhsValue = inputs[1];
 
-#ifdef TOUCAN_DEBUG_TRACE_MUL
-    auto mulId = nextMulId.fetch_add(1);
-    auto mulIdAttr = rewriter.getI32IntegerAttr(mulId);
-#endif
-
     assert(hw::getBitWidth(lhsValue.getType()) == hw::getBitWidth(rhsValue.getType()));
     auto inputBitWidth = hw::getBitWidth(lhsValue.getType());
     if (static_cast<size_t>(inputBitWidth) > maxMulWidth) {
@@ -739,94 +768,22 @@ struct LowerCombMulOp: OpRewritePattern<comb::MulOp> {
     auto lhsValues = split_value_4B(op.getOperation(), lhsPadding, rewriter);
     auto rhsValues = split_value_4B(op.getOperation(), rhsPadding, rewriter);
 
-    auto int4BType = rewriter.getI4Type();
-    auto zeroConst = rewriter.create<hw::ConstantOp>(op->getLoc(), int4BType, 0);
-    auto zeroConstValue = zeroConst.getResult();
+    auto lhsVecDeclOp = rewriter.create<toucan::DefVectorOp>(op.getLoc(), lhsValues);
+    auto rhsVecDeclOp = rewriter.create<toucan::DefVectorOp>(op.getLoc(), rhsValues);
 
-    assert(lhsValues.size() == rhsValues.size());
-    auto inputSections = lhsValues.size();
+    auto lhsVecHandle = lhsVecDeclOp.getHandle();
+    auto rhsVecHandle = rhsVecDeclOp.getHandle();
 
-    auto outputSections = inputSections * 2;
-    auto outputIntegers = inputSections * inputSections;
+    auto vecMulOp = rewriter.create<toucan::VectorArithOp>(op.getLoc(), toucan::VecArithOpName::VecArith_Mul, lhsVecHandle, rhsVecHandle);
+    auto vecMulResultVec = vecMulOp.getResult();
 
-
-    SmallVector<SmallVector<Value>> tempValues;
-    for (size_t i = 0; i < outputIntegers; i++) {
-      tempValues.push_back({});
-      tempValues[i].resize(outputSections, zeroConstValue);
-    }
-
-    for (size_t i = 0; i < inputSections; i++) {
-      for (size_t j = 0; j < inputSections; j++) {
-        auto current_result_id = i * inputSections + j;
-
-        auto pos_lo = outputSections - 1 - (i + j);
-        auto pos_hi = pos_lo - 1;
-
-        auto lhs = lhsValues[inputSections - 1 - j];
-        auto rhs = rhsValues[inputSections - 1 - i];
-
-        auto mulLoOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Mul_Lo, lhs, rhs);
-        auto mulHiOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Mul_Hi, lhs, rhs);
-
-#ifdef TOUCAN_DEBUG_TRACE_MUL
-        setMulId(mulHiOp, mulIdAttr);
-        setMulId(mulLoOp, mulIdAttr);
-#endif
-
-        auto loVal = mulLoOp.getResult();
-        auto hiVal = mulHiOp.getResult();
-
-        tempValues[current_result_id][pos_lo] = loVal;
-        tempValues[current_result_id][pos_hi] = hiVal;
-      }
-    }
-
-    // Merge 4b fragments
-    SmallVector<Value> addition_inputs;
-    addition_inputs.reserve(tempValues.size());
-    for (auto valFragments: tempValues) {
-      assert(valFragments.size() > 1);
-      auto concatOp = rewriter.create<comb::ConcatOp>(op.getLoc(), valFragments);
-      addition_inputs.push_back(concatOp.getResult());
-    }
-
-    // generate addition tree
-
-    auto addZeroType = rewriter.getIntegerType(outputSections * 4);
-    auto addZeroOp = rewriter.create<hw::ConstantOp>(op->getLoc(), addZeroType, 0);
-    auto addZeroConstValue = addZeroOp.getResult();
-
-    assert(!addition_inputs.empty());
-    SmallVector<Value> outputs;
-    outputs.reserve(addition_inputs.size());
-    while (addition_inputs.size() != 1) {
-      for (size_t i = 0; i < addition_inputs.size(); i += 2) {
-        auto lhs = addition_inputs[i];
-        auto rhs = (i+1 < addition_inputs.size()) ? addition_inputs[i+1] : addZeroConstValue;
-
-        auto addOp = rewriter.create<comb::AddOp>(op.getLoc(), ValueRange({lhs, rhs}), false);
-#ifdef TOUCAN_DEBUG_TRACE_MUL
-        setMulId(addOp, mulIdAttr);
-#endif
-        auto addValue = addOp.getResult();
-        outputs.push_back(addValue);
-      }
-      addition_inputs.clear();
-      std::swap(addition_inputs, outputs);
-    }
-    assert(addition_inputs.size() == 1);
-    auto rawResult = addition_inputs[0];
+    auto mulVal = convertFullVectorBackToValue(rewriter, op.getLoc(), vecMulResultVec);
 
     // Shrink to desired width
-    auto shrinkOp = rewriter.create<comb::ExtractOp>(op.getLoc(), rawResult, 0, inputBitWidth);
+    auto shrinkOp = rewriter.create<comb::ExtractOp>(op.getLoc(), mulVal, 0, inputBitWidth);
     auto result = shrinkOp.getResult();
-#ifdef TOUCAN_DEBUG_TRACE_MUL
-        setMulId(shrinkOp, mulIdAttr);
-#endif
-    // Note: the shrinkOp may be removed later. Keep namehints in rawResult
-    // No fragment id for now, will be expand later by lowerAddOp
-    copyCustomizedAttrs(rawResult.getDefiningOp(), result.getDefiningOp());
+
+    copyCustomizedAttrs(op, result.getDefiningOp());
     rewriter.replaceOp(op, result);
 
     return success();

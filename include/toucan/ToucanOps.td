@@ -141,6 +141,29 @@ def VectorReadOp : ToucanOp<"vec_read", [Pure]> {
   let assemblyFormat = "$handle `[` type($indicies) $indicies `+` $offset `]` `out_range` type($out_range_value) $out_range_value attr-dict `:` type($handle) `->` type($result)";
 }
 
+def StaticVectorSegmentReadOp : ToucanOp<"vec_read_segment", [Pure]> {
+  let summary = "Statically read a single 4b segment of a vector. This op should NOT generate in final bitstream. It only works as a hint to value allocator";
+  let description = summary;
+
+  let hasVerifier = 1;
+
+  let arguments = (ins
+    VecType: $handle,
+    APIntAttr: $segment_id
+  );
+  let results = (outs HWIntegerType: $result);
+
+  let builders = [
+    OpBuilder<(ins "mlir::Value": $vec, "int16_t": $segment), [{
+      auto resultType = $_builder.getIntegerType(4);
+      auto segmentIdAttr = $_builder.getI16IntegerAttr(segment);
+      return build($_builder, $_state, resultType, vec, segmentIdAttr);
+    }]>
+  ];
+
+  let assemblyFormat = "$handle `segment` $segment_id attr-dict `:` type($handle) `->` type($result)";
+}
+
 def VectorLogicOp : ToucanOp<"vec_logic", [Pure]> {
   let summary = "vec logical operations";
   let description = summary;

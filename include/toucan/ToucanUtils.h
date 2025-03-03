@@ -8,6 +8,7 @@
 #include "circt/Dialect/OM/OMDialect.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/Location.h"
 #include "mlir/IR/Value.h"
 #include "toucan/ToucanDialect.h"
 
@@ -118,4 +119,10 @@ namespace toucan {
   bool isElementsFullWidth(mlir::OperandRange &vals);
 
   bool isElementsFullWidth(mlir::SmallVector<mlir::Value> &vals);
+
+  // mlir::Value signExt_4b(mlir::RewriterBase &rewriter, mlir::Location loc, mlir::Value val);
+
+  mlir::Value signExtValueToNext4b(mlir::PatternRewriter &rewriter, mlir::Location loc, mlir::Value val);
+
+  mlir::Value convertFullVectorBackToValue(mlir::PatternRewriter &rewriter, mlir::Location loc, mlir::Value vecVal);
 };

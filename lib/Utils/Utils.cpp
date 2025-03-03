@@ -4,6 +4,7 @@
 #include "circt/Dialect/HW/HWTypes.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Value.h"
+#include "mlir/IR/ValueRange.h"
 #include "toucan/ToucanOps.h"
 #include "toucan/ToucanUtils.h"
 #include "llvm/ADT/APInt.h"
@@ -533,6 +534,67 @@ namespace toucan {
     } 
     return true;
   }
+
+  // mlir::Value signExt_4b(mlir::RewriterBase &rewriter, mlir::Location loc, mlir::Value val) {
+  //   auto valBitWidth = hw::getBitWidth(val.getType());
+  //   assert(valBitWidth <= 4);
+
+  //   if (valBitWidth == 4) return val;
+
+  //   // padding
+  //   auto extractMSBOp = rewriter.create<comb::ExtractOp>(loc, val, valBitWidth - 1, 1);
+  //   auto msb = extractMSBOp.getResult();
+
+  //   auto msbRepOp = rewriter.create<toucan::LUTOp>(loc, LUTOpName::LUT_Rep1b, msb);
+  //   auto fillingBits = removeHighBits(rewriter, loc, msbRepOp, 4 - valBitWidth);
+
+  //   auto concatOp = rewriter.create<comb::ConcatOp>(loc, ValueRange{fillingBits, val});
+
+  //   return concatOp.getResult();
+  // }
   
+  // Sign-extend a value to align with 4b. If value is already aligned, add extra 4 bits
+  Value signExtValueToNext4b(PatternRewriter &rewriter, mlir::Location loc, Value val) {
+    auto inputValueWidth = hw::getBitWidth(val.getType());
+
+    auto paddingTargetWidth = ((inputValueWidth & 0x3) == 0) ? inputValueWidth + 4 : ((inputValueWidth + 3) & (~0x3));
+
+    auto extractTopBitOp = rewriter.create<comb::ExtractOp>(loc, val, inputValueWidth - 1, 1);
+    auto topBitVal = extractTopBitOp.getResult();
+
+    auto repOp = rewriter.create<comb::ReplicateOp>(loc, topBitVal, paddingTargetWidth - inputValueWidth);
+    auto fillingVal = repOp.getResult();
+
+    // Temp value, don't need namehint
+    auto sExtOp = rewriter.create<comb::ConcatOp>(loc, ValueRange({fillingVal, val}));
+    auto sExtValue = sExtOp.getResult();
+
+    return sExtValue;
+  }
+
+  mlir::Value convertFullVectorBackToValue(mlir::PatternRewriter &rewriter, mlir::Location loc, mlir::Value vecVal) {
+    assert(vecVal.getType().cast<VecType>().getElementWidth() == 4);
+
+    auto totalVecBits = vecVal.getType().cast<VecType>().getTotalWidth();
+    assert(totalVecBits % 4 == 0);
+
+    auto numVecSections = totalVecBits / 4;
+
+    mlir::SmallVector<mlir::Value> vecSegments;
+    for (size_t i = 0; i < numVecSections; i++) {
+      auto readSegOp = rewriter.create<toucan::StaticVectorSegmentReadOp>(loc, vecVal, i);
+      auto segVal = readSegOp.getResult();
+      vecSegments.push_back(segVal);
+    }
+
+    // TODO: should I reverse this vector?
+    std::reverse(vecSegments.begin(), vecSegments.end());
+
+    assert(!vecSegments.empty());
+
+    auto concatOp = rewriter.create<comb::ConcatOp>(loc, vecSegments);
+
+    return concatOp.getResult();
+  }
 }
 
