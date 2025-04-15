@@ -1,4 +1,5 @@
 #include "toucan/ToucanAnalysis.h"
+#include "llvm/Support/ErrorHandling.h"
 
 using namespace toucan;
 
@@ -14,11 +15,19 @@ std::string toucan::stringifyCGToucanOPName(CGToucanOPName val) {
     case CGToucanOPName::RegWrite : return "RegWrite";
     case CGToucanOPName::MemRead : return "MemRead";
     case CGToucanOPName::MemWrite : return "MemWrite";
-    case CGToucanOPName::ShouldNotAppear : return "ShouldNotAppear";
     case CGToucanOPName::ExchangeRead : return "ExgRead";
     case CGToucanOPName::ExchangeWrite : return "ExgWrite";
-  }
-  return "???";
+    case CGToucanOPName::VecLogic: return "VecLogic";
+    case CGToucanOPName::VecArith: return "VecArith";
+    case CGToucanOPName::VecStaticRead: return "VecStaticRead";
+
+    case CGToucanOPName::ShouldNotAppear:
+    case CGToucanOPName::Dummy_DefReg:
+    case CGToucanOPName::Dummy_DefMem:
+      // Should not appear
+      break;
+    }
+  llvm_unreachable("Every op name should be stringified!");
 }
 
 void CGOpStatistics::print() const {

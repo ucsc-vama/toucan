@@ -25,6 +25,9 @@ using namespace circt;
 
 
 bool DesignGraph::opShouldRemoveInGraph(mlir::Operation *op) {
+  // vp.opName == 
+  // Dummy_DefReg,
+  // Dummy_DefMem,
   if (isa<toucan::DefRegOp>(op)
   || isa<toucan::DefMemOp>(op)) {
       return true;
@@ -68,6 +71,14 @@ static CGToucanOPName getOpName(Operation* op) {
   if (isa<toucan::RegWriteOp>(op)) return CGToucanOPName::RegWrite;
   if (isa<toucan::MemReadOp>(op)) return CGToucanOPName::MemRead;
   if (isa<toucan::MemWriteOp>(op)) return CGToucanOPName::MemWrite;
+  if (isa<toucan::VectorLogicOp>(op)) return CGToucanOPName::VecLogic;
+  if (isa<toucan::VectorArithOp>(op)) return CGToucanOPName::VecArith;
+  if (isa<toucan::StaticVectorSegmentReadOp>(op)) return CGToucanOPName::VecStaticRead;
+
+  if (isa<toucan::DefRegOp>(op)) return CGToucanOPName::Dummy_DefReg;
+  if (isa<toucan::DefMemOp>(op)) return CGToucanOPName::Dummy_DefMem;
+
+  op->print(llvm::dbgs());
   return CGToucanOPName::ShouldNotAppear;
 }
 

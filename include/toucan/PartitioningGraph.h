@@ -32,6 +32,9 @@ namespace toucan {
     LUT,
     VecRead,
     VecDecl,
+    VecLogic,
+    VecArith,
+    VecStaticRead,
     Print,
     Stop,
     RegRead,
@@ -39,6 +42,9 @@ namespace toucan {
     MemRead,
     MemWrite,
     ShouldNotAppear,
+    // Note: Those nodes should be removed from graph. They do not emit code
+    Dummy_DefReg,
+    Dummy_DefMem,
     // Note: Exchange between regions in MultiRegionScheduler.
     ExchangeRead,
     ExchangeWrite
