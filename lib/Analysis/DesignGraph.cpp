@@ -135,14 +135,15 @@ DesignGraph::DesignGraph(Operation *op, AnalysisManager &am) {
   mlir::SmallVector<uint32_t> vecReaders;
   mlir::SmallVector<uint32_t> memWriters;
 
-  mlir::DenseSet<mlir::Value> vecHandled;
+  mlir::DenseSet<mlir::Value> vecHandled_VecRead;
+  mlir::DenseSet<mlir::Value> vecHandled_VecStaticRead;
   for (uint32_t vtxId = 0; vtxId < boost::num_vertices(rawGraph); vtxId++) {
     auto rawOp = rawGraph[vtxId].op;
 
     if (auto vecReadOp = dyn_cast<toucan::VectorReadOp>(rawOp)) {
       // vector read. merge all into 1
       auto vecHandle = vecReadOp.getHandle();
-      if (!vecHandled.contains(vecHandle)) {
+      if (!vecHandled_VecRead.contains(vecHandle)) {
         // a New vector
         vecReaders.clear();
         for (auto userOp: vecHandle.getUsers()) {
@@ -159,7 +160,32 @@ DesignGraph::DesignGraph(Operation *op, AnalysisManager &am) {
           vtxToRemove.insert(vecReaders.begin(), vecReaders.end());
         }
 
-        vecHandled.insert(vecHandle);
+        vecHandled_VecRead.insert(vecHandle);
+      }
+    } else if (auto vecSegReadOp = dyn_cast<toucan::StaticVectorSegmentReadOp>(rawOp)) {
+      // Merge StaticVectorSegmentReadOp with its vector producing op (which should be a VectorArithOp)
+      auto vecHandle = vecSegReadOp.getHandle();
+
+      if (!vecHandled_VecStaticRead.contains(vecHandle)) {
+        // Producing op should be a VectorArith
+        assert(isa<toucan::VectorArithOp>(vecHandle.getDefiningOp()));
+
+        // a new vec
+        // collect all StaticVectorSegmentReadOp that share same vec
+        vecReaders.clear();
+        for (auto userOp: vecHandle.getUsers()) {
+          assert(isa<toucan::StaticVectorSegmentReadOp>(userOp));
+          auto vecReaderVtxId = rawOpToId[userOp];
+          vecReaders.push_back(vecReaderVtxId);
+        }
+        assert(vecReaders.size() > 0);
+
+        // Merge them with vector producing op, which is a VectorArithOp
+        auto vecDeclNodeId = rawOpToId[vecHandle.getDefiningOp()];
+        mergeVerticies(vecDeclNodeId, vecReaders, rawGraph);
+        vtxToRemove.insert(vecReaders.begin(), vecReaders.end());
+
+        vecHandled_VecStaticRead.insert(vecHandle);
       }
     } else if (auto memDeclOp = dyn_cast<toucan::DefMemOp>(rawOp)) {
       // Merge multiple writers of a same memory into 1
