@@ -155,6 +155,10 @@ LogicalResult LUTOp::verify() {
 }
 
 LogicalResult StaticVectorSegmentReadOp::verify() {
+  auto vecHandleDeclOp = getHandle().getDefiningOp();
+  if (!isa<toucan::VectorArithOp>(vecHandleDeclOp)) {
+    return emitError("StaticVectorSegmentRead should only accept vector from VectorArithOp");
+  }
   auto vecElemWidth = getHandle().getType().getElementWidth();
   if (vecElemWidth != 4) {
     return emitError("StaticVectorSegmentRead only accept vector with every element width is 4");
