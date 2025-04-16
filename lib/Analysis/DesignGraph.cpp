@@ -79,6 +79,7 @@ static CGToucanOPName getOpName(Operation* op) {
   if (isa<toucan::DefMemOp>(op)) return CGToucanOPName::Dummy_DefMem;
 
   op->print(llvm::dbgs());
+  llvm_unreachable("What's this op?");
   return CGToucanOPName::ShouldNotAppear;
 }
 
