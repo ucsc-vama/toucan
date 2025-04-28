@@ -695,12 +695,19 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
 
     // Levelize
     llvm::outs() << "====================Levelize And Cut====================\n";
-    p.levelizeGraphForCut(graph);
 
-    // Cut into 2 subgraph
-    p.findCutPoints(graph);
-    p.cutGraph(graph);
+    // Looks like only 1 region is enough
+    p.doNotCutGraph(graph);
+
+
+    // p.levelizeGraphForCut(graph);
+
+    // // Cut into 2 subgraph
+    // p.findCutPoints(graph);
+    // p.cutGraph(graph);
     p.breakDirectIOConnection(graph);
+
+    // Detect number of partitions in each region by heuristic.
     p.setPartitionTarget();
 
 
@@ -712,6 +719,9 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     if (failed(result)) {
       return signalPassFailure();
     }
+
+
+    // MicroPart partitioning
 
 
     // Fill lut

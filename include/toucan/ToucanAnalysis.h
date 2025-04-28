@@ -466,6 +466,8 @@ namespace toucan {
     void cutGraph(DesignGraph &graph);
     void breakDirectIOConnection(DesignGraph &graph);
 
+    void doNotCutGraph(DesignGraph &graph);
+
     mlir::LogicalResult levelizeAllPartitions(mlir::MLIRContext *context);
     void schedule(DesignGraph &graph);
 
@@ -485,8 +487,6 @@ namespace toucan {
     void sortExchangeWriteOps();
     void sortExchangeReadOps();
     void generateExchangeLayout();
-
-    void doNotCutGraph(DesignGraph &graph);
 
 
     void collectConstantVars(PartitioningGraph &graph, CGPartitionMetaInfo &partInfo, const mlir::SmallVector<uint32_t> firstLevelOps);
