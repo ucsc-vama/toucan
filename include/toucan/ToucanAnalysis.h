@@ -29,6 +29,8 @@
 #include "toucan/ToucanTypes.h"
 #include "toucan/PartitioningGraph.h"
 
+#include "toucan/MicroPartitioner.h"
+
 #include <boost/graph/adjacency_list.hpp>
 
 #include <unordered_map>
@@ -532,21 +534,29 @@ namespace toucan {
     RepCutPartitioner(std::filesystem::path outputDirectory) : outputDirectory(outputDirectory) {
       wholeGraphPath = outputDirectory / "design_before_cut.graph";
     };
+    mlir::LogicalResult _partition(mlir::MLIRContext *context, DesignGraph &graph);
+    mlir::LogicalResult _schedule(mlir::MLIRContext *context, DesignGraph &graph);
+    
+    void dumpAllPartitionsToFile();
+
     mlir::LogicalResult partitionAndSchedule(mlir::MLIRContext *context, DesignGraph &graph);
 
     void setPartitionTarget();
 
-    private:
+    // private:
     std::filesystem::path outputDirectory;
     mlir::SmallVector<std::filesystem::path> regionWorkDirectory;
     std::filesystem::path wholeGraphPath;
 
     const char* graphFileName = "region.graph";
+    const char* graphVectorDeclInfoFileName = "vec_decl_info.txt";
     const char* repcutOutputFileName = "rcp_output.txt";
     const char* repcutConsoleLogFileName = "repcut_print.txt";
 
-    
+    private:
     void dumpGraphToFile(const PartitioningGraph &g, std::string fileName) const;
+    void dumpGraphVectorDeclInfoToFile(const PartitioningGraph &g, std::string fileName) const;
+    void dumpSinglePartitionToFile(const PartitioningGraph &g, mlir::SmallVector<uint32_t> partNodes, std::string fileName) const;
 
     mlir::LogicalResult callRepCutAndWait(uint32_t nParts, float target_ib, const std::string &graphFile, const std::filesystem::path &workingDirectory);
 

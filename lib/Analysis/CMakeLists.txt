@@ -12,6 +12,10 @@ add_circt_dialect_library(
   GraphUtils.cpp
   ToucanAnalysis.cpp
   LocalValueAllocator.cpp
+  MicroPart.cpp
+  MicroPartitioner.cpp
+  MicroPartLocalValueAllocator.cpp
+  MultiRegionMicroPartScheduler.cpp
 
 
   DEPENDS

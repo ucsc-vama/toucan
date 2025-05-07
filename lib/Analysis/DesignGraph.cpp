@@ -137,8 +137,24 @@ DesignGraph::DesignGraph(Operation *op, AnalysisManager &am) {
 
   mlir::DenseSet<mlir::Value> vecHandled_VecRead;
   mlir::DenseSet<mlir::Value> vecHandled_VecStaticRead;
+
+  // Note: Merge some nodes
   for (uint32_t vtxId = 0; vtxId < boost::num_vertices(rawGraph); vtxId++) {
     auto rawOp = rawGraph[vtxId].op;
+
+    // Assertion: All VecArith should followed by StaticVectorSegmentReadOp
+    if (auto vecArithOp = dyn_cast<toucan::VectorArithOp>(rawOp)) {
+      auto vecUserEdges = boost::out_edges(vtxId, rawGraph);
+      for (auto ei = vecUserEdges.first; ei != vecUserEdges.second; ei++) {
+        auto userVtxId = boost::target(*ei, rawGraph);
+        auto userOpName = rawGraph[userVtxId].toucanOpName;
+        assert(userOpName == CGToucanOPName::VecStaticRead);
+      }
+
+      for (auto userOp: vecArithOp->getUsers()) {
+        assert(isa<toucan::StaticVectorSegmentReadOp>(userOp));
+      }
+    }
 
     if (auto vecReadOp = dyn_cast<toucan::VectorReadOp>(rawOp)) {
       // vector read. merge all into 1
@@ -164,6 +180,7 @@ DesignGraph::DesignGraph(Operation *op, AnalysisManager &am) {
       }
     } else if (auto vecSegReadOp = dyn_cast<toucan::StaticVectorSegmentReadOp>(rawOp)) {
       // Merge StaticVectorSegmentReadOp with its vector producing op (which should be a VectorArithOp)
+      // After this, no StaticVectorSegmentReadOp should appear in the graph
       auto vecHandle = vecSegReadOp.getHandle();
 
       if (!vecHandled_VecStaticRead.contains(vecHandle)) {

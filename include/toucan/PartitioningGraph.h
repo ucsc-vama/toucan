@@ -52,6 +52,8 @@ namespace toucan {
     // ConstVec
   };
 
+  constexpr int getMaxEnumValForCGToucanOPName() {return static_cast<int>(CGToucanOPName::ExchangeWrite);};
+
   std::string stringifyCGToucanOPName(CGToucanOPName val);
 
   struct PartitioningGraphNodeProperty {

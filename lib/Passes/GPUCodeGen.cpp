@@ -13,6 +13,7 @@
 #include "mlir/Support/LLVM.h"
 #include "mlir/IR/Threading.h"
 #include "mlir/Support/LogicalResult.h"
+#include "toucan/MicroPartitioner.h"
 #include "toucan/PartitioningGraph.h"
 #include "toucan/ToucanAnalysis.h"
 
@@ -41,6 +42,7 @@
 #define GEN_PASS_DEF_GPUCODEGEN
 #include "toucan/ToucanPassCommon.h"
 
+#include "toucan/MicroPartitioner.h"
 #include "toucan/CodeGenCommon.h"
 #include "ToucanGPUSim/ToucanGPUGenDataTypes.h"
 
@@ -714,14 +716,39 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     assert(ibFactor > 0.0f);
     p.targetIb = ibFactor;
 
-    auto result = p.partitionAndSchedule(&getContext(), graph);
+    // auto result = p.partitionAndSchedule(&getContext(), graph);
+    // Just partition.
+    auto result = p._partition(&getContext(), graph);
 
     if (failed(result)) {
       return signalPassFailure();
     }
+    p.dumpAllPartitionsToFile();
 
+    // Second level partitioning
+    // For now, don't cut in the middle
+    auto numRegions = p.regionGraphs.size();
+    assert(numRegions == 1);
 
-    // MicroPart partitioning
+    for (size_t regionId = 0; regionId < numRegions; regionId++) {
+      auto numParts = p.regionPartitions[regionId].size();
+  
+      auto thisRegionWorkDirectory = p.regionWorkDirectory[regionId];
+  
+      for (size_t partId = 0; partId < numParts; partId++) {
+        llvm::outs() << "Partitioning region " << regionId << " part " << partId << "\n";
+
+        auto mp = MicroPartitioner(thisRegionWorkDirectory, partId);
+        
+        auto ret = mp.partition();
+
+        if (failed(ret)) {
+          signalPassFailure();
+          return;
+        }
+
+      }
+    }
 
 
     // Fill lut

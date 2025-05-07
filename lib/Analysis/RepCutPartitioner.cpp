@@ -72,7 +72,7 @@ void RepCutPartitioner::setPartitionTarget() {
   }
 }
 
-LogicalResult RepCutPartitioner::partitionAndSchedule(mlir::MLIRContext *context, DesignGraph &graph) {
+LogicalResult RepCutPartitioner::_partition(mlir::MLIRContext *context, DesignGraph &graph) {
 
   // Clear unneeded data
   graphLevels.clear();
@@ -179,8 +179,10 @@ LogicalResult RepCutPartitioner::partitionAndSchedule(mlir::MLIRContext *context
     printPartitionStatistics(stat);
   }
 
-  auto levelize_stat = levelizeAllPartitions(context);
-  assert(succeeded(levelize_stat));
+  return success();
+}
+
+LogicalResult RepCutPartitioner::_schedule(mlir::MLIRContext *context, DesignGraph &graph) {
 
   llvm::outs() << "====================Schedule And Codegen====================\n";
 
@@ -202,6 +204,17 @@ LogicalResult RepCutPartitioner::partitionAndSchedule(mlir::MLIRContext *context
   return success();
 }
 
+LogicalResult RepCutPartitioner::partitionAndSchedule(mlir::MLIRContext *context, DesignGraph &graph) {
+  auto ret = _partition(context, graph);
+  if (failed(ret)) return failure();
+
+  // Levelize
+  auto levelize_stat = levelizeAllPartitions(context);
+  assert(succeeded(levelize_stat));
+
+  return _schedule(context, graph);
+}
+
 void RepCutPartitioner::dumpGraphToFile(const PartitioningGraph &g, std::string fileName) const {
   auto ofs = std::ofstream(fileName);
 
@@ -214,11 +227,152 @@ void RepCutPartitioner::dumpGraphToFile(const PartitioningGraph &g, std::string 
     ofs << ' ' << g[vtx].weight;
     
     for (auto ei = boost::out_edges(vtx, g); ei.first != ei.second; ++ei.first) {
-      auto u = boost::target(*ei.first, g);
-      ofs << ' ' << u;
+      auto v = boost::target(*ei.first, g);
+      ofs << ' ' << v;
     }
     ofs << "\n";
   }
+
+  ofs.close();
+}
+
+void RepCutPartitioner::dumpSinglePartitionToFile(const PartitioningGraph &g, mlir::SmallVector<uint32_t> partNodes, std::string fileName) const {
+  mlir::DenseSet<uint32_t> partNodeSet;
+  for (auto n: partNodes) {
+    partNodeSet.insert(n);
+  }
+
+  
+  std::ostringstream oss;
+  size_t numValidVtxes = 0, numValidEdges = 0;
+
+
+  auto numVtxes = boost::num_vertices(g);
+  for (uint32_t vtx = 0; vtx < numVtxes; vtx++) {
+    if (!partNodeSet.contains(vtx)) {
+      // Not belongs to this partition
+      oss << "INVALID -1\n";
+    } else {
+      // valid node
+      numValidVtxes++;
+
+      oss << stringifyCGToucanOPName(g[vtx].toucanOpName);
+      oss << ' ' << g[vtx].weight;
+
+      for (auto ei = boost::out_edges(vtx, g); ei.first != ei.second; ++ei.first) {
+        auto v = boost::target(*ei.first, g);
+        if (partNodeSet.contains(v))  {
+          numValidEdges++;
+          oss << ' ' << v;
+        }
+      }
+      oss << "\n";
+    }
+  }
+
+  assert(numValidVtxes == partNodeSet.size());
+
+
+  auto ofs = std::ofstream(fileName);
+  ofs << numValidEdges << ' ' << numValidVtxes << "\n";
+  ofs << oss.str();
+
+  ofs.close();
+}
+
+void RepCutPartitioner::dumpAllPartitionsToFile() {
+  auto numRegions = regionGraphs.size();
+  assert(numRegions >= 1);
+
+  for (size_t regionId = 0; regionId < numRegions; regionId++) {
+    auto &parts = regionPartitions[regionId];
+    auto numParts = parts.size();
+    assert(numParts == regionPartitionNumbers[regionId]);
+
+    auto thisRegionWorkDirectory = regionWorkDirectory[regionId];
+
+    for (size_t partId = 0; partId < parts.size(); partId++) {
+      // llvm::outs() << "Dumping region " << regionId << " part " << partId << "\n";
+
+      std::ostringstream oss;
+      oss << "dump_part_" << partId << ".graph";
+      auto graphFileName = thisRegionWorkDirectory / oss.str();
+      
+      dumpSinglePartitionToFile(regionGraphs[regionId], parts[partId], graphFileName);
+    }
+  }
+}
+
+void RepCutPartitioner::dumpGraphVectorDeclInfoToFile(const PartitioningGraph &g, std::string fileName) const {
+  auto ofs = std::ofstream(fileName);
+
+  ofs << "Format:\nVecDecl_node_id Vector_element_id_0 Vector_element_id_1 ...\n";
+
+
+  auto numVtxes = boost::num_vertices(g);
+  for (uint32_t vtx = 0; vtx < numVtxes; vtx++) {
+    auto vtxOpName = g[vtx].toucanOpName;
+
+    if (vtxOpName == CGToucanOPName::VecDecl) {
+      // A vector decl
+      auto vecDeclOp = dyn_cast<toucan::DefVectorOp>(g[vtx].op);
+      assert(vecDeclOp != nullptr);
+
+      mlir::DenseMap<mlir::Value, uint32_t> vecInputValToOpId;
+      // check input edges (that ultimately forms the vector)
+      for (auto ei = boost::in_edges(vtx, g); ei.first != ei.second; ++ei.first) {
+        auto inputNodeId = boost::source(*ei.first, g);
+        auto inputNodeOp = g[inputNodeId].op;
+        auto inputNodeOpName = g[inputNodeId].toucanOpName;
+
+        assert(inputNodeOpName != CGToucanOPName::VecDecl);
+
+        if (inputNodeOpName == CGToucanOPName::VecRead) {
+          // May be a bunch of VecRead
+          auto inputVector = cast<toucan::VectorReadOp>(inputNodeOp).getHandle();
+          for (auto userOp: inputVector.getUsers()) {
+            auto mergedVecReadOp = cast<toucan::VectorReadOp>(userOp);
+            auto resultVal = mergedVecReadOp.getResult();
+
+            assert(!vecInputValToOpId.contains(resultVal));
+            vecInputValToOpId[resultVal] = inputNodeId;
+          }
+        } else if (inputNodeOpName == CGToucanOPName::VecArith) {
+          for (auto userOp: inputNodeOp->getUsers()) {
+            // Each user should be StaticVectorSegmentReadOp
+            auto segReadOp = cast<toucan::StaticVectorSegmentReadOp>(userOp);
+            auto resultVal = segReadOp.getResult();
+
+            assert(!vecInputValToOpId.contains(resultVal));
+            vecInputValToOpId[resultVal] = inputNodeId;
+          }
+        } else {
+          // any better way?
+          auto resultVal = inputNodeOp->getUses().begin()->get();
+
+          if (vecInputValToOpId.contains(resultVal)) {
+            // Tolerate identical input edges
+            assert(vecInputValToOpId[resultVal] == inputNodeId);
+          }
+
+          vecInputValToOpId[resultVal] = inputNodeId;
+        }
+      }
+
+      ofs << vtx;
+      for (auto inputVal: vecDeclOp.getInputs()) {
+        if (!vecInputValToOpId.contains(inputVal)) {
+          inputVal.getDefiningOp()->print(llvm::dbgs());
+        }
+        assert(vecInputValToOpId.contains(inputVal));
+        auto sourceVtx = vecInputValToOpId[inputVal];
+        ofs << " " << sourceVtx;
+      }
+      ofs << "\n";
+    }
+  }
+
+  ofs.close();
 }
 
 LogicalResult RepCutPartitioner::callRepCutAndWait(uint32_t nParts, float target_ib, const std::string &graphFile, const std::filesystem::path &workingDirectory) {
@@ -227,6 +381,10 @@ LogicalResult RepCutPartitioner::callRepCutAndWait(uint32_t nParts, float target
   auto ibString = std::to_string(target_ib);
   auto nPartsString = std::to_string(nParts);
   std::string repcutPrintLogPath = workingDirectory / repcutConsoleLogFileName;
+
+  if (!std::filesystem::exists(graphFile)) {
+    llvm_unreachable("RepCut partitioner input file doesn't exists! This should not happen");
+  }
 
   llvm::StringRef args[] = {rcpBinary, "--target_ib", ibString, "--nparts", nPartsString, "--graph_file", graphFile, "--work_directory", workingDirectory.c_str(), "--log_level", "debug"};
 
@@ -368,8 +526,10 @@ LogicalResult RepCutPartitioner::workerFunc(const PartitioningGraph &graph, std:
   // Save graph to file
   std::filesystem::path graphPath = workDirectory / graphFileName;
   std::filesystem::path repcutOutputPath = workDirectory / repcutOutputFileName;
+  std::filesystem::path graphVectorDeclInfoPath = workDirectory / graphVectorDeclInfoFileName;
 
   dumpGraphToFile(graph, graphPath);
+  dumpGraphVectorDeclInfoToFile(graph, graphVectorDeclInfoPath);
 
   auto partitionSucc = callRepCutAndWait(nParts, targetIb, graphPath, workDirectory);
   if (failed(partitionSucc)) {
