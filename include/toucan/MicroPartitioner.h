@@ -29,7 +29,6 @@
 #include "toucan/ToucanTypes.h"
 #include "toucan/PartitioningGraph.h"
 
-#include "toucan/MicroPartitioner.h"
 
 #include <boost/graph/adjacency_list.hpp>
 
@@ -52,24 +51,42 @@ namespace toucan {
   // MicroPart data structure
   class MicroPart {
     public:
-    mlir::SmallVector<uint32_t> nodes;
-    // NodeId to ops * in this part *
+    mlir::DenseSet<uint32_t> nodes;
+    // NodeId to ops ** in this part **
     mlir::DenseMap<uint32_t, uint32_t> nodeToOpCount;
     // LUT(and VecDecl), VecRead, RegRead, 
     CGToucanOPName opType;
     uint32_t totalOpCount;
 
-
+    // Only records levels! (unordered)
     mlir::SmallVector<mlir::SmallVector<uint32_t>> levels;
-    mlir::DenseSet<mlir::Value> inputValues, outputValues;
-    int max_live_vars, num_input_vars, num_output_vars;
+    mlir::DenseMap<uint32_t, uint32_t> nodeToLevel;
 
-    mlir::LogicalResult check();
-    void schedule();
+    mlir::DenseSet<mlir::Value> inputValues, outputValues;
+    mlir::DenseMap<uint32_t, mlir::SmallVector<mlir::Value>> nodeToInputVals;
+    mlir::DenseMap<uint32_t, mlir::Value> nodeToOutputVal;
+    int max_live_vars;
+
+    // void schedule();
     void clear();
 
-    void buildRegularLUTPart(const mlir::SmallVector<uint32_t> &newNodes);
+    void buildRegularLUTPart(const mlir::SmallVector<mlir::SmallVector<uint32_t>> &newNodesLevel);
     void buildSpecialPart(const CGToucanOPName vtxOpName, const mlir::SmallVector<NodeIdAndOpCount> &nodeAllocation);
+
+
+    
+    bool checkAndCollectIOValues(const PartitioningGraph &g, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToDepNodeId, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToOriginalVecDeclId);
+
+    // void moveOutputValsToLastLevel();
+    // void collectValueLifetime();
+    // void addDummyNOPs();
+    // // void 
+
+    // // TODO
+    // void sortOpsForLocality();
+
+    private:
+    void updateNodeToLevel();
   };
 
   // A secondary level partitioner. Accepts repcut graph file.
@@ -83,7 +100,13 @@ namespace toucan {
     // Stop, Print can be moved to last
     mlir::SmallVector<uint32_t> allStops, allPrints;
 
-    MicroPartitioner(std::filesystem::path workDirectory, size_t partId) : partId(partId), workDirectory(workDirectory) {
+    mlir::DenseMap<uint32_t, mlir::SmallVector<uint32_t>> outputVectorNopMap;
+    // VecDecl -> [vector element ids]
+    mlir::DenseMap<uint32_t, mlir::SmallVector<uint32_t>> originalVectorElementsMap;
+    mlir::DenseMap<uint32_t, uint32_t> newNodeIdToOriginalVecDeclId;
+    mlir::DenseMap<uint32_t, uint32_t> newNodeIdToDepNodeId;
+
+    MicroPartitioner(std::filesystem::path workDirectory, size_t partId, mlir::DenseMap<uint32_t, mlir::SmallVector<uint32_t>> vectorElementsMap) : originalVectorElementsMap(vectorElementsMap), partId(partId), workDirectory(workDirectory) {
       std::ostringstream oss;
       oss << graphFilePrefix << partId << graphFileSuffix;
       inputGraphFile = workDirectory / oss.str();
@@ -97,6 +120,11 @@ namespace toucan {
       oss.str("");
       oss << outputFilePrefix << partId << outputFileSuffix;
       outputFile = workDirectory / oss.str();
+
+      oss.clear();
+      oss.str("");
+      oss << outputVectorMapFilePrefix << partId << outputVectorMapFileSuffix;
+      outputVectorMapFile = workDirectory / oss.str();
     
       graphVectorInfoFile = workDirectory / graphVectorDeclInfoFileName;
     };
@@ -104,18 +132,13 @@ namespace toucan {
     mlir::LogicalResult partition();
     mlir::LogicalResult arrangeSpecialOps(PartitioningGraph &g);
 
-
-    // TODO: Move those 3 to Scheduler
-    mlir::LogicalResult scheduleNormalMicroParts(PartitioningGraph &g);
-    mlir::LogicalResult scheduleSpecialMicroParts(PartitioningGraph &g);
-    // Note: This must be done after MicroPartLocalValAllocator
-    mlir::LogicalResult scheduleIOMicroParts(PartitioningGraph &g);
+    void collectPartIOValues(const PartitioningGraph &g);
 
 
     private:
     size_t partId;
     std::filesystem::path workDirectory;
-    std::string inputGraphFile, consoleLogFile, outputFile, graphVectorInfoFile;
+    std::string inputGraphFile, consoleLogFile, outputFile, outputVectorMapFile, graphVectorInfoFile;
 
     const char* graphFilePrefix = "dump_part_";
     const char* graphFileSuffix = ".graph";
@@ -124,6 +147,8 @@ namespace toucan {
     const char* outputFilePrefix = "micro_part_result_";
     const char* outputFileSuffix = ".txt";
     const char* graphVectorDeclInfoFileName = "vec_decl_info.txt";
+    const char* outputVectorMapFilePrefix = "micro_part_result_vecmap_";
+    const char* outputVectorMapFileSuffix = ".txt";
     const char* pythonName = "python3";
 
 
@@ -135,6 +160,7 @@ namespace toucan {
     
     mlir::LogicalResult callExternalPartitioner();
     mlir::LogicalResult loadMicroParts();
+    mlir::LogicalResult loadVectorNopMap();
 
     // TODO: reorganize exclude nodes
 

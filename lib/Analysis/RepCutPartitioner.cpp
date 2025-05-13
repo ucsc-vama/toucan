@@ -303,7 +303,9 @@ void RepCutPartitioner::dumpAllPartitionsToFile() {
   }
 }
 
-void RepCutPartitioner::dumpGraphVectorDeclInfoToFile(const PartitioningGraph &g, std::string fileName) const {
+void RepCutPartitioner::collectAndDumpGraphVectorDeclInfoToFile(const PartitioningGraph &g, std::string fileName) {
+  originalVectorElementsMap.clear();
+
   auto ofs = std::ofstream(fileName);
 
   ofs << "Format:\nVecDecl_node_id Vector_element_id_0 Vector_element_id_1 ...\n";
@@ -360,6 +362,8 @@ void RepCutPartitioner::dumpGraphVectorDeclInfoToFile(const PartitioningGraph &g
       }
 
       ofs << vtx;
+      assert(!originalVectorElementsMap.contains(vtx));
+      originalVectorElementsMap[vtx] = {};
       for (auto inputVal: vecDeclOp.getInputs()) {
         if (!vecInputValToOpId.contains(inputVal)) {
           inputVal.getDefiningOp()->print(llvm::dbgs());
@@ -367,6 +371,7 @@ void RepCutPartitioner::dumpGraphVectorDeclInfoToFile(const PartitioningGraph &g
         assert(vecInputValToOpId.contains(inputVal));
         auto sourceVtx = vecInputValToOpId[inputVal];
         ofs << " " << sourceVtx;
+        originalVectorElementsMap[vtx].push_back(sourceVtx);
       }
       ofs << "\n";
     }
@@ -529,7 +534,7 @@ LogicalResult RepCutPartitioner::workerFunc(const PartitioningGraph &graph, std:
   std::filesystem::path graphVectorDeclInfoPath = workDirectory / graphVectorDeclInfoFileName;
 
   dumpGraphToFile(graph, graphPath);
-  dumpGraphVectorDeclInfoToFile(graph, graphVectorDeclInfoPath);
+  collectAndDumpGraphVectorDeclInfoToFile(graph, graphVectorDeclInfoPath);
 
   auto partitionSucc = callRepCutAndWait(nParts, targetIb, graphPath, workDirectory);
   if (failed(partitionSucc)) {

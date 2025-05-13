@@ -11,6 +11,7 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -595,6 +596,37 @@ namespace toucan {
     auto concatOp = rewriter.create<comb::ConcatOp>(loc, vecSegments);
 
     return concatOp.getResult();
+  }
+
+
+  bool opHasResultValue(mlir::Operation *op) {
+    llvm_unreachable("Wait later");
+  }
+  mlir::Value getOpResultValue(mlir::Operation *op) {
+    if (auto lutOp = dyn_cast<toucan::LUTOp>(op)) {
+      return lutOp.getResult();
+    } else if (auto vecArithOp = dyn_cast<toucan::VectorArithOp>(op)) {
+      return vecArithOp.getResult();
+    } else if (auto vecReadOp = dyn_cast<toucan::VectorReadOp>(op)) {
+      return vecReadOp.getResult();
+    } else if (auto vecSegReadOp = dyn_cast<toucan::StaticVectorSegmentReadOp>(op)) {
+      return vecSegReadOp.getResult();
+    } else if (auto regRead = dyn_cast<toucan::RegReadOp>(op)) {
+      return regRead.getResult();
+    } else if (auto memRead = dyn_cast<toucan::MemReadOp>(op)) {
+      return memRead.getResult();
+    } else if (auto constOp = dyn_cast<toucan::ConstantOp>(op)) {
+      return constOp.getResult();
+    } else if (auto vecLogicOp = dyn_cast<toucan::VectorLogicOp>(op)) {
+      return vecLogicOp.getResult();
+    } else if (auto vecArithOp = dyn_cast<toucan::VectorArithOp>(op)) {
+      return vecArithOp.getResult();
+    } else {
+      // others
+      op->print(llvm::errs());
+      llvm::errs() << "\n";
+      llvm_unreachable("Unknown op or op has no result!");
+    }
   }
 }
 

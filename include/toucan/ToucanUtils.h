@@ -125,4 +125,7 @@ namespace toucan {
   mlir::Value signExtValueToNext4b(mlir::PatternRewriter &rewriter, mlir::Location loc, mlir::Value val);
 
   mlir::Value convertFullVectorBackToValue(mlir::PatternRewriter &rewriter, mlir::Location loc, mlir::Value vecVal);
+
+  bool opHasResultValue(mlir::Operation *op);
+  mlir::Value getOpResultValue(mlir::Operation *op);
 };

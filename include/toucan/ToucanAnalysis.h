@@ -35,6 +35,7 @@
 
 #include <unordered_map>
 #include <filesystem>
+#include <vector>
 
 #define DESIGNGRAPH_EXGREAD_WEIGHT 1
 #define DESIGNGRAPH_EXGWRITE_WEIGHT 1
@@ -427,6 +428,22 @@ namespace toucan {
   };
 
 
+  class SingleRegionMicroPartScheduler: SchedulerBase {
+    public:
+    CGInfo codeGenInfo;
+
+    std::vector<toucan::MicroPartitioner> mpartitioners;
+    mlir::SmallVector<mlir::SmallVector<uint32_t>> repcutPartitions;
+
+    void schedule(DesignGraph &graph);
+
+
+    private:
+
+    // First, place all regs and mems
+    // Second, place values in each partition
+    // Last, schedule ops inside each partition
+  };
 
   class MultiRegionScheduler: public SchedulerBase {
     public:
@@ -466,7 +483,7 @@ namespace toucan {
     void levelizeGraphForCut(DesignGraph &graph);
     void findCutPoints(DesignGraph &graph);
     void cutGraph(DesignGraph &graph);
-    void breakDirectIOConnection(DesignGraph &graph);
+    void breakDirectIOConnection();
 
     void doNotCutGraph(DesignGraph &graph);
 
@@ -531,6 +548,9 @@ namespace toucan {
 
     mlir::SmallVector<uint32_t> regionPartitionNumbers;
 
+    // VecDecl -> [vector element ids]
+    mlir::DenseMap<uint32_t, mlir::SmallVector<uint32_t>> originalVectorElementsMap;
+
     RepCutPartitioner(std::filesystem::path outputDirectory) : outputDirectory(outputDirectory) {
       wholeGraphPath = outputDirectory / "design_before_cut.graph";
     };
@@ -555,7 +575,7 @@ namespace toucan {
 
     private:
     void dumpGraphToFile(const PartitioningGraph &g, std::string fileName) const;
-    void dumpGraphVectorDeclInfoToFile(const PartitioningGraph &g, std::string fileName) const;
+    void collectAndDumpGraphVectorDeclInfoToFile(const PartitioningGraph &g, std::string fileName);
     void dumpSinglePartitionToFile(const PartitioningGraph &g, mlir::SmallVector<uint32_t> partNodes, std::string fileName) const;
 
     mlir::LogicalResult callRepCutAndWait(uint32_t nParts, float target_ib, const std::string &graphFile, const std::filesystem::path &workingDirectory);

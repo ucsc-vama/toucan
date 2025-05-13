@@ -253,6 +253,9 @@ mlir::LogicalResult MicroPartitioner::partition() {
   ret = loadMicroParts();
   if (failed(ret)) return ret;
 
+  ret = loadVectorNopMap();
+  if (failed(ret)) return ret;
+
   return mlir::success();
 };
 
@@ -276,7 +279,9 @@ mlir::LogicalResult MicroPartitioner::callExternalPartitioner() {
     "--vector",
     graphVectorInfoFile,
     "--output",
-    outputFile
+    outputFile,
+    "--vecmap",
+    outputVectorMapFile
   };
 
   std::optional<llvm::StringRef> redirects[] = {
@@ -309,7 +314,7 @@ mlir::LogicalResult MicroPartitioner::callExternalPartitioner() {
 }
 
 
-bool testIsInteger(const std::string& s) {
+static bool testIsInteger(const std::string& s) {
   if (s.empty()) return false;
   size_t start = 0;
   if (s[0] == '-' || s[0] == '+') { // Handle signs
@@ -322,7 +327,7 @@ bool testIsInteger(const std::string& s) {
   return true;
 }
 
-bool test(uint32_t lineno, std::string& s) {
+static bool checkIsValidIntegerTokenAndReport(uint32_t lineno, std::string& s) {
   if (!testIsInteger(s)) {
     errs() << "Error on stoi at line " << lineno << ": [" << s << "]\n";
     return false;
@@ -343,7 +348,7 @@ mlir::LogicalResult MicroPartitioner::loadMicroParts() {
   excludeNodeLevels.clear();
 
   std::vector<std::string> split_line;
-  mlir::SmallVector<uint32_t> newPartNodes;
+  mlir::SmallVector<mlir::SmallVector<uint32_t>> newPartNodesLevel;
 
   while (std::getline(file, line)) {
     split_line.clear();
@@ -355,7 +360,7 @@ mlir::LogicalResult MicroPartitioner::loadMicroParts() {
       // a new level
       if (split_line.size() != 2) return failure();
 
-      test(lineno, split_line[1]);
+      checkIsValidIntegerTokenAndReport(lineno, split_line[1]);
       levelId = std::stoi(split_line[1]);
       if (levelId != static_cast<int>(partLevels.size())) return failure();
 
@@ -367,13 +372,15 @@ mlir::LogicalResult MicroPartitioner::loadMicroParts() {
 
       mlir::SmallVector<uint32_t> thisLevelExcludeNodes;
       for (size_t i = 1; i < split_line.size(); i++) {
-        if (!test(lineno, split_line[i])) {
+        if (!checkIsValidIntegerTokenAndReport(lineno, split_line[i])) {
           // something is wrong!
           errs() << "Error on exclude part parsing\n";
           for (auto &t: split_line) {
             errs() << "[" << t << "] ";
           }
           errs() << "\n";
+          errs() << outputFile << "\n";
+          return failure();
         }
         assert(!split_line[i].empty());
         thisLevelExcludeNodes.push_back(std::stoi(split_line[i]));
@@ -386,23 +393,32 @@ mlir::LogicalResult MicroPartitioner::loadMicroParts() {
       assert(levelId + 1 == static_cast<int>(partLevels.size()));
       partLevels.back().emplace_back();
 
-      newPartNodes.clear();
+      newPartNodesLevel.clear();
       for (size_t i = 1; i < split_line.size(); i++) {
-        if (!test(lineno, split_line[i])) {
-          // something is wrong!
-          errs() << "Error on normal part parsing\n";
-          for (auto &t: split_line) {
-            errs() << "[" << t << "] ";
+        if (split_line[i] == "l") {
+          // a new level
+          newPartNodesLevel.emplace_back();
+        } else {
+          // a node
+          assert(!newPartNodesLevel.empty());
+          if (!checkIsValidIntegerTokenAndReport(lineno, split_line[i])) {
+            // something is wrong!
+            errs() << "Error on normal part parsing\n";
+            for (auto &t: split_line) {
+              errs() << "[" << t << "] ";
+            }
+            errs() << "\n";
+            errs() << outputFile << "\n";
+            return failure();
           }
-          errs() << "\n";
+          assert(!split_line[i].empty());
+          auto v = std::stoi(split_line[i]);
+          newPartNodesLevel.back().push_back(v);
         }
-        assert(!split_line[i].empty());
-        auto v = std::stoi(split_line[i]);
-        newPartNodes.push_back(v);
       }
 
       auto &newPart = partLevels.back().back();
-      newPart.buildRegularLUTPart(newPartNodes);
+      newPart.buildRegularLUTPart(newPartNodesLevel);
     } else {
       llvm::errs() << "Cannot parse line\n" << line;
       return failure();
@@ -411,5 +427,88 @@ mlir::LogicalResult MicroPartitioner::loadMicroParts() {
   }
 
   return success();
+}
+
+mlir::LogicalResult MicroPartitioner::loadVectorNopMap() {
+  if (!std::filesystem::exists(outputVectorMapFile)) {
+    llvm_unreachable("Micro partitioner vector NOP map output file doesn't exists! This should not happen");
+  }
+
+  std::ifstream file(outputVectorMapFile);
+  std::string line;
+  uint32_t lineno = 0;
+  outputVectorNopMap.clear();
+
+  std::vector<std::string> split_line;
+  std::vector<uint32_t> lineValues;
+
+  while (std::getline(file, line)) {
+    if (line.empty()) return failure();
+
+    split_line.clear();
+    boost::split(split_line, line, boost::is_any_of(" "));
+    if (split_line.size() <= 1) return failure();
+
+    lineValues.clear();
+    for (auto eachToken: split_line) {
+      if (!checkIsValidIntegerTokenAndReport(lineno, eachToken)) {
+        // something is wrong!
+        errs() << "Error on parsing\nTokens:";
+        for (auto &t: split_line) {
+          errs() << "[" << t << "] ";
+        }
+        errs() << "\n";
+        return failure();
+      }
+      assert(!eachToken.empty());
+      lineValues.push_back(std::stoi(eachToken));
+    }
+    assert(lineValues.size() > 1);
+
+    auto vecDeclNodeId = lineValues[0];
+    outputVectorNopMap[vecDeclNodeId] = {};
+    for (size_t i = 1; i < lineValues.size(); i++) {
+      outputVectorNopMap[vecDeclNodeId].push_back(lineValues[i]);
+    }
+
+    lineno++;
+  }
+
+  return success();
+}
+
+void MicroPartitioner::collectPartIOValues(const PartitioningGraph &g) {
+  // 1. find map from new node id to original vecDecl Id
+
+  for (const auto &[vecDeclId, vecNewNodes]: outputVectorNopMap) {
+    assert(originalVectorElementsMap.contains(vecDeclId));
+
+    for (const auto &eachNewNode: vecNewNodes) {
+      // Note: it's possible that eachNewNode exists in g.g due to name conflict: 
+      // each partition only have partial view of the original graph
+      newNodeIdToOriginalVecDeclId[eachNewNode] = vecDeclId;
+    }
+
+    auto numVecElements = vecNewNodes.size();
+    assert(originalVectorElementsMap[vecDeclId].size() == numVecElements);
+    for (size_t i = 0; i < numVecElements; i++) {
+      auto newNodeId = vecNewNodes[i];
+      auto depNodeId = originalVectorElementsMap[vecDeclId][i];
+
+      newNodeIdToDepNodeId[newNodeId] = depNodeId;
+    }
+  }
+
+  // 2. collect for all parts
+  for (auto &eachPartLevel: partLevels) {
+    for (auto &eachPart: eachPartLevel) {
+      auto partGood = eachPart.checkAndCollectIOValues(g, newNodeIdToDepNodeId, newNodeIdToOriginalVecDeclId);
+
+      if (!partGood) {
+        llvm::errs() << "Error when checking micro parts\n";
+        llvm_unreachable("Not suppose to happen");
+      }
+    }
+  }
 }
 

@@ -565,13 +565,12 @@ void MultiRegionScheduler::cutGraph(DesignGraph &graph) {
 Add NOP lut to break edge directly from input nodes (RegRead, ExchangeRead) to output nodes (RegWrite, ExchangeWrite).
 This help the scheduler to create more bulked GPU global memory access
 */
-void MultiRegionScheduler::breakDirectIOConnection(DesignGraph &graph) {
+void MultiRegionScheduler::breakDirectIOConnection() {
 
   size_t regionId = 0;
   mlir::DenseMap<mlir::Operation*, uint32_t> opToRegionId;
   for (auto & eachRegionGraph: regionGraphs) {
-    auto numVtxes = boost::num_vertices(eachRegionGraph);
-    for (uint32_t vtxId = 0; vtxId < numVtxes; vtxId++) {
+    for (auto vtxId : boost::make_iterator_range(vertices(eachRegionGraph))) {
       auto op = eachRegionGraph[vtxId].op;
       if (op != nullptr) {
         assert(!opToRegionId.contains(op));
@@ -596,8 +595,7 @@ void MultiRegionScheduler::breakDirectIOConnection(DesignGraph &graph) {
     mlir::SmallVector<std::pair<uint32_t, uint32_t>> edgesToBreak;
 
     // assume vtxid is continuous. i.e. no vtx removed ever
-    auto numVtxes = boost::num_vertices(eachRegionGraph);
-    for (uint32_t srcVtx = 0; srcVtx < numVtxes; srcVtx++) {
+    for (auto srcVtx : boost::make_iterator_range(vertices(eachRegionGraph))) {
       auto srcTOpName = eachRegionGraph[srcVtx].toucanOpName;
       bool srcVtxIsExgRead = (srcTOpName == CGToucanOPName::ExchangeRead);
 
@@ -649,7 +647,7 @@ void MultiRegionScheduler::breakDirectIOConnection(DesignGraph &graph) {
 
     // pick any operation to create IRRewriter
     mlir::Operation *anyOp = nullptr;
-    for (uint32_t srcVtx = 0; srcVtx < numVtxes; srcVtx++) {
+    for (auto srcVtx : boost::make_iterator_range(vertices(eachRegionGraph))) {
       auto op = eachRegionGraph[srcVtx].op;
       if (op != nullptr) {
         anyOp = op;
@@ -701,6 +699,19 @@ void MultiRegionScheduler::breakDirectIOConnection(DesignGraph &graph) {
 
         srcVal.replaceUsesWithIf(newNop.getResult(), [&](const OpOperand &operand) {
           auto userOp = operand.getOwner();
+
+          if (!opToRegionId.contains(userOp)) {
+            // Could be new NOP op. don't replace it.
+            // Or could be merge ops. Don't replace.
+            if (!(isa<toucan::DefVectorOp>(userOp)
+               || isa<toucan::VectorReadOp>(userOp)
+               || isa<toucan::MemWriteOp>(userOp))) {
+              // must be the NOP
+              assert(userOp == newNop);
+            }
+            return false;
+          }
+
           auto userRegion = opToRegionId[userOp];
 
           // some vector's user region may be moved to later regions.
@@ -725,6 +736,7 @@ void MultiRegionScheduler::breakDirectIOConnection(DesignGraph &graph) {
 
         // use this nop vtx to avoid direct contact
         boost::add_edge(srcVtx, nopVtxId, eachRegionGraph);
+        assert(!regToNewReader.contains(srcVtx));
         regToNewReader[srcVtx] = nopVtxId;
 
         if (eachRegionGraph[srcVtx].toucanOpName == CGToucanOPName::ExchangeRead) {

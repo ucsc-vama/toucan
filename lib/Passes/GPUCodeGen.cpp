@@ -707,7 +707,7 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     // // Cut into 2 subgraph
     // p.findCutPoints(graph);
     // p.cutGraph(graph);
-    p.breakDirectIOConnection(graph);
+    p.breakDirectIOConnection();
 
     // Detect number of partitions in each region by heuristic.
     p.setPartitionTarget();
@@ -730,16 +730,21 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     auto numRegions = p.regionGraphs.size();
     assert(numRegions == 1);
 
+    std::vector<MicroPartitioner> mps;
     for (size_t regionId = 0; regionId < numRegions; regionId++) {
+      auto regionGraph = p.regionGraphs[regionId];
+      
       auto numParts = p.regionPartitions[regionId].size();
+      mps.reserve(numParts);
   
       auto thisRegionWorkDirectory = p.regionWorkDirectory[regionId];
   
       for (size_t partId = 0; partId < numParts; partId++) {
         llvm::outs() << "Partitioning region " << regionId << " part " << partId << "\n";
 
-        auto mp = MicroPartitioner(thisRegionWorkDirectory, partId);
-        
+        mps.emplace_back(MicroPartitioner(thisRegionWorkDirectory, partId, p.originalVectorElementsMap));
+        auto &mp = mps.back();
+
         auto ret = mp.partition();
 
         if (failed(ret)) {
@@ -747,8 +752,24 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
           return;
         }
 
+        mp.collectPartIOValues(regionGraph);
+
       }
     }
+
+    // Schedule
+    // Note: For now only use 1 region, thus SingleRegion scheduler is fine
+    auto scheduler = SingleRegionMicroPartScheduler();
+    scheduler.mpartitioners.swap(mps);
+    assert(p.regionPartitions.size() == 1);
+    scheduler.repcutPartitions = p.regionPartitions[0];
+
+
+    // Under construction...
+
+    return;
+
+    
 
 
     // Fill lut
