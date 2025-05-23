@@ -235,18 +235,18 @@ def MergeConst: Pass<"merge-const", "circt::ModuleOp"> {
   ];
 }
 
-def CPUSingleThreadCodeGen: Pass<"cpu-singhe-thread-codegen", "circt::ModuleOp"> {
-  let summary = "Code generation, CPU, single thread";
-  let description = summary;
-  let constructor = "toucan::createCPUSingleThreadCodeGenPass(toucan::CPUSingleThreadCodeGenOptions())";
-  let options = [
-    Option<"outputDirectory", "outputDirectory", "std::string", "", "Directory for output">,
-    Option<"outputDesignFilename", "outputDesignFilename", "std::string", "", "output design file name">,
-    Option<"outputSymbolFilename", "outputSymbolFilename", "std::string", "", "output symbol file name">,
-    Option<"outputIOSymbolFilename", "outputIOSymbolFilename", "std::string", "", "output IO symbol file name">,
-    Option<"temporaryDirectory", "temporaryDirectory", "std::string", "", "Directory for temp files">,
-  ];
-}
+// def CPUSingleThreadCodeGen: Pass<"cpu-singhe-thread-codegen", "circt::ModuleOp"> {
+//   let summary = "Code generation, CPU, single thread";
+//   let description = summary;
+//   let constructor = "toucan::createCPUSingleThreadCodeGenPass(toucan::CPUSingleThreadCodeGenOptions())";
+//   let options = [
+//     Option<"outputDirectory", "outputDirectory", "std::string", "", "Directory for output">,
+//     Option<"outputDesignFilename", "outputDesignFilename", "std::string", "", "output design file name">,
+//     Option<"outputSymbolFilename", "outputSymbolFilename", "std::string", "", "output symbol file name">,
+//     Option<"outputIOSymbolFilename", "outputIOSymbolFilename", "std::string", "", "output IO symbol file name">,
+//     Option<"temporaryDirectory", "temporaryDirectory", "std::string", "", "Directory for temp files">,
+//   ];
+// }
 
 def GPUCodeGen: Pass<"gpu-codegen", "circt::ModuleOp"> {
   let summary = "Code generation, GPU, parallel";

@@ -61,7 +61,7 @@ static cl::opt<std::string> inputFilename(cl::Positional, cl::desc("<input file>
 static cl::opt<std::string> outputDirectory("o", cl::desc("Output directory"), cl::value_desc("directory"), cl::init("./"), cl::cat(mainCategory));
 static cl::opt<bool> verbose("v", cl::desc("verbose"), cl::init(false), cl::cat(mainCategory));
 static cl::opt<bool> gpuCodeGen("gpu", cl::desc("Generate GPU code"), cl::init(false), cl::cat(mainCategory));
-static cl::opt<bool> cpuCodeGen("cpu", cl::desc("Generate CPU code (single thread)"), cl::init(false), cl::cat(mainCategory));
+// static cl::opt<bool> cpuCodeGen("cpu", cl::desc("Generate CPU code (single thread)"), cl::init(false), cl::cat(mainCategory));
 static cl::opt<bool> dumpOutputMLIR("dump", cl::desc("Dump output.mlir"), cl::init(false), cl::cat(mainCategory));
 // static cl::opt<uint32_t> targetGPUSMs("gpuSMs", cl::desc("Target GPU SM count. This argument affects number of partitions in each region."), cl::init(6), cl::cat(mainCategory));
 // static cl::opt<uint32_t> partitionNumRegions("numRegions", cl::desc("Partitioning region count."), cl::init(4), cl::cat(mainCategory));
@@ -69,10 +69,10 @@ static cl::opt<float> partitionIbFactor("ibFactor", cl::desc("Partitioning targe
 
 
 void checkArgs() {
-    if (!cpuCodeGen && !gpuCodeGen) {
-        llvm::outs() << "Please specify at least one code gen type (-cpu or -gpu)\n";
-        exit(-1);
-    }
+    // if (!cpuCodeGen && !gpuCodeGen) {
+    //     llvm::outs() << "Please specify at least one code gen type (-cpu or -gpu)\n";
+    //     exit(-1);
+    // }
 }
 
 static LogicalResult compileAndEmit(
@@ -147,17 +147,17 @@ static LogicalResult compileAndEmit(
         pm.addPass(toucan::createEnsureToucanOnlyPass());
     }
 
-    if (cpuCodeGen) {
-        auto cpuCodeGenOptions = toucan::CPUSingleThreadCodeGenOptions();
-        cpuCodeGenOptions.outputDirectory = outputDir.string();
-        cpuCodeGenOptions.outputDesignFilename = "CPUSimDesign.bin";
-        cpuCodeGenOptions.outputSymbolFilename = "CPUSimSymbols.bin";
-        cpuCodeGenOptions.outputIOSymbolFilename = "CPUSimIOSymbols.bin";
-        cpuCodeGenOptions.temporaryDirectory = outputDir.string();
+    // if (cpuCodeGen) {
+    //     auto cpuCodeGenOptions = toucan::CPUSingleThreadCodeGenOptions();
+    //     cpuCodeGenOptions.outputDirectory = outputDir.string();
+    //     cpuCodeGenOptions.outputDesignFilename = "CPUSimDesign.bin";
+    //     cpuCodeGenOptions.outputSymbolFilename = "CPUSimSymbols.bin";
+    //     cpuCodeGenOptions.outputIOSymbolFilename = "CPUSimIOSymbols.bin";
+    //     cpuCodeGenOptions.temporaryDirectory = outputDir.string();
 
-        pm.addPass(toucan::createCPUSingleThreadCodeGenPass(cpuCodeGenOptions));
-        llvm::outs() << "CPU Code gen\n";
-    }
+    //     pm.addPass(toucan::createCPUSingleThreadCodeGenPass(cpuCodeGenOptions));
+    //     llvm::outs() << "CPU Code gen\n";
+    // }
 
     if (gpuCodeGen) {
         auto gpuCodeGenOptions = toucan::GPUCodeGenOptions();

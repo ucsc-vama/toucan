@@ -64,6 +64,7 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
   toucanGPUSim::SimDesignInfo designInfo;
   toucanGPUSim::SimDebugInfo debugInfo;
 
+  /*
   static void packRegRead(mlir::SmallVector<toucanGPUSim::CGRegReadMetaInfo> &regReadBulks) {
     // use packed SIMD for reg reads if possible
     assert(!regReadBulks.empty());
@@ -686,6 +687,7 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
       debugInfo.signalDebugInfo[sigNameRef.str()] = eachSignalDbgInfo;
     }
   }
+    */
 
   void runOnOperation() final {
     // Mark all analyses as preserved. This is a read only pass
@@ -758,11 +760,20 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     }
 
     // Schedule
-    // Note: For now only use 1 region, thus SingleRegion scheduler is fine
+    // Note: For now only use 1 region
+    assert(p.regionPartitions.size() == 1);
+
     auto scheduler = SingleRegionMicroPartScheduler();
     scheduler.mpartitioners.swap(mps);
-    assert(p.regionPartitions.size() == 1);
     scheduler.repcutPartitions = p.regionPartitions[0];
+
+    auto rGraph = p.regionGraphs[0];
+    assert(p.regionGraphs.size() == 1 && "SingleRegionMicroPartScheduler only supports 1 region");
+    auto partNodeList = p.regionPartitions[0];
+    assert(partNodeList.size() == p.regionPartitionNumbers[0]);
+
+    scheduler.schedule(rGraph, partNodeList);
+    // p.regionPartitions
 
 
     // Under construction...
@@ -774,38 +785,38 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
 
     // Fill lut
     populateLUT();
-    designInfo.lut.assign(lutContent.begin(), lutContent.end());
+    // designInfo.lut.assign(lutContent.begin(), lutContent.end());
 
-    // copy pool size
-    designInfo.regPoolSize = p.codeGenInfo.regPool.size();
-    designInfo.memPoolSize = p.codeGenInfo.totalMemSize;
-    designInfo.exchangePoolSize = p.codeGenInfo.exchangePool.size();
+    // // copy pool size
+    // designInfo.regPoolSize = p.codeGenInfo.regPool.size();
+    // designInfo.memPoolSize = p.codeGenInfo.totalMemSize;
+    // designInfo.exchangePoolSize = p.codeGenInfo.exchangePool.size();
 
-    uint32_t partId = 0;
-    uint32_t regionId = 0;
-    for (const auto &eachRegionParts: p.codeGenInfo.regionPartitionIds) {
-      designInfo.regionPartitionIds.emplace_back();
-      for (const auto &eachPartId: eachRegionParts) {
-        assert(eachPartId == partId);
+    // uint32_t partId = 0;
+    // uint32_t regionId = 0;
+    // for (const auto &eachRegionParts: p.codeGenInfo.regionPartitionIds) {
+    //   designInfo.regionPartitionIds.emplace_back();
+    //   for (const auto &eachPartId: eachRegionParts) {
+    //     assert(eachPartId == partId);
 
-        // save partition region info
-        designInfo.regionPartitionIds.back().push_back(partId);
-        // codegen for a single partition
-        populateSinglePartition(p.codeGenInfo.partitionInfo[partId], regionId, partId);
-        partId++;
-      }
-      regionId++;
-    }
+    //     // save partition region info
+    //     designInfo.regionPartitionIds.back().push_back(partId);
+    //     // codegen for a single partition
+    //     populateSinglePartition(p.codeGenInfo.partitionInfo[partId], regionId, partId);
+    //     partId++;
+    //   }
+    //   regionId++;
+    // }
 
-    // Fill print msgs
-    designInfo.printMsgs.resize(p.codeGenInfo.printStrings.size());
-    for (auto [k, v]: p.codeGenInfo.printStrings) {
-      assert(designInfo.printMsgs[v].empty());
-      designInfo.printMsgs[v] = k;
-    }
+    // // Fill print msgs
+    // designInfo.printMsgs.resize(p.codeGenInfo.printStrings.size());
+    // for (auto [k, v]: p.codeGenInfo.printStrings) {
+    //   assert(designInfo.printMsgs[v].empty());
+    //   designInfo.printMsgs[v] = k;
+    // }
 
-    // Fill debug info
-    populateDebugInfo(p.codeGenInfo);
+    // // Fill debug info
+    // populateDebugInfo(p.codeGenInfo);
 
 
 

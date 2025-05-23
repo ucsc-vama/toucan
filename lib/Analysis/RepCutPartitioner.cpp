@@ -182,38 +182,38 @@ LogicalResult RepCutPartitioner::_partition(mlir::MLIRContext *context, DesignGr
   return success();
 }
 
-LogicalResult RepCutPartitioner::_schedule(mlir::MLIRContext *context, DesignGraph &graph) {
+// LogicalResult RepCutPartitioner::_schedule(mlir::MLIRContext *context, DesignGraph &graph) {
 
-  llvm::outs() << "====================Schedule And Codegen====================\n";
+//   llvm::outs() << "====================Schedule And Codegen====================\n";
 
-  auto schedule_start = std::chrono::high_resolution_clock::now();
-  schedule(graph);
-  auto schedule_end = std::chrono::high_resolution_clock::now();
-  auto schedule_duration = std::chrono::duration_cast<std::chrono::milliseconds>(schedule_end - schedule_start).count();
-  llvm::outs() << "Scheduling took " << schedule_duration << "ms\n";
+//   auto schedule_start = std::chrono::high_resolution_clock::now();
+//   schedule(graph);
+//   auto schedule_end = std::chrono::high_resolution_clock::now();
+//   auto schedule_duration = std::chrono::duration_cast<std::chrono::milliseconds>(schedule_end - schedule_start).count();
+//   llvm::outs() << "Scheduling took " << schedule_duration << "ms\n";
 
-  // for (size_t partId = 0; partId < codeGenInfo.partitionInfo.size(); partId++) {
-  //   const auto &eachPart = codeGenInfo.partitionInfo[partId];
-  //   llvm::outs() << "Partition " << partId << "\n";
-  //   eachPart.opStatistics.print();
-  // }
+//   // for (size_t partId = 0; partId < codeGenInfo.partitionInfo.size(); partId++) {
+//   //   const auto &eachPart = codeGenInfo.partitionInfo[partId];
+//   //   llvm::outs() << "Partition " << partId << "\n";
+//   //   eachPart.opStatistics.print();
+//   // }
 
-  // Do not fill signal names. Values may now be reclaimed
-  SchedulerBase::fillDebugInfo(false);
+//   // Do not fill signal names. Values may now be reclaimed
+//   // SchedulerBase::fillDebugInfo(false);
 
-  return success();
-}
+//   return success();
+// }
 
-LogicalResult RepCutPartitioner::partitionAndSchedule(mlir::MLIRContext *context, DesignGraph &graph) {
-  auto ret = _partition(context, graph);
-  if (failed(ret)) return failure();
+// LogicalResult RepCutPartitioner::partitionAndSchedule(mlir::MLIRContext *context, DesignGraph &graph) {
+//   auto ret = _partition(context, graph);
+//   if (failed(ret)) return failure();
 
-  // Levelize
-  auto levelize_stat = levelizeAllPartitions(context);
-  assert(succeeded(levelize_stat));
+//   // Levelize
+//   auto levelize_stat = levelizeAllPartitions(context);
+//   assert(succeeded(levelize_stat));
 
-  return _schedule(context, graph);
-}
+//   return _schedule(context, graph);
+// }
 
 void RepCutPartitioner::dumpGraphToFile(const PartitioningGraph &g, std::string fileName) const {
   auto ofs = std::ofstream(fileName);
