@@ -392,13 +392,8 @@ void SingleRegionMicroPartScheduler::fillRegPool(mlir::SmallVector<mlir::SmallVe
 void SingleRegionMicroPartScheduler::fillMemPool(const PartitioningGraph &graph) {
   // Here we assume each memory has at least 1 writer
   uint64_t memBaseAddr = 0;
-  for (auto vtxId : boost::make_iterator_range(vertices(graph))) {
-    // for each mem write
-    auto vtxOpName = graph[vtxId].toucanOpName;
-    if (vtxOpName == CGToucanOPName::MemWrite) {
-      // Note: For now, mems with multiple write ports are still merged, so at this time, each memory will only have 1 writer.
-      auto memWriteOp = cast<toucan::MemWriteOp>(graph[vtxId].op);
-      auto memVal = memWriteOp.getMem();
+
+  auto allocateNewMem = [&](mlir::TypedValue<toucan::MemType> memVal, bool hasMultipleWriter) {
       auto memDefiningOp = memVal.getDefiningOp();
 
       CGMemMetaInfo memMeta;
@@ -413,7 +408,7 @@ void SingleRegionMicroPartScheduler::fillMemPool(const PartitioningGraph &graph)
       }
       memMeta.bitWidth = memVal.getType().getElementWidth();
       memMeta.memDepth = memVal.getType().getDepth();
-      memMeta.hasMultipleWriter = (graph[vtxId].opCount > 1);
+      memMeta.hasMultipleWriter = hasMultipleWriter;
 
       // if a memory has multiple writer, add extra padding to avoid possible write conflict
       assert(memMeta.bitWidth <= 4);
@@ -424,22 +419,40 @@ void SingleRegionMicroPartScheduler::fillMemPool(const PartitioningGraph &graph)
       auto memId = codeGenInfo.memPool.size();
       codeGenInfo.memPool.push_back(memMeta);
       codeGenInfo.toucanMemToId[memVal] = memId;
+  };
+
+  for (auto vtxId : boost::make_iterator_range(vertices(graph))) {
+    // for each mem write
+    auto vtxOpName = graph[vtxId].toucanOpName;
+    if (vtxOpName == CGToucanOPName::MemWrite) {
+      // Note: For now, mems with multiple write ports are still merged, so at this time, each memory will only have 1 writer.
+      auto memWriteOp = cast<toucan::MemWriteOp>(graph[vtxId].op);
+      auto memVal = memWriteOp.getMem();
+      auto hasMultipleWriter = (graph[vtxId].opCount > 1);
+      allocateNewMem(memVal, hasMultipleWriter);
     }
   }
-  codeGenInfo.totalMemSize = memBaseAddr;
 
-  // Double check
+  // llvm::dbgs() << "Collect " << codeGenInfo.toucanMemToId.size() << " mems\n";
+
   for (auto vtxId : boost::make_iterator_range(vertices(graph))) {
     // for each mem write
     auto vtxOpName = graph[vtxId].toucanOpName;
     if (vtxOpName == CGToucanOPName::MemRead) {
-      // Note: For now, mems with multiple write ports are still merged, so at this time, each memory will only have 1 writer.
+      // Note: Also allocate space for read only memory, though they are never written
       auto memReadOp = cast<toucan::MemReadOp>(graph[vtxId].op);
       auto memVal = memReadOp.getMem();
 
-      assert(codeGenInfo.toucanMemToId.contains(memVal));
+      if (!codeGenInfo.toucanMemToId.contains(memVal)) {
+        auto valDefiningOp = memVal.getDefiningOp();
+        valDefiningOp->emitWarning("This memory has reader but no writer!");
+
+        allocateNewMem(memVal, false);
+      }
     }
   }
+
+  codeGenInfo.totalMemSize = memBaseAddr;
 }
 
 void SingleRegionMicroPartScheduler::generateRegMemLayout(const PartitioningGraph &graph, const mlir::SmallVector<mlir::SmallVector<uint32_t>> &partNodeLis) {
