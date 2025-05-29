@@ -634,29 +634,23 @@ void SingleRegionMicroPartScheduler::scheduleRegReads(const PartitioningGraph &g
     auto tOpName = graph[vtxId].toucanOpName;
 
     auto op = graph[vtxId].op;
+
+    assert(tOpName == CGToucanOPName::RegRead && "Expect reg read only!");
+    // a regread
+    auto regReadOp = cast<toucan::RegReadOp>(op);
+    auto regVal = regReadOp.getReg();
+    assert(codeGenInfo.toucanRegToId.contains(regVal) && "A register that never seen was read!");
+    auto regValId = codeGenInfo.toucanRegToId[regVal];
+
+    assert(partInfo.valueToValId.contains(regReadOp.getResult()));
     CGOpMetaInfo opMeta;
     opMeta.opName = tOpName;
     opMeta.op = op;
     opMeta.vtxId = vtxId;
+    opMeta.regRead.reg = regValId;
+    opMeta.regRead.result = partInfo.valueToValId[regReadOp.getResult()];
     populateOpMetaDebugInfo(opMeta, op);
-
-    if (tOpName == CGToucanOPName::RegRead) {
-      // a regread
-      auto regReadOp = cast<toucan::RegReadOp>(op);
-      auto regVal = regReadOp.getReg();
-      assert(codeGenInfo.toucanRegToId.contains(regVal) && "A register that never seen was read!");
-      auto regValId = codeGenInfo.toucanRegToId[regVal];
-
-      assert(partInfo.valueToValId.contains(regReadOp.getResult()));
-
-      opMeta.regRead.reg = regValId;
-      opMeta.regRead.result = partInfo.valueToValId[regReadOp.getResult()];
-      currentLevelOps.push_back(opMeta);
-
-      
-    } else {
-      llvm_unreachable("Should not reach here");
-    }
+    currentLevelOps.push_back(opMeta);
   }
 
   // Save ops
@@ -674,31 +668,27 @@ void SingleRegionMicroPartScheduler::scheduleRegWrites(const PartitioningGraph &
     auto vtxOpName = graph[vtxId].toucanOpName;
     auto rawOp = graph[vtxId].op;
 
+    assert(vtxOpName == CGToucanOPName::RegWrite && "Other type of ops should not appear in last level");
+
+    auto regWriteOp = cast<toucan::RegWriteOp>(rawOp);
+    auto regVal = regWriteOp.getReg();
+    auto dataVal = regWriteOp.getData();
+
+    assert(codeGenInfo.toucanRegToId.contains(regVal) && "A register never seen was written!");
+    auto regValId = codeGenInfo.toucanRegToId[regVal];
+    assert(partInfo.valueToValId.contains(dataVal) && "A value never seen was read!");
+    auto dataValId = partInfo.valueToValId[dataVal];
+
     CGOpMetaInfo opMeta;
     opMeta.op = rawOp;
     opMeta.opName = vtxOpName;
     opMeta.vtxId = vtxId;
+    opMeta.regWrite.reg = regValId;
+    opMeta.regWrite.dat = dataValId;
+    populateOpMetaDebugInfo(opMeta, rawOp);
 
-    if (vtxOpName == CGToucanOPName::RegWrite) {
-      // regwrite
-
-      auto regWriteOp = cast<toucan::RegWriteOp>(rawOp);
-      auto regVal = regWriteOp.getReg();
-      auto dataVal = regWriteOp.getData();
-
-      assert(codeGenInfo.toucanRegToId.contains(regVal) && "A register never seen was written!");
-      auto regValId = codeGenInfo.toucanRegToId[regVal];
-      assert(partInfo.valueToValId.contains(dataVal) && "A value never seen was read!");
-      auto dataValId = partInfo.valueToValId[dataVal];
-
-      opMeta.regWrite.reg = regValId;
-      opMeta.regWrite.dat = dataValId;
-
-      // Namehint not needed for last level ops
-      regWriteOps.push_back(opMeta);
-    } else {
-      llvm_unreachable("Other type of ops should not appear in last level");
-    }
+    // Namehint not needed for last level ops
+    regWriteOps.push_back(opMeta);
   }
 
   std::swap(partInfo.regWriteOps, regWriteOps);
@@ -712,56 +702,50 @@ void SingleRegionMicroPartScheduler::scheduleMemWrites(const PartitioningGraph &
     auto vtxOpName = graph[vtxId].toucanOpName;
     auto rawOp = graph[vtxId].op;
 
-    CGOpMetaInfo opMeta;
-    opMeta.op = rawOp;
-    opMeta.opName = vtxOpName;
-    opMeta.vtxId = vtxId;
+    assert(vtxOpName == CGToucanOPName::MemWrite && "Other type of ops should not appear in last level"); 
 
-    if (vtxOpName == CGToucanOPName::MemWrite) {
-      // memWrite
-      // Note: if there is multiple writers, they are all merged into 1 vtx
-      // Split
-      auto memVal = cast<toucan::MemWriteOp>(rawOp).getMem();
-      assert(codeGenInfo.toucanMemToId.contains(memVal));
-      auto memValId = codeGenInfo.toucanMemToId[memVal];
+    // memWrite
+    // Note: if there is multiple writers, they are all merged into 1 vtx
+    // Split
+    auto memVal = cast<toucan::MemWriteOp>(rawOp).getMem();
+    assert(codeGenInfo.toucanMemToId.contains(memVal));
+    auto memValId = codeGenInfo.toucanMemToId[memVal];
 
-      for (auto userOp: memVal.getUsers()) {
-        if (auto memWriteOp = dyn_cast<toucan::MemWriteOp>(userOp)) {
-          // for each writer
+    uint32_t thisNodeOpCount = 0;
+    for (auto userOp: memVal.getUsers()) {
+      if (auto memWriteOp = dyn_cast<toucan::MemWriteOp>(userOp)) {
+        // for each writer
+        auto dataVal = memWriteOp.getData();
+        auto enVal = memWriteOp.getEn();
 
-          CGOpMetaInfo mwOpMeta;
-          mwOpMeta.op = rawOp;
-          mwOpMeta.opName = vtxOpName;
-          mwOpMeta.vtxId = vtxId;
+        assert(partInfo.valueToValId.contains(dataVal));
+        auto dataValId = partInfo.valueToValId[dataVal];
+        assert(partInfo.valueToValId.contains(enVal));
+        auto enValId = partInfo.valueToValId[enVal];
 
-          auto dataVal = memWriteOp.getData();
-          auto enVal = memWriteOp.getEn();
+        auto memAddrVec = memWriteOp.getAddrVec();
+        auto memAddrVecId = partInfo.valueToValId[memAddrVec];
+        assert(memAddrVec.getType().getLength() == 8 && "Memory address should be 32 bit vector");
 
-          assert(partInfo.valueToValId.contains(dataVal));
-          auto dataValId = partInfo.valueToValId[dataVal];
-          assert(partInfo.valueToValId.contains(enVal));
-          auto enValId = partInfo.valueToValId[enVal];
+        CGOpMetaInfo mwOpMeta;
+        mwOpMeta.op = rawOp;
+        mwOpMeta.opName = vtxOpName;
+        mwOpMeta.vtxId = vtxId;
 
-          auto memAddrVec = memWriteOp.getAddrVec();
-          auto memAddrVecId = partInfo.valueToValId[memAddrVec];
-          assert(memAddrVec.getType().getLength() == 8 && "Memory address should be 32 bit vector");
+        mwOpMeta.memWrite.hasMultipleWriter = codeGenInfo.memPool[memValId].hasMultipleWriter;
+        mwOpMeta.memWrite.memBase = codeGenInfo.memPool[memValId].memBase;
+        mwOpMeta.memWrite.memDepth = codeGenInfo.memPool[memValId].memDepth;
+        mwOpMeta.memWrite.addrVec = memAddrVecId;
+        mwOpMeta.memWrite.dat = dataValId;
+        mwOpMeta.memWrite.en = enValId;
+        populateOpMetaDebugInfo(mwOpMeta, memWriteOp);
 
-          mwOpMeta.memWrite.hasMultipleWriter = codeGenInfo.memPool[memValId].hasMultipleWriter;
-          mwOpMeta.memWrite.memBase = codeGenInfo.memPool[memValId].memBase;
-          mwOpMeta.memWrite.memDepth = codeGenInfo.memPool[memValId].memDepth;
-
-          mwOpMeta.memWrite.addrVec = memAddrVecId;
-
-          mwOpMeta.memWrite.dat = dataValId;
-          mwOpMeta.memWrite.en = enValId;
-
-          // Namehint not needed for last level ops
-          memWriteOps.push_back(mwOpMeta);
-        }
+        // Namehint not needed for last level ops
+        memWriteOps.push_back(mwOpMeta);
+        thisNodeOpCount ++;
       }
-    } else {
-      llvm_unreachable("Other type of ops should not appear in last level");
     }
+    assert(graph[vtxId].opCount == thisNodeOpCount);
   }
 
   std::swap(partInfo.memWriteOps, memWriteOps);
@@ -775,28 +759,23 @@ void SingleRegionMicroPartScheduler::scheduleStops(const PartitioningGraph &grap
     auto vtxOpName = graph[vtxId].toucanOpName;
     auto rawOp = graph[vtxId].op;
 
+    assert(vtxOpName == CGToucanOPName::Stop && "Other type of ops should not appear in last level");
+
+    auto stopOp = cast<toucan::StopOp>(rawOp);
+    auto enVal = stopOp.getEn();
+
+    assert(partInfo.valueToValId.contains(enVal));
+    auto enValId = partInfo.valueToValId[enVal];
+
     CGOpMetaInfo opMeta;
     opMeta.op = rawOp;
     opMeta.opName = vtxOpName;
     opMeta.vtxId = vtxId;
+    opMeta.stop.en = enValId;
 
-    if (vtxOpName == CGToucanOPName::Stop) {
-      // stop
+    // Namehint not needed for last level ops
+    stopOps.push_back(opMeta);
 
-      auto stopOp = cast<toucan::StopOp>(rawOp);
-      auto enVal = stopOp.getEn();
-
-      assert(partInfo.valueToValId.contains(enVal));
-      auto enValId = partInfo.valueToValId[enVal];
-
-      opMeta.stop.en = enValId;
-
-      // Namehint not needed for last level ops
-      stopOps.push_back(opMeta);
-
-    } else {
-      llvm_unreachable("Other type of ops should not appear in last level");
-    }
   }
 
   std::swap(partInfo.stopOps, stopOps);
@@ -811,34 +790,31 @@ void SingleRegionMicroPartScheduler::schedulePrints(const PartitioningGraph &gra
     auto vtxOpName = graph[vtxId].toucanOpName;
     auto rawOp = graph[vtxId].op;
 
+
+    assert(vtxOpName == CGToucanOPName::Print && "Other type of ops should not appear in last level");
+
+
+    auto printOp = cast<toucan::PrintOp>(rawOp);
+    auto printStr = printOp.getMsg();
+    auto enVal = printOp.getEn();
+
+    assert(partInfo.valueToValId.contains(enVal));
+    auto enValId = partInfo.valueToValId[enVal];
+    
+    assert(codeGenInfo.printStrings.contains(printStr));
+    auto printStrId = codeGenInfo.printStrings[printStr];
+
     CGOpMetaInfo opMeta;
     opMeta.op = rawOp;
     opMeta.opName = vtxOpName;
     opMeta.vtxId = vtxId;
+    opMeta.print.en = enValId;
+    opMeta.print.msg = printStrId;
+
+    // Namehint not needed for last level ops
+    printOps.push_back(opMeta);
 
 
-    if (vtxOpName == CGToucanOPName::Print) {
-      // print
-
-      auto printOp = cast<toucan::PrintOp>(rawOp);
-      auto printStr = printOp.getMsg();
-      auto enVal = printOp.getEn();
-
-      assert(partInfo.valueToValId.contains(enVal));
-      auto enValId = partInfo.valueToValId[enVal];
-      
-      assert(codeGenInfo.printStrings.contains(printStr));
-      auto printStrId = codeGenInfo.printStrings[printStr];
-
-      opMeta.print.en = enValId;
-      opMeta.print.msg = printStrId;
-
-      // Namehint not needed for last level ops
-      printOps.push_back(opMeta);
-
-    } else {
-      llvm_unreachable("Other type of ops should not appear in last level");
-    }
   }
 
   std::swap(partInfo.printOps, printOps);
@@ -1303,7 +1279,7 @@ static void scheduleSpecialMicroPart(const PartitioningGraph &graph, CGMicroPart
         bool isConstVec = isa<toucan::DefConstVectorOp>(vecVal.getDefiningOp());
         if (!isConstVec) assert(isa<toucan::DefVectorOp>(vecVal.getDefiningOp()));
 
-
+        uint32_t thisNodeOpCount = 0;
         for (auto userOp: vecVal.getUsers()) {
           if (auto vecReadOp = dyn_cast<toucan::VectorReadOp>(userOp)) {
 
@@ -1354,8 +1330,10 @@ static void scheduleSpecialMicroPart(const PartitioningGraph &graph, CGMicroPart
             assert(opIndex <= 32);
             opIndex++;
             assert(opIndex == part.vecRead.size());
+            thisNodeOpCount++;
           }
         }
+        assert(thisNodeOpCount == graph[vtx].opCount);
 
       }
       break;
@@ -1363,6 +1341,9 @@ static void scheduleSpecialMicroPart(const PartitioningGraph &graph, CGMicroPart
     case CGToucanOPName::VecLogic:{
       for (auto vtx: mPart.levels[0]) {
         auto rawOp = graph[vtx].op;
+        auto opCount = graph[vtx].opCount;
+        assert(opCount == 1);
+
         auto vecLogicOp = cast<toucan::VectorLogicOp>(rawOp);
 
         auto v1Val = vecLogicOp.getV1();
@@ -1410,6 +1391,9 @@ static void scheduleSpecialMicroPart(const PartitioningGraph &graph, CGMicroPart
     case CGToucanOPName::VecArith:{
       for (auto vtx: mPart.levels[0]) {
         auto rawOp = graph[vtx].op;
+        auto opCount = graph[vtx].opCount;
+        assert(opCount == 1);
+
         auto vecArithOp = cast<toucan::VectorArithOp>(rawOp);
 
         auto v1Val = vecArithOp.getV1();
@@ -1459,6 +1443,9 @@ static void scheduleSpecialMicroPart(const PartitioningGraph &graph, CGMicroPart
     case CGToucanOPName::MemRead:{
       for (auto vtx: mPart.levels[0]) {
         auto rawOp = graph[vtx].op;
+        auto opCount = graph[vtx].opCount;
+        assert(opCount == 1);
+
         auto memReadOp = cast<toucan::MemReadOp>(rawOp);
         auto memVal = memReadOp.getMem();
         auto memValId = toucanMemToId.at(memVal);
