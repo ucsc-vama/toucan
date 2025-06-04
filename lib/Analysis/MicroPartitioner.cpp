@@ -1,9 +1,14 @@
 #include "toucan/MicroPartitioner.h"
 
 #include "mlir/IR/Diagnostics.h"
+#include "mlir/IR/Operation.h"
+#include "mlir/IR/Value.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 #include "toucan/PartitioningGraph.h"
+#include "toucan/ToucanOps.h"
+#include "toucan/ToucanTypes.h"
+#include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/Program.h"
 #include "llvm/Support/raw_ostream.h"
@@ -78,35 +83,6 @@ static void packNodes(const mlir::SmallVector<NodeIdAndOpCount>& nodesSorted,
   }
 }
 
-static void printPackingResult(const mlir::SmallVector<mlir::SmallVector<NodeIdAndOpCount>>& resultPacks) {
-  using namespace llvm;
-  
-  outs() << "Packing result (" << resultPacks.size() << " packs):\n";
-  
-  // Track node distribution
-  std::map<uint32_t, SmallVector<uint32_t>> nodeParts;
-
-  for (size_t i = 0; i < resultPacks.size(); ++i) {
-    outs() << "Pack " << i << ":\n";
-    for (const auto& item : resultPacks[i]) {
-      outs() << "  Node " << item.node << ": " << item.opCount << " ops\n";
-      nodeParts[item.node].push_back(item.opCount);
-    }
-  }
-
-  // Print node splits
-  outs() << "\nNode operations:\n";
-  for (const auto& [node, parts] : nodeParts) {
-    outs() << "Node " << node << ": ";
-    uint32_t total = 0;
-    for (size_t i = 0; i < parts.size(); ++i) {
-      if (i > 0) outs() << " + ";
-      outs() << parts[i];
-      total += parts[i];
-    }
-    outs() << " = " << total << "\n";
-  }
-}
 
 LogicalResult MicroPartitioner::arrangeSpecialOps(PartitioningGraph &g) {
 
@@ -118,6 +94,8 @@ LogicalResult MicroPartitioner::arrangeSpecialOps(PartitioningGraph &g) {
 
   mlir::SmallVector<mlir::SmallVector<uint32_t>> excludeNodeGroupedByOp;
   excludeNodeGroupedByOp.resize(maxOpToInt + 1);
+
+  mlir::SmallVector<mlir::Operation*> specialOps;
 
 
 
@@ -184,19 +162,45 @@ LogicalResult MicroPartitioner::arrangeSpecialOps(PartitioningGraph &g) {
             assert(idAndOpCount[i].opCount >= idAndOpCount[i+1].opCount);
           }
 
-          mlir::SmallVector<mlir::SmallVector<NodeIdAndOpCount>> resultPacks;
-          packNodes(idAndOpCount, resultPacks);
-          outs() << stringifyCGToucanOPName(vtxOpName) << ":\n";
-          printPackingResult(resultPacks);
+          specialOps.clear();
+          for (auto [eachVtx, opCount]: idAndOpCount) {
+            auto rawOp = g[eachVtx].op;
+            assert(rawOp != nullptr);
+            if (opCount == 1) {
+              specialOps.push_back(rawOp);
+            } else {
+              // multiple
+              uint32_t thisNodeOpCount = 0;
+              if (auto vecReadOp = dyn_cast<toucan::VectorReadOp>(rawOp)) {
+                auto vecVal = vecReadOp.getHandle();
 
-
-          // create new partitions
-          for (auto &eachPartNodes: resultPacks) {
-            MicroPart newPart;
-            newPart.buildSpecialPart(vtxOpName, eachPartNodes);
-
-            partLevels[levelId].push_back(newPart);
+                for (auto userOp: vecVal.getUsers()) {
+                  if (isa<toucan::VectorReadOp>(userOp)) {
+                    specialOps.push_back(userOp);
+                    thisNodeOpCount++;
+                  }
+                }
+              } else {
+                llvm_unreachable("Unexpected node with opCount != 1");
+              }
+              assert(thisNodeOpCount == opCount);
+            }
           }
+
+          // for every 32
+          mlir::SmallVector<mlir::Operation*> thisPartOps;
+          for (size_t i = 0; i < specialOps.size(); i++) {
+            thisPartOps.push_back(specialOps[i]);
+
+            if (thisPartOps.size() == 32 || i+1 == specialOps.size()) {
+              MicroPart newPart;
+              newPart.buildSpecialPart(vtxOpName, thisPartOps);
+              newPart.lineno = UINT32_MAX;
+              partLevels[levelId].push_back(newPart);
+              thisPartOps.clear();
+            }
+          }
+          assert(thisPartOps.size() == 0);
 
           break;
         }
@@ -419,12 +423,15 @@ mlir::LogicalResult MicroPartitioner::loadMicroParts() {
 
       auto &newPart = partLevels.back().back();
       newPart.buildRegularLUTPart(newPartNodesLevel);
+      newPart.lineno = lineno;
     } else {
       llvm::errs() << "Cannot parse line\n" << line;
       return failure();
     }
     lineno ++;
   }
+
+  // Note: It's possible to collect more nodes than repcut nodes, since some VecDecl nodes are converted to multiple NOPs by MicroPart partitioner
 
   return success();
 }
@@ -500,15 +507,17 @@ void MicroPartitioner::collectPartIOValues(const PartitioningGraph &g) {
   }
 
   // 2. collect for all parts
+  // uint32_t levelId = 0;
   for (auto &eachPartLevel: partLevels) {
     for (auto &eachPart: eachPartLevel) {
-      auto partGood = eachPart.checkAndCollectIOValues(g, newNodeIdToDepNodeId, newNodeIdToOriginalVecDeclId);
+      auto partGood = eachPart.checkAndCollectIOValues(g, allNodes, newNodeIdToDepNodeId, newNodeIdToOriginalVecDeclId);
 
       if (!partGood) {
         llvm::errs() << "Error when checking micro parts\n";
         llvm_unreachable("Not suppose to happen");
       }
     }
+    // levelId++;
   }
 }
 

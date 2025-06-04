@@ -51,31 +51,39 @@ namespace toucan {
   // MicroPart data structure
   class MicroPart {
     public:
+    uint32_t lineno;
+
     mlir::DenseSet<uint32_t> nodes;
     // NodeId to ops ** in this part **
     mlir::DenseMap<uint32_t, uint32_t> nodeToOpCount;
     // LUT(and VecDecl), VecRead, RegRead, 
     CGToucanOPName opType;
     uint32_t totalOpCount;
+    mlir::DenseSet<mlir::Value> inputValues, outputValueSet;
+    mlir::SmallVector<mlir::Value> outputValues;
+
 
     // Only records levels! (unordered)
+    // Valid for normal part
     mlir::SmallVector<mlir::SmallVector<uint32_t>> levels;
     mlir::DenseMap<uint32_t, uint32_t> nodeToLevel;
-
-    mlir::DenseSet<mlir::Value> inputValues, outputValues;
     mlir::DenseMap<uint32_t, mlir::SmallVector<mlir::Value>> nodeToInputVals;
     mlir::DenseMap<uint32_t, mlir::Value> nodeToOutputVal;
-    int max_live_vars;
+
+    // Valid for special ops
+    mlir::SmallVector<mlir::Operation*> specialOps;
+
+
 
     // void schedule();
     void clear();
 
     void buildRegularLUTPart(const mlir::SmallVector<mlir::SmallVector<uint32_t>> &newNodesLevel);
-    void buildSpecialPart(const CGToucanOPName vtxOpName, const mlir::SmallVector<NodeIdAndOpCount> &nodeAllocation);
+    void buildSpecialPart(const CGToucanOPName vtxOpName, const mlir::SmallVector<mlir::Operation*> &rawOps);
 
 
     
-    bool checkAndCollectIOValues(const PartitioningGraph &g, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToDepNodeId, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToOriginalVecDeclId);
+    bool checkAndCollectIOValues(const PartitioningGraph &g, const mlir::DenseSet<uint32_t> &allNodes, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToDepNodeId, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToOriginalVecDeclId);
 
     // void moveOutputValsToLastLevel();
     // void collectValueLifetime();
@@ -87,11 +95,16 @@ namespace toucan {
 
     private:
     void updateNodeToLevel();
+
+    bool checkAndCollectRegularPartIOValues(const PartitioningGraph &g, const mlir::DenseSet<uint32_t> &allNodes, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToDepNodeId, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToOriginalVecDeclId);
+
+    bool checkAndCollectSpecialPartIOValues(const PartitioningGraph &g, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToDepNodeId, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToOriginalVecDeclId);
   };
 
   // A secondary level partitioner. Accepts repcut graph file.
   class MicroPartitioner {
     public:
+    mlir::DenseSet<uint32_t> allNodes;
     std::vector<std::vector<MicroPart>> partLevels;
     // RegReads at first level, should be ordered by its memory location in the scheduler
     mlir::SmallVector<uint32_t> allRegReads;
@@ -106,7 +119,10 @@ namespace toucan {
     mlir::DenseMap<uint32_t, uint32_t> newNodeIdToOriginalVecDeclId;
     mlir::DenseMap<uint32_t, uint32_t> newNodeIdToDepNodeId;
 
-    MicroPartitioner(std::filesystem::path workDirectory, size_t partId, mlir::DenseMap<uint32_t, mlir::SmallVector<uint32_t>> vectorElementsMap) : originalVectorElementsMap(vectorElementsMap), partId(partId), workDirectory(workDirectory) {
+    MicroPartitioner(const mlir::SmallVector<uint32_t> &thisRepCutPartition, std::filesystem::path workDirectory, size_t partId, mlir::DenseMap<uint32_t, mlir::SmallVector<uint32_t>> vectorElementsMap) : originalVectorElementsMap(vectorElementsMap), partId(partId), workDirectory(workDirectory) {
+      allNodes.insert(thisRepCutPartition.begin(), thisRepCutPartition.end());
+      assert(allNodes.size() == thisRepCutPartition.size() && "RepCut partition should not have duplicated node!");
+
       std::ostringstream oss;
       oss << graphFilePrefix << partId << graphFileSuffix;
       inputGraphFile = workDirectory / oss.str();

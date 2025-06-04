@@ -100,6 +100,7 @@ LogicalResult RepCutPartitioner::_partition(mlir::MLIRContext *context, DesignGr
   llvm::outs() << "====================Partitioning====================\n";
 
   // Save graph to file for debug purpose.
+  /*
   std::thread bgDumpThread([&]() {
     auto start = std::chrono::high_resolution_clock::now();
     dumpGraphToFile(graph.g, wholeGraphPath);
@@ -112,6 +113,7 @@ LogicalResult RepCutPartitioner::_partition(mlir::MLIRContext *context, DesignGr
     std::string msg = msgOss.str();
     llvm::outs() << msg;
   });
+  */
 
   auto ret = mlir::failableParallelForEach(context, regionIds.begin(), regionIds.end(), [&](uint32_t regionId) {
     auto start = std::chrono::high_resolution_clock::now();
@@ -167,7 +169,7 @@ LogicalResult RepCutPartitioner::_partition(mlir::MLIRContext *context, DesignGr
     return ret;
   });
 
-  bgDumpThread.join();
+  // bgDumpThread.join();
 
   if (failed(ret)) return ret;
 
@@ -215,12 +217,30 @@ LogicalResult RepCutPartitioner::_partition(mlir::MLIRContext *context, DesignGr
 //   return _schedule(context, graph);
 // }
 
+bool are_ids_consecutive(const PartitioningGraph& g) {
+  auto [begin, end] = vertices(g);
+  for (size_t i = 0; begin != end; ++begin, ++i) {
+    if (*begin != i) return false;
+  }
+  return true;
+}
+
+
 void RepCutPartitioner::dumpGraphToFile(const PartitioningGraph &g, std::string fileName) const {
   auto ofs = std::ofstream(fileName);
+
+  assert(are_ids_consecutive(g));
 
   ofs << boost::num_edges(g) << ' ' << boost::num_vertices(g) << "\n";
 
   auto numVtxes = boost::num_vertices(g);
+  // std::vector<uint32_t> allVtxes;
+  // allVtxes.reserve(numVtxes);
+
+  // for (auto vtx: boost::make_iterator_range((boost::vertices(g)))) {
+  //   allVtxes.push_back(vtx);
+  // }
+  //   ofs << vtx << ' ';
   for (uint32_t vtx = 0; vtx < numVtxes; vtx++) {
     ofs << stringifyCGToucanOPName(g[vtx].toucanOpName);
 
@@ -247,14 +267,12 @@ void RepCutPartitioner::dumpSinglePartitionToFile(const PartitioningGraph &g, ml
   size_t numValidVtxes = 0, numValidEdges = 0;
 
 
-  auto numVtxes = boost::num_vertices(g);
-  for (uint32_t vtx = 0; vtx < numVtxes; vtx++) {
-    if (!partNodeSet.contains(vtx)) {
-      // Not belongs to this partition
-      oss << "INVALID -1\n";
-    } else {
+  for (auto vtx: boost::make_iterator_range((boost::vertices(g)))) {
+    if (partNodeSet.contains(vtx)) {
       // valid node
       numValidVtxes++;
+
+      oss << vtx << ' ';
 
       oss << stringifyCGToucanOPName(g[vtx].toucanOpName);
       oss << ' ' << g[vtx].weight;

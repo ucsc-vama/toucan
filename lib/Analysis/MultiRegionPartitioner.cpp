@@ -29,6 +29,7 @@
 #include <cstdint>
 
 #include <boost/graph/topological_sort.hpp>
+#include <boost/graph/copy.hpp>
 #include <cstring>
 #include <iterator>
 #include <array>
@@ -132,7 +133,8 @@ void MultiRegionPartitioner::findCutPoints(DesignGraph &graph) {
 void MultiRegionPartitioner::doNotCutGraph(DesignGraph &graph) {
   assert(cutPoints.empty());
   regionGraphs.clear();
-  regionGraphs.push_back(graph.g);
+  regionGraphs.emplace_back();
+  boost::copy_graph(graph.g, regionGraphs[0]);
 
   uint32_t numVtxes = boost::num_vertices(graph.g);
 
@@ -594,12 +596,12 @@ void MultiRegionPartitioner::breakDirectIOConnection() {
   for (auto & eachRegionGraph: regionGraphs) {
     mlir::SmallVector<std::pair<uint32_t, uint32_t>> edgesToBreak;
 
-    // assume vtxid is continuous. i.e. no vtx removed ever
     for (auto srcVtx : boost::make_iterator_range(vertices(eachRegionGraph))) {
       auto srcTOpName = eachRegionGraph[srcVtx].toucanOpName;
       bool srcVtxIsExgRead = (srcTOpName == CGToucanOPName::ExchangeRead);
+      bool srcVtxIsRegRead = (srcTOpName == CGToucanOPName::RegRead);
 
-      if (srcTOpName == CGToucanOPName::RegRead || srcTOpName == CGToucanOPName::ExchangeRead) {
+      if (srcVtxIsRegRead || srcVtxIsExgRead) {
         // an input node
         // auto srcOp = eachRegionGraph[srcVtx].op;
         // assert(srcOp == nullptr || isa<toucan::RegReadOp>(srcOp));

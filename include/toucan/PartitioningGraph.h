@@ -74,7 +74,7 @@ namespace toucan {
 
   // typedef boost::adjacency_list<boost::listS, boost::vecS, boost::bidirectionalS, PartitioningGraphNodeProperty, boost::no_property> PartitioningGraph;
 
-  void mergeVerticies(uint32_t dst, const mlir::SmallVector<uint32_t> &toMerge, PartitioningGraph &g);
+  void mergeVerticies(uint32_t dst, const mlir::SmallVector<uint32_t> &toMerge, PartitioningGraph &g, bool increaseOpCount);
 
   bool partitioningGraphHasCycle(const PartitioningGraph &graph);
 

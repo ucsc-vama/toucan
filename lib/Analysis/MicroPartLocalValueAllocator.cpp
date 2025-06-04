@@ -7,6 +7,7 @@
 
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Pass/AnalysisManager.h"
 #include "mlir/Support/LLVM.h"
@@ -382,18 +383,41 @@ void MicroPartLocalValueAllocator::collectValueLifetime(const PartitioningGraph 
         // update val end time accordingly
         if (!isa<toucan::DefConstVectorOp>(eachInVal.getDefiningOp())) {
           // ignore const vec. They are placed in constVecPool and always alive
+          if (!valToLifeTime.contains(eachInVal)) {
+            llvm::dbgs() << "Level " << levelId << ": value not found in life time pool. Defining op:\n";
+            eachInVal.getDefiningOp()->print(llvm::dbgs());
+
+            llvm::dbgs() << "\n";
+          }
           assert(valToLifeTime.contains(eachInVal));
           auto oldValEndTime = valToLifeTime[eachInVal].end;
           assert(oldValEndTime <= levelId);
           valToLifeTime[eachInVal].end = levelId;
         }
       }
-      for (const auto &eachOutVal: eachMPart.outputValues) {
+      for (const auto &eachOutVal: eachMPart.outputValueSet) {
         // update val start time accordingly
+        // ignore const vec. They are placed in constVecPool and always alive
         if (!isa<toucan::DefConstVectorOp>(eachOutVal.getDefiningOp())) {
-          // ignore const vec. They are placed in constVecPool and always alive
-          assert(!valToLifeTime.contains(eachOutVal));
-          valToLifeTime[eachOutVal] = {levelId, levelId};
+          if (valToLifeTime.contains(eachOutVal)) {
+            // not the first time appear
+            if (!isa<mlir::TypedValue<toucan::VecType>>(eachOutVal)) {
+              llvm::dbgs() << "Level " << levelId << ": value duplicated in life time pool. Defining op:\n";
+              eachOutVal.getDefiningOp()->print(llvm::dbgs());
+
+              llvm::dbgs() << "\n";
+            }
+            assert(isa<mlir::TypedValue<toucan::VecType>>(eachOutVal));
+            auto oldStartTime = valToLifeTime[eachOutVal].start;
+            auto oldEndTime = valToLifeTime[eachOutVal].end;
+
+            assert(oldStartTime <= levelId);
+            // extend life time
+            valToLifeTime[eachOutVal].end = std::max(oldEndTime, levelId);
+          } else {
+            // a regular value or first appearance of a vector value
+            valToLifeTime[eachOutVal] = {levelId, levelId};
+          }
 
           if (isa<mlir::TypedValue<toucan::VecType>>(eachOutVal)) {
             // a vector
@@ -404,6 +428,8 @@ void MicroPartLocalValueAllocator::collectValueLifetime(const PartitioningGraph 
               vecValToLength[eachOutVal] = vecLength;
             }
           }
+          // TODO: also handles VecStaticSegReadOp
+          assert(!isa<toucan::VectorArithOp>(eachOutVal.getDefiningOp()));
         }
       }
     }

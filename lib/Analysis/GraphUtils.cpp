@@ -2,8 +2,9 @@
 #include <boost/graph/depth_first_search.hpp>
 
 using namespace toucan;
+using namespace llvm;
 
-void toucan::mergeVerticies(uint32_t dst, const mlir::SmallVector<uint32_t> &toMerge, PartitioningGraph &g) {
+void toucan::mergeVerticies(uint32_t dst, const mlir::SmallVector<uint32_t> &toMerge, PartitioningGraph &g, bool increseOpCount) {
   // Merge!
   // update edge
 
@@ -48,7 +49,7 @@ void toucan::mergeVerticies(uint32_t dst, const mlir::SmallVector<uint32_t> &toM
     }
   }
   // update op count
-  g[dst].opCount += mergedOpCount;
+  if (increseOpCount) g[dst].opCount += mergedOpCount;
 }
 
 

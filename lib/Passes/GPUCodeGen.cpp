@@ -31,6 +31,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <algorithm>
+#include <cstdlib>
 #include <iterator>
 #include <memory>
 #include <filesystem>
@@ -735,6 +736,7 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     std::vector<MicroPartitioner> mps;
     for (size_t regionId = 0; regionId < numRegions; regionId++) {
       auto regionGraph = p.regionGraphs[regionId];
+      auto &regionRepCutPartitions = p.regionPartitions[regionId];
       
       auto numParts = p.regionPartitions[regionId].size();
       mps.reserve(numParts);
@@ -744,11 +746,19 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
       for (size_t partId = 0; partId < numParts; partId++) {
         llvm::outs() << "Partitioning region " << regionId << " part " << partId << "\n";
 
-        mps.emplace_back(MicroPartitioner(thisRegionWorkDirectory, partId, p.originalVectorElementsMap));
+        auto thisRepCutPartition = regionRepCutPartitions[partId];
+
+        mps.emplace_back(MicroPartitioner(thisRepCutPartition, thisRegionWorkDirectory, partId, p.originalVectorElementsMap));
         auto &mp = mps.back();
 
         auto ret = mp.partition();
 
+        if (failed(ret)) {
+          signalPassFailure();
+          return;
+        }
+
+        ret = mp.arrangeSpecialOps(regionGraph);
         if (failed(ret)) {
           signalPassFailure();
           return;

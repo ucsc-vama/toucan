@@ -7,6 +7,8 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
+#include <algorithm>
+#include <cstddef>
 
 
 using namespace toucan;
@@ -16,8 +18,10 @@ void MicroPart::clear() {
   levels.clear();
   inputValues.clear();
   outputValues.clear();
+  outputValueSet.clear();
   nodeToInputVals.clear();
   nodeToOutputVal.clear();
+  specialOps.clear();
 }
 
 void MicroPart::updateNodeToLevel() {
@@ -55,35 +59,31 @@ void MicroPart::buildRegularLUTPart(const mlir::SmallVector<mlir::SmallVector<ui
 }
 
 
-void MicroPart::buildSpecialPart(const CGToucanOPName vtxOpName, const mlir::SmallVector<NodeIdAndOpCount> &nodeAllocation) {
+void MicroPart::buildSpecialPart(const CGToucanOPName vtxOpName, const mlir::SmallVector<mlir::Operation*> &rawOps) {
+  assert(rawOps.size() <= 32);
   assert(nodes.empty());
   assert(nodeToOpCount.empty());
-  totalOpCount = 0;
+  totalOpCount = rawOps.size();
   levels.clear();
-  levels.emplace_back();
 
-  for (auto [nodeId, opCount]: nodeAllocation) {
-    assert(!nodes.contains(nodeId));
-
-    nodes.insert(nodeId);
-    nodeToOpCount[nodeId] = opCount;
-    totalOpCount += opCount;
-    levels[0].push_back(nodeId);
+  for (auto rawOp: rawOps) {
+    specialOps.push_back(rawOp);
   }
 
   opType = vtxOpName;
   assert(opType != CGToucanOPName::LUT);
   assert(totalOpCount > 0);
   assert(totalOpCount <= 32 && "Number of real ops in a special part cannot exceed hardware limit!");
-  updateNodeToLevel();
 }
 
-// Check if op level acquired from MicroPartitioner is correct
-bool MicroPart::checkAndCollectIOValues(const PartitioningGraph &g, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToDepNodeId, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToOriginalVecDeclId) {
+
+bool MicroPart::checkAndCollectRegularPartIOValues(const PartitioningGraph &g, const mlir::DenseSet<uint32_t> &allNodes, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToDepNodeId, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToOriginalVecDeclId) {
+  assert(opType == toucan::CGToucanOPName::LUT);
   assert(!levels.empty() && "Only check and collect IO values if it's loaded");
 
   inputValues.clear();
   outputValues.clear();
+  outputValueSet.clear();
   nodeToInputVals.clear();
   nodeToOutputVal.clear();
 
@@ -102,19 +102,15 @@ bool MicroPart::checkAndCollectIOValues(const PartitioningGraph &g, const mlir::
       assert(nodes.contains(eachVtx));
       auto vtxIsDummyNop = newNodeIdToDepNodeId.contains(eachVtx);
 
-      if (opType == CGToucanOPName::LUT) {
-        // regular part
-        if (!vtxIsDummyNop) {
-          auto rawOp = g[eachVtx].op;
-          if (!isa<toucan::LUTOp>(rawOp)) {
-            rawOp->print(llvm::errs());
-            llvm::errs() << "\n";
-            llvm::errs() << "Op type in graph is " << stringifyCGToucanOPName(g[eachVtx].toucanOpName) << "\n";
-          }
-          assert(isa<toucan::LUTOp>(rawOp));
+      if (!vtxIsDummyNop) {
+        auto rawOp = g[eachVtx].op;
+        if (!isa<toucan::LUTOp>(rawOp)) {
+          rawOp->print(llvm::errs());
+          llvm::errs() << "\n";
+          llvm::errs() << "Op type in graph is " << stringifyCGToucanOPName(g[eachVtx].toucanOpName) << "\n";
         }
+        assert(isa<toucan::LUTOp>(rawOp));
       }
-      
 
       // Must read something
       auto inDegree = boost::in_degree(eachVtx, g);
@@ -135,7 +131,7 @@ bool MicroPart::checkAndCollectIOValues(const PartitioningGraph &g, const mlir::
         auto depOp = g[depVtx].op;
 
         if (nodes.contains(depVtx)) {
-          // internal node read
+          // internal node read and write to vector. Just check correctness
           auto depVtxLevel = nodeToLevel[depVtx];
 
           if (depVtxLevel + 1 != levelId) {
@@ -151,7 +147,16 @@ bool MicroPart::checkAndCollectIOValues(const PartitioningGraph &g, const mlir::
             return false;
           }
         } else {
-          // a vecDecl read from outside
+          // a vecDecl reads element from outside
+          if (isa<toucan::DefVectorOp>(depOp)) {
+            llvm::dbgs() << "Op\n";
+            auto rawOp = g[newNodeIdToOriginalVecDeclId.at(eachVtx)].op;
+            rawOp->print(llvm::dbgs());
+            llvm::dbgs() << "\nDepends on external vector:\n";
+            depOp->print(llvm::dbgs());
+            llvm::dbgs() << "\n";
+          }
+          assert(!isa<toucan::DefVectorOp>(depOp));
           auto depValue = getOpResultValue(depOp);
           if (!isa<toucan::ConstantOp>(depValue.getDefiningOp())) {
             // Ignore const
@@ -183,7 +188,15 @@ bool MicroPart::checkAndCollectIOValues(const PartitioningGraph &g, const mlir::
           if (!allPreviousLevelLUTNodes.contains(depVtx)) {
             // Depends on a value outside of this partition. This is a new input value
             assert(!nodes.contains(depVtx) && "Part should be levelized (topo order)");
-
+            if (isa<toucan::DefVectorOp>(depOp)) {
+              llvm::dbgs() << "Op\n";
+              auto rawOp = g[eachVtx].op;
+              rawOp->print(llvm::dbgs());
+              llvm::dbgs() << "\nDepends on external vector:\n";
+              depOp->print(llvm::dbgs());
+              llvm::dbgs() << "\n";
+            }
+            assert(!isa<toucan::DefVectorOp>(depOp));
             auto depValue = getOpResultValue(depOp);
             if (!isa<toucan::ConstantOp>(depValue.getDefiningOp())) {
               // Ignore const
@@ -226,45 +239,71 @@ bool MicroPart::checkAndCollectIOValues(const PartitioningGraph &g, const mlir::
           return false;
         }
       }
-      
-
-
 
       // Collect output vals
-      bool outputValueUsedOutsideThisPartition = false;
-      auto out_edge_range = boost::out_edges(eachVtx, g);
-      for (auto ei = out_edge_range.first; ei != out_edge_range.second; ei++) {
-        auto edgeTarget = boost::target(*ei, g);
-        assert(!allPreviousLevelLUTNodes.contains(edgeTarget) && "Should follow topo order");
+      if (vtxIsDummyNop) {
+        // vec decl. Must be used by outside
+        auto originalVecVtx = newNodeIdToOriginalVecDeclId.at(eachVtx);
+        auto rawDeclOp = g[originalVecVtx].op;
+        auto vecDeclOp = cast<toucan::DefVectorOp>(rawDeclOp);
+        auto resultVecVal = vecDeclOp.getResult();
 
-        if (!nodes.contains(edgeTarget)) {
-          outputValueUsedOutsideThisPartition = true;
+        // assert(!outputValues.contains(resultVecVal));
+        outputValues.push_back(resultVecVal);
+        outputValueSet.insert(resultVecVal);
+        nodeToOutputVal[eachVtx] = resultVecVal;
+      } else {
+        // regular lut
+        bool outputValueUsedOutsideThisPartition = false;
+        auto out_edge_range = boost::out_edges(eachVtx, g);
+        for (auto ei = out_edge_range.first; ei != out_edge_range.second; ei++) {
+          auto edgeTarget = boost::target(*ei, g);
+          assert(!allPreviousLevelLUTNodes.contains(edgeTarget) && "Should follow topo order");
+
+          // result used by outside of this partition
+          if (!nodes.contains(edgeTarget)) {
+            // result is not used by dummy vecdecl in same partition
+            bool targetIsVecDecl = isa<toucan::DefVectorOp>(g[edgeTarget].op);
+            bool targetInCurrentRepCutPartition = allNodes.contains(edgeTarget);
+            if ((!targetIsVecDecl) && targetInCurrentRepCutPartition) {
+              outputValueUsedOutsideThisPartition = true;
+            }
+          }
         }
-      }
-
-      // Save output Value
-      if (outputValueUsedOutsideThisPartition) {
-        if (!newNodeIdToOriginalVecDeclId.contains(eachVtx)) {
-          // regular node
-          assert(g[eachVtx].toucanOpName == CGToucanOPName::LUT);
-          auto rawOp = g[eachVtx].op;
-          assert(rawOp != nullptr);
-          auto lutOp = cast<toucan::LUTOp>(rawOp);
-          auto resultVal = lutOp.getResult();
-          outputValues.insert(resultVal);
+        // Save output Value
+        if (outputValueUsedOutsideThisPartition) {
+          assert(!vtxIsDummyNop);
+          if (!newNodeIdToOriginalVecDeclId.contains(eachVtx)) {
+            // regular node
+            assert(g[eachVtx].toucanOpName == CGToucanOPName::LUT);
+            auto rawOp = g[eachVtx].op;
+            assert(rawOp != nullptr);
+            auto lutOp = cast<toucan::LUTOp>(rawOp);
+            auto resultVal = lutOp.getResult();
+            outputValues.push_back(resultVal);
+            assert(!outputValueSet.contains(resultVal));
+            outputValueSet.insert(resultVal);
+            nodeToOutputVal[eachVtx] = resultVal;
+          } else {
+            // VecDecl. In fact bunch of NOPs
+            assert(false && "Should not reach here");
+            // auto originalVecDeclId = newNodeIdToOriginalVecDeclId.at(eachVtx);
+            // assert(g[originalVecDeclId].toucanOpName == CGToucanOPName::VecDecl);
+            // auto rawOp = g[originalVecDeclId].op;
+            // assert(rawOp != nullptr);
+            // auto vecDeclOp = cast<toucan::DefVectorOp>(rawOp);
+            // auto resultVal = vecDeclOp.getResult();
+            // assert(!outputValues.contains(resultVal));
+            // outputValues.insert(resultVal);
+            // assert(!nodeToOutputVal.contains(eachVtx));
+            // nodeToOutputVal[eachVtx] = resultVal;
+          }
         } else {
-          // VecDecl. In fact bunch of NOPs
-          auto originalVecDeclId = newNodeIdToOriginalVecDeclId.at(eachVtx);
-          assert(g[originalVecDeclId].toucanOpName == CGToucanOPName::VecDecl);
-          auto rawOp = g[originalVecDeclId].op;
-          assert(rawOp != nullptr);
-          auto vecDeclOp = cast<toucan::DefVectorOp>(rawOp);
-          auto resultVal = vecDeclOp.getResult();
-          outputValues.insert(resultVal);
-          assert(!nodeToOutputVal.contains(eachVtx));
-          nodeToOutputVal[eachVtx] = resultVal;
+          assert(g[eachVtx].op != nullptr);
+          assert(!isa<toucan::DefVectorOp>(g[eachVtx].op));
         }
       }
+
     }
 
     allPreviousLevelLUTNodes.insert(currentLevelNodes.begin(), currentLevelNodes.end());
@@ -272,6 +311,7 @@ bool MicroPart::checkAndCollectIOValues(const PartitioningGraph &g, const mlir::
 
   // collect output values
 
+  /*
   for (auto vtx: levels.back()) {
     // Each node at last level should only be used outside of the part
     auto out_edge_range = boost::out_edges(vtx, g);
@@ -299,6 +339,77 @@ bool MicroPart::checkAndCollectIOValues(const PartitioningGraph &g, const mlir::
       outputValues.insert(resultVal);
     }
   }
+    */
   return true;
 }
 
+bool MicroPart::checkAndCollectSpecialPartIOValues(const PartitioningGraph &g, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToDepNodeId, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToOriginalVecDeclId) {
+  assert(opType != toucan::CGToucanOPName::LUT);
+  assert(levels.empty() && "Special part should keep levels empty");
+  assert(levels.size() == 0);
+
+  inputValues.clear();
+  outputValues.clear();
+  outputValueSet.clear();
+  nodeToInputVals.clear();
+  nodeToOutputVal.clear();
+
+  // Check correctness and collect input value
+  for (auto rawOp: specialOps) {
+    // collect input values
+    for (auto eachOperand: rawOp->getOperands()) {
+      if (!(
+        isa<toucan::ConstantOp>(eachOperand.getDefiningOp()) || 
+        isa<toucan::DefConstVectorOp>(eachOperand.getDefiningOp())
+      )) {
+        inputValues.insert(eachOperand);
+      }
+    }
+
+    // Note: Result value of special part must be used (only 1 level), no need to check
+    auto resultVal = getOpResultValue(rawOp);
+
+    mlir::DenseSet<mlir::Value> dedupOutputValues;
+    for (auto v: outputValues) dedupOutputValues.insert(v);
+    assert(dedupOutputValues.size() == outputValues.size());
+
+    outputValues.push_back(resultVal);
+    assert(!outputValueSet.contains(resultVal));
+    outputValueSet.insert(resultVal);
+  }
+
+  return true;
+}
+
+
+
+bool MicroPart::checkAndCollectIOValues(const PartitioningGraph &g, const mlir::DenseSet<uint32_t> &allNodes, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToDepNodeId, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToOriginalVecDeclId) {
+  bool ret;
+  bool isRegularPart = opType == CGToucanOPName::LUT;
+  if (isRegularPart) {
+    ret = checkAndCollectRegularPartIOValues(g, allNodes, newNodeIdToDepNodeId, newNodeIdToOriginalVecDeclId);
+  } else {
+    ret = checkAndCollectSpecialPartIOValues(g, newNodeIdToDepNodeId, newNodeIdToOriginalVecDeclId);
+  }
+
+  // double check. can be removed
+  uint32_t numOpsAtFirstLevel = 0;
+  if (isRegularPart) {
+    for (auto eachVtx: levels[0]) {
+      auto vtxIsDummyNop = newNodeIdToDepNodeId.contains(eachVtx);
+      if (vtxIsDummyNop) {
+        numOpsAtFirstLevel += 1;
+      } else {
+        auto opCount = g[eachVtx].opCount;
+        numOpsAtFirstLevel += opCount;
+      }
+    }
+  } else {
+    numOpsAtFirstLevel = specialOps.size();
+  }
+
+  assert(outputValues.size() <= 32);
+  assert(numOpsAtFirstLevel <= 32);
+
+  return ret;
+}

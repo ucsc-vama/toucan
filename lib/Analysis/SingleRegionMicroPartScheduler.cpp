@@ -856,7 +856,7 @@ static void extractMicroPartValueLifeTime(const PartitioningGraph &graph, const 
       }
     }
   }
-  for (const auto &eachOutputVal: mPart.outputValues) {
+  for (const auto &eachOutputVal: mPart.outputValueSet) {
     assert(valueToLifeCycle[eachOutputVal].end == writeBackLevel);
   }
 }
@@ -1181,7 +1181,7 @@ static void scheduleRegularMicroPart(const PartitioningGraph &graph, CGMicroPart
         assert(valueToLifeCycle[resultVal].start == levelId);
         // or an output value
         if (valueToLifeCycle[resultVal].end == MaxLiveLevel) {
-          assert(mPart.outputValues.contains(resultVal));
+          assert(mPart.outputValueSet.contains(resultVal));
           assert(valToValId.contains(resultVal));
           
           auto resultValIdInSMem = valToValId.at(resultVal);

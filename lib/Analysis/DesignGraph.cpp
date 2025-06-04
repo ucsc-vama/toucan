@@ -172,7 +172,7 @@ DesignGraph::DesignGraph(Operation *op, AnalysisManager &am) {
           // Merge readers
           auto topVtxId = vecReaders.back();
           vecReaders.pop_back();
-          mergeVerticies(topVtxId, vecReaders, rawGraph);
+          mergeVerticies(topVtxId, vecReaders, rawGraph, true);
           vtxToRemove.insert(vecReaders.begin(), vecReaders.end());
         }
 
@@ -198,8 +198,9 @@ DesignGraph::DesignGraph(Operation *op, AnalysisManager &am) {
         assert(vecReaders.size() > 0);
 
         // Merge them with vector producing op, which is a VectorArithOp
+        // Don't increase op count, as VecStaticRead is not a real op
         auto vecDeclNodeId = rawOpToId[vecHandle.getDefiningOp()];
-        mergeVerticies(vecDeclNodeId, vecReaders, rawGraph);
+        mergeVerticies(vecDeclNodeId, vecReaders, rawGraph, false);
         vtxToRemove.insert(vecReaders.begin(), vecReaders.end());
 
         vecHandled_VecStaticRead.insert(vecHandle);
@@ -211,6 +212,7 @@ DesignGraph::DesignGraph(Operation *op, AnalysisManager &am) {
         if (auto memWriteOp = dyn_cast<toucan::MemWriteOp>(userOp)) {
           // a new write port
           auto writerVtxId = rawOpToId[memWriteOp];
+          assert(isa<toucan::MemWriteOp>(rawGraph[writerVtxId].op));
           memWriters.push_back(writerVtxId);
         }
       }
@@ -219,7 +221,7 @@ DesignGraph::DesignGraph(Operation *op, AnalysisManager &am) {
         // A memory with multiple writer. Merge.
         auto topVtxId = memWriters.back();
         memWriters.pop_back();
-        mergeVerticies(topVtxId, memWriters, rawGraph);
+        mergeVerticies(topVtxId, memWriters, rawGraph, true);
         vtxToRemove.insert(memWriters.begin(), memWriters.end());
       }
     } 
