@@ -359,6 +359,7 @@ bool MicroPart::checkAndCollectSpecialPartIOValues(const PartitioningGraph &g, c
     // collect input values
     for (auto eachOperand: rawOp->getOperands()) {
       if (!(
+        isa<toucan::DefMemOp>(eachOperand.getDefiningOp()) ||
         isa<toucan::ConstantOp>(eachOperand.getDefiningOp()) || 
         isa<toucan::DefConstVectorOp>(eachOperand.getDefiningOp())
       )) {
