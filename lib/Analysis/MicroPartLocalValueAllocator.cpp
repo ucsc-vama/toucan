@@ -68,6 +68,11 @@ void MicroPartLocalValueAllocator::allocateLocalValues() {
     // group vals by life time
     assert(lifeTime.start <= totalLevels);
     assert(lifeTime.end <= totalLevels);
+    if (lifeTime.start >= lifeTime.end) {
+      dbgs() << "Life start " << lifeTime.start << ", end " << lifeTime.end << "\n";
+      eachVal.getDefiningOp()->print(dbgs());
+      dbgs() << "\n";
+    }
     assert(lifeTime.start < lifeTime.end);
 
     lifeTimeStartToVal[lifeTime.start].push_back(eachVal);
@@ -95,7 +100,7 @@ void MicroPartLocalValueAllocator::allocateLocalValues() {
   // const vals and pinned vals (reg read, reg write)
   for (auto [eachVal, eachValId]: valToValId) {
     // pinned vals
-    auto valLifeTime = valToLifeTime[eachVal];
+    auto valLifeTime = valToLifeTime.at(eachVal);
 
     assert(!pinnedOutputValIdToNextOccupy.contains(eachValId));
 
@@ -129,8 +134,8 @@ void MicroPartLocalValueAllocator::allocateLocalValues() {
     // sort in descending order of val life time ends
     // allocate long-lasting vals first
     std::sort(valsToAllocate.begin(), valsToAllocate.end(), [&](const mlir::Value &a, const mlir::Value &b) {
-      auto a_end = valToLifeTime[a].end;
-      auto b_end = valToLifeTime[b].end;
+      auto a_end = valToLifeTime.at(a).end;
+      auto b_end = valToLifeTime.at(b).end;
       return a_end > b_end;
     });
 
@@ -153,7 +158,7 @@ void MicroPartLocalValueAllocator::allocateLocalValues() {
           assert(isa<toucan::DefVectorOp>(eachVal.getDefiningOp()));
           // a vector
           auto vecLength = vecValToLength[eachVal];
-          auto vecValEndTime = valToLifeTime[eachVal].end;
+          auto vecValEndTime = valToLifeTime.at(eachVal).end;
 
           mlir::SmallVector<bool> candidateValIds;
           mlir::SmallVector<uint32_t> availableValIds_vec;
@@ -228,7 +233,7 @@ void MicroPartLocalValueAllocator::allocateLocalValues() {
           bool foundFreeSlot = false;
 
           for (auto freeValId: availableValIds) {
-            auto valEndTime = valToLifeTime[eachVal].end;
+            auto valEndTime = valToLifeTime.at(eachVal).end;
             if (valOKToUse(freeValId, valEndTime)) {
               foundFreeSlot = true;
               valId = freeValId;
@@ -367,6 +372,15 @@ void MicroPartLocalValueAllocator::populateInitialPinnedVals(const PartitioningG
 
 
 void MicroPartLocalValueAllocator::collectValueLifetime(const PartitioningGraph &graph, const MicroPartitioner &mpartitioner) {
+
+  auto checkValueExistance = [&](mlir::Value val) {
+    if (!valToLifeTime.contains(val)) {
+      llvm::dbgs() << "Value not found in life time pool. Defining op:\n";
+      val.getDefiningOp()->print(llvm::dbgs());
+
+      llvm::dbgs() << "\n";
+    }
+  };
   // 1. For every reg read, result val life starts at 0
   for (auto eachVtx: mpartitioner.allRegReads) {
     auto regReadOp = cast<toucan::RegReadOp>(graph[eachVtx].op);
@@ -394,6 +408,7 @@ void MicroPartLocalValueAllocator::collectValueLifetime(const PartitioningGraph 
           assert(oldValEndTime <= levelId);
           valToLifeTime[eachInVal].end = levelId;
         }
+        assert(!isa<toucan::StaticVectorSegmentReadOp>(eachInVal.getDefiningOp()));
       }
       for (const auto &eachOutVal: eachMPart.outputValueSet) {
         // update val start time accordingly
@@ -429,7 +444,16 @@ void MicroPartLocalValueAllocator::collectValueLifetime(const PartitioningGraph 
             }
           }
           // TODO: also handles VecStaticSegReadOp
-          assert(!isa<toucan::VectorArithOp>(eachOutVal.getDefiningOp()));
+          if (isa<toucan::VectorArithOp>(eachOutVal.getDefiningOp())) {
+            for (auto eachUser: eachOutVal.getUsers()) {
+              if (!isa<toucan::StaticVectorSegmentReadOp>(eachUser)) {
+                eachUser->print(dbgs());
+                dbgs() << "\n";
+              }
+              assert(isa<toucan::StaticVectorSegmentReadOp>(eachUser));
+            }
+          }
+          // assert(!isa<toucan::VectorArithOp>(eachOutVal.getDefiningOp()));
         }
       }
     }
@@ -461,6 +485,7 @@ void MicroPartLocalValueAllocator::collectValueLifetime(const PartitioningGraph 
         mwOps.push_back(mwOp);
       }
     }
+    assert(realOpCount == opCount);
   }
   
   for (auto mwOp: mwOps) {
@@ -487,8 +512,12 @@ void MicroPartLocalValueAllocator::collectValueLifetime(const PartitioningGraph 
     auto stopOp = cast<toucan::StopOp>(graph[eachVtx].op);
     auto inputVal = stopOp.getEn();
 
-    assert(valToLifeTime.contains(inputVal));
-    valToLifeTime[inputVal].end = totalLevels;
+    if (!isa<toucan::ConstantOp>(inputVal.getDefiningOp())) {
+      checkValueExistance(inputVal);
+
+      assert(valToLifeTime.contains(inputVal));
+      valToLifeTime[inputVal].end = totalLevels;
+    }
   }
 
   // print
@@ -496,8 +525,12 @@ void MicroPartLocalValueAllocator::collectValueLifetime(const PartitioningGraph 
     auto printOp = cast<toucan::PrintOp>(graph[eachVtx].op);
     auto inputVal = printOp.getEn();
 
-    assert(valToLifeTime.contains(inputVal));
-    valToLifeTime[inputVal].end = totalLevels;
+    if (!isa<toucan::ConstantOp>(inputVal.getDefiningOp())) {
+      checkValueExistance(inputVal);
+
+      assert(valToLifeTime.contains(inputVal));
+      valToLifeTime[inputVal].end = totalLevels;
+    }
   }
 
   

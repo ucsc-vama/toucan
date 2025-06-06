@@ -510,7 +510,7 @@ void MicroPartitioner::collectPartIOValues(const PartitioningGraph &g) {
   // uint32_t levelId = 0;
   for (auto &eachPartLevel: partLevels) {
     for (auto &eachPart: eachPartLevel) {
-      auto partGood = eachPart.checkAndCollectIOValues(g, allNodes, newNodeIdToDepNodeId, newNodeIdToOriginalVecDeclId);
+      auto partGood = eachPart.checkAndCollectIOValues(g, allNodes, newNodeIdToDepNodeId, newNodeIdToOriginalVecDeclId, outputVectorNopMap);
 
       if (!partGood) {
         llvm::errs() << "Error when checking micro parts\n";

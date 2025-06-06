@@ -77,7 +77,7 @@ void MicroPart::buildSpecialPart(const CGToucanOPName vtxOpName, const mlir::Sma
 }
 
 
-bool MicroPart::checkAndCollectRegularPartIOValues(const PartitioningGraph &g, const mlir::DenseSet<uint32_t> &allNodes, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToDepNodeId, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToOriginalVecDeclId) {
+bool MicroPart::checkAndCollectRegularPartIOValues(const PartitioningGraph &g, const mlir::DenseSet<uint32_t> &allNodes, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToDepNodeId, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToOriginalVecDeclId, const mlir::DenseMap<uint32_t, mlir::SmallVector<uint32_t>> outputVectorNopMap) {
   assert(opType == toucan::CGToucanOPName::LUT);
   assert(!levels.empty() && "Only check and collect IO values if it's loaded");
 
@@ -255,9 +255,17 @@ bool MicroPart::checkAndCollectRegularPartIOValues(const PartitioningGraph &g, c
       } else {
         // regular lut
         bool outputValueUsedOutsideThisPartition = false;
-        auto out_edge_range = boost::out_edges(eachVtx, g);
-        for (auto ei = out_edge_range.first; ei != out_edge_range.second; ei++) {
-          auto edgeTarget = boost::target(*ei, g);
+
+        mlir::SmallVector<uint32_t> allUserVtxes;
+        for (auto eachUserEdge: boost::make_iterator_range(boost::out_edges(eachVtx, g))) {
+          auto eachUserVtx = boost::target(eachUserEdge, g);
+          allUserVtxes.push_back(eachUserVtx);
+        }
+
+
+
+
+        for (auto edgeTarget: allUserVtxes) {
           assert(!allPreviousLevelLUTNodes.contains(edgeTarget) && "Should follow topo order");
 
           // result used by outside of this partition
@@ -265,9 +273,32 @@ bool MicroPart::checkAndCollectRegularPartIOValues(const PartitioningGraph &g, c
             // result is not used by dummy vecdecl in same partition
             bool targetIsVecDecl = isa<toucan::DefVectorOp>(g[edgeTarget].op);
             bool targetInCurrentRepCutPartition = allNodes.contains(edgeTarget);
-            if ((!targetIsVecDecl) && targetInCurrentRepCutPartition) {
-              outputValueUsedOutsideThisPartition = true;
+            if (targetIsVecDecl) {
+              if (!targetInCurrentRepCutPartition) continue;
+              assert(outputVectorNopMap.contains(edgeTarget));
+
+              bool allUserDummyNopInThisMPart = true;
+              for (auto eachUserNop: outputVectorNopMap.at(edgeTarget)) {
+                auto thisNopUseThisValue = newNodeIdToDepNodeId.at(eachUserNop) == eachVtx;
+                if (thisNopUseThisValue && !nodes.contains(eachUserNop)) {
+                  allUserDummyNopInThisMPart = false;
+                  break;
+                }
+              }
+              if (targetInCurrentRepCutPartition && !allUserDummyNopInThisMPart) {
+                outputValueUsedOutsideThisPartition = true;
+                break;
+              }
+            } else {
+              if (targetInCurrentRepCutPartition) {
+                outputValueUsedOutsideThisPartition = true;
+                break;
+              }
             }
+            // if ((!targetIsVecDecl) && targetInCurrentRepCutPartition) {
+            //   outputValueUsedOutsideThisPartition = true;
+            //   break;
+            // }
           }
         }
         // Save output Value
@@ -384,11 +415,11 @@ bool MicroPart::checkAndCollectSpecialPartIOValues(const PartitioningGraph &g, c
 
 
 
-bool MicroPart::checkAndCollectIOValues(const PartitioningGraph &g, const mlir::DenseSet<uint32_t> &allNodes, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToDepNodeId, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToOriginalVecDeclId) {
+bool MicroPart::checkAndCollectIOValues(const PartitioningGraph &g, const mlir::DenseSet<uint32_t> &allNodes, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToDepNodeId, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToOriginalVecDeclId, const mlir::DenseMap<uint32_t, mlir::SmallVector<uint32_t>> outputVectorNopMap) {
   bool ret;
   bool isRegularPart = opType == CGToucanOPName::LUT;
   if (isRegularPart) {
-    ret = checkAndCollectRegularPartIOValues(g, allNodes, newNodeIdToDepNodeId, newNodeIdToOriginalVecDeclId);
+    ret = checkAndCollectRegularPartIOValues(g, allNodes, newNodeIdToDepNodeId, newNodeIdToOriginalVecDeclId, outputVectorNopMap);
   } else {
     ret = checkAndCollectSpecialPartIOValues(g, newNodeIdToDepNodeId, newNodeIdToOriginalVecDeclId);
   }
