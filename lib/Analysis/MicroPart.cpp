@@ -1,8 +1,10 @@
+#include "mlir/IR/Value.h"
 #include "mlir/Support/LLVM.h"
 #include "toucan/MicroPartitioner.h"
 #include "toucan/PartitioningGraph.h"
 #include "toucan/ToucanAttributes.h"
 #include "toucan/ToucanOps.h"
+#include "toucan/ToucanTypes.h"
 #include "toucan/ToucanUtils.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -87,10 +89,21 @@ bool MicroPart::checkAndCollectRegularPartIOValues(const PartitioningGraph &g, c
   nodeToInputVals.clear();
   nodeToOutputVal.clear();
 
-  mlir::DenseSet<uint32_t> allPreviousLevelLUTNodes;
-  allPreviousLevelLUTNodes.reserve(nodes.size());
-  allPreviousLevelLUTNodes.insert(levels[0].begin(), levels[0].end());
-  assert(!allPreviousLevelLUTNodes.empty());
+  mlir::DenseSet<mlir::Value> allPreviousLevelResultValues;
+
+  auto findDummyNopDepValue = [&](uint32_t dummyVtx) {
+    auto vecDeclId = newNodeIdToOriginalVecDeclId.at(dummyVtx);
+    auto vecOp = cast<toucan::DefVectorOp>(g[vecDeclId].op);
+
+    uint32_t i = 0;
+    const auto &thisVecNewIds = outputVectorNopMap.at(vecDeclId);
+    for (;i < thisVecNewIds.size(); i++) {
+      if (thisVecNewIds[i] == dummyVtx) break;
+    }
+    assert(i < thisVecNewIds.size());
+
+    return vecOp.getInputs()[i];
+  };
 
 
 
@@ -157,7 +170,7 @@ bool MicroPart::checkAndCollectRegularPartIOValues(const PartitioningGraph &g, c
             llvm::dbgs() << "\n";
           }
           assert(!isa<toucan::DefVectorOp>(depOp));
-          auto depValue = getOpResultValue(depOp);
+          auto depValue = findDummyNopDepValue(eachVtx);
           if (!isa<toucan::ConstantOp>(depValue.getDefiningOp())) {
             // Ignore const
             inputValues.insert(depValue);
@@ -173,71 +186,26 @@ bool MicroPart::checkAndCollectRegularPartIOValues(const PartitioningGraph &g, c
         }
       } else {
         // regular node
-        bool dependsOnPreviousLevel = false;
-        auto in_edge_range = boost::in_edges(eachVtx, g);
-        for (auto ei = in_edge_range.first; ei != in_edge_range.second; ei++) {
-          auto depVtx = boost::source(*ei, g);
-          auto depOp = g[depVtx].op;
-  
-          // ignore constant values. Accessing them don't need touch shared mem.
-          if (isa<toucan::ConstantOp>(depOp)) {
-            continue;
-          }
-  
-          // Outside the current partition
-          if (!allPreviousLevelLUTNodes.contains(depVtx)) {
-            // Depends on a value outside of this partition. This is a new input value
-            assert(!nodes.contains(depVtx) && "Part should be levelized (topo order)");
-            if (isa<toucan::DefVectorOp>(depOp)) {
-              llvm::dbgs() << "Op\n";
-              auto rawOp = g[eachVtx].op;
-              rawOp->print(llvm::dbgs());
-              llvm::dbgs() << "\nDepends on external vector:\n";
-              depOp->print(llvm::dbgs());
-              llvm::dbgs() << "\n";
-            }
-            assert(!isa<toucan::DefVectorOp>(depOp));
-            auto depValue = getOpResultValue(depOp);
-            if (!isa<toucan::ConstantOp>(depValue.getDefiningOp())) {
-              // Ignore const
-              inputValues.insert(depValue);
+        auto rawOp = g[eachVtx].op;
+        for (auto eachOperand: rawOp->getOperands()) {
+          assert(!isa<mlir::TypedValue<toucan::VecType>>(eachOperand));
+          assert(!isa<mlir::TypedValue<toucan::RegType>>(eachOperand));
+          assert(!isa<mlir::TypedValue<toucan::MemType>>(eachOperand));
+
+          if (!isa<toucan::ConstantOp>(eachOperand.getDefiningOp())) {
+            if (!allPreviousLevelResultValues.contains(eachOperand)) {
+              inputValues.insert(eachOperand);
               if (nodeToInputVals.contains(eachVtx)) {
-                nodeToInputVals[eachVtx].push_back(depValue);
+                nodeToInputVals[eachVtx].push_back(eachOperand);
               } else {
-                nodeToInputVals[eachVtx] = {depValue};
+                nodeToInputVals[eachVtx] = {eachOperand};
               }
-            } else {
-              // This input value of a vector is constant.
-              // Do nothing and it should not be considered as input (since we have a const pool)
             }
           }
-  
-          if (nodeToLevel.contains(depVtx)) {
-            if (nodeToLevel[depVtx] + 1 == levelId) {
-              dependsOnPreviousLevel = true;
-            }
-          } else {
-            // Should be an input edge from outside the part
-            assert(!nodes.contains(depVtx));
-          }
         }
-  
-        // Not depends on previous level and not the first level
-        if (!dependsOnPreviousLevel && levelId != 0) {
-          llvm::errs() << "Node " << eachVtx << " in a micro partition does NOT depends on input from previous level!\n";
-          llvm::errs() << "Node " << eachVtx << " at level " << levelId << " (total " << levels.size() << "), out degree " << boost::out_degree(eachVtx, g) << ", in degree " << boost::in_degree(eachVtx, g) << "\n";
 
-          g[eachVtx].op->print(llvm::errs());
-
-          llvm::errs() << "\n";
-  
-          auto in_edge_range = boost::in_edges(eachVtx, g);
-          for (auto ei = in_edge_range.first; ei != in_edge_range.second; ei++) {
-            auto edgeSource = boost::source(*ei, g);
-            llvm::errs() << "Dep node " << edgeSource << " at level " << nodeToLevel[edgeSource] << "\n";
-          }
-          return false;
-        }
+        allPreviousLevelResultValues.insert(getOpResultValue(rawOp));
+        
       }
 
       // Collect output vals
@@ -266,7 +234,7 @@ bool MicroPart::checkAndCollectRegularPartIOValues(const PartitioningGraph &g, c
 
 
         for (auto edgeTarget: allUserVtxes) {
-          assert(!allPreviousLevelLUTNodes.contains(edgeTarget) && "Should follow topo order");
+          // assert(!allPreviousLevelLUTNodes.contains(edgeTarget) && "Should follow topo order");
 
           // result used by outside of this partition
           if (!nodes.contains(edgeTarget)) {
@@ -318,16 +286,6 @@ bool MicroPart::checkAndCollectRegularPartIOValues(const PartitioningGraph &g, c
           } else {
             // VecDecl. In fact bunch of NOPs
             assert(false && "Should not reach here");
-            // auto originalVecDeclId = newNodeIdToOriginalVecDeclId.at(eachVtx);
-            // assert(g[originalVecDeclId].toucanOpName == CGToucanOPName::VecDecl);
-            // auto rawOp = g[originalVecDeclId].op;
-            // assert(rawOp != nullptr);
-            // auto vecDeclOp = cast<toucan::DefVectorOp>(rawOp);
-            // auto resultVal = vecDeclOp.getResult();
-            // assert(!outputValues.contains(resultVal));
-            // outputValues.insert(resultVal);
-            // assert(!nodeToOutputVal.contains(eachVtx));
-            // nodeToOutputVal[eachVtx] = resultVal;
           }
         } else {
           assert(g[eachVtx].op != nullptr);
@@ -337,40 +295,8 @@ bool MicroPart::checkAndCollectRegularPartIOValues(const PartitioningGraph &g, c
 
     }
 
-    allPreviousLevelLUTNodes.insert(currentLevelNodes.begin(), currentLevelNodes.end());
   }
 
-  // collect output values
-
-  /*
-  for (auto vtx: levels.back()) {
-    // Each node at last level should only be used outside of the part
-    auto out_edge_range = boost::out_edges(vtx, g);
-    for (auto ei = out_edge_range.first; ei != out_edge_range.second; ei++) {
-      auto edgeTarget = boost::target(*ei, g);
-      assert(!nodes.contains(edgeTarget) && "No nodes should have edge pointing outside of current partition unless last level");
-    }
-
-    if (!newNodeIdToOriginalVecDeclId.contains(vtx)) {
-      // regular node
-      assert(g[vtx].toucanOpName == CGToucanOPName::LUT);
-      auto rawOp = g[vtx].op;
-      assert(rawOp != nullptr);
-      auto lutOp = cast<toucan::LUTOp>(rawOp);
-      auto resultVal = lutOp.getResult();
-      outputValues.insert(resultVal);
-    } else {
-      // VecDecl. In fact bunch of NOPs
-      auto originalVecDeclId = newNodeIdToOriginalVecDeclId.at(vtx);
-      assert(g[originalVecDeclId].toucanOpName == CGToucanOPName::VecDecl);
-      auto rawOp = g[originalVecDeclId].op;
-      assert(rawOp != nullptr);
-      auto vecDeclOp = cast<toucan::DefVectorOp>(rawOp);
-      auto resultVal = vecDeclOp.getResult();
-      outputValues.insert(resultVal);
-    }
-  }
-    */
   return true;
 }
 

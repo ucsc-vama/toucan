@@ -74,6 +74,10 @@ namespace toucan {
     mlir::DenseMap<mlir::Value, ValueLifeTime> valToLifeTime;
     mlir::DenseMap<mlir::Value, uint32_t> vecValToLength;
 
+    mlir::DenseMap<mlir::Value, mlir::Value> vecSegmentsToVecArith;
+    mlir::DenseMap<mlir::Value, mlir::SmallVector<mlir::Value>> vecArithResultToSegments;
+    mlir::DenseSet<mlir::Value> vecArithAndSegmentValues;
+
     size_t totalLevels;
 
   };
