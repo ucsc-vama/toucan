@@ -69,6 +69,8 @@ namespace toucan {
     mlir::DenseMap<uint32_t, uint32_t> nodeToLevel;
     mlir::DenseMap<uint32_t, mlir::SmallVector<mlir::Value>> nodeToInputVals;
     mlir::DenseMap<uint32_t, mlir::Value> nodeToOutputVal;
+    mlir::DenseSet<uint32_t> dummyNodes;
+    mlir::SmallVector<mlir::DenseSet<mlir::Value>> valuesUsedByEachLevel;
 
     // Valid for special ops
     mlir::SmallVector<mlir::Operation*> specialOps;
@@ -77,6 +79,7 @@ namespace toucan {
 
     // void schedule();
     void clear();
+    void print() const;
 
     void buildRegularLUTPart(const mlir::SmallVector<mlir::SmallVector<uint32_t>> &newNodesLevel);
     void buildSpecialPart(const CGToucanOPName vtxOpName, const mlir::SmallVector<mlir::Operation*> &rawOps);

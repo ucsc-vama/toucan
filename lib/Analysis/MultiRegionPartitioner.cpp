@@ -566,6 +566,8 @@ void MultiRegionPartitioner::cutGraph(DesignGraph &graph) {
 /*
 Add NOP lut to break edge directly from input nodes (RegRead, ExchangeRead) to output nodes (RegWrite, ExchangeWrite).
 This help the scheduler to create more bulked GPU global memory access
+
+Note: Also break StaticVectorSegmentReadOp to RW
 */
 void MultiRegionPartitioner::breakDirectIOConnection() {
 
@@ -600,12 +602,32 @@ void MultiRegionPartitioner::breakDirectIOConnection() {
       auto srcTOpName = eachRegionGraph[srcVtx].toucanOpName;
       bool srcVtxIsExgRead = (srcTOpName == CGToucanOPName::ExchangeRead);
       bool srcVtxIsRegRead = (srcTOpName == CGToucanOPName::RegRead);
+      bool srcVtxIsVecArith = (srcTOpName == CGToucanOPName::VecArith);
 
-      if (srcVtxIsRegRead || srcVtxIsExgRead) {
+      if (srcVtxIsRegRead || srcVtxIsExgRead || srcVtxIsVecArith) {
         // an input node
         // auto srcOp = eachRegionGraph[srcVtx].op;
         // assert(srcOp == nullptr || isa<toucan::RegReadOp>(srcOp));
-        assert(boost::in_degree(srcVtx, eachRegionGraph) == 0);
+
+        // Check graph node input degree
+        if (!srcVtxIsVecArith) {
+          assert(boost::in_degree(srcVtx, eachRegionGraph) == 0);
+        } else {
+          // vec arith, it's possible to have 2 const vec as input
+          auto vecArithOp = cast<toucan::VectorArithOp>(eachRegionGraph[srcVtx].op);
+          auto v1 = vecArithOp.getV1();
+          auto v2 = vecArithOp.getV2();
+          auto v1IsConstVec = isa<toucan::DefConstVectorOp>(v1.getDefiningOp());
+          auto v2IsConstVec = isa<toucan::DefConstVectorOp>(v2.getDefiningOp());
+
+          auto isConstVecArith = v1IsConstVec && v2IsConstVec;
+
+          if (!isConstVecArith) {
+            assert(boost::in_degree(srcVtx, eachRegionGraph) != 0);
+          } else {
+            assert(boost::in_degree(srcVtx, eachRegionGraph) == 0);
+          }
+        }
 
         mlir::DenseSet<uint32_t> directExchangeContactsToRemove;
 
@@ -618,7 +640,6 @@ void MultiRegionPartitioner::breakDirectIOConnection() {
 
           if (dstTOpName == CGToucanOPName::RegWrite 
             || dstTOpName == CGToucanOPName::ExchangeWrite
-            || dstTOpName == CGToucanOPName::MemWrite
             || dstTOpName == CGToucanOPName::Stop
             || dstTOpName == CGToucanOPName::Print) {
             // Need to break such edge
@@ -661,29 +682,39 @@ void MultiRegionPartitioner::breakDirectIOConnection() {
     OpBuilder builder(anyOp);
     IRRewriter rewriter(builder);
 
-    mlir::DenseMap<uint32_t, uint32_t> regToNewReader;
+    // mlir::DenseMap<uint32_t, uint32_t> regToNewReader;
+    mlir::DenseMap<mlir::Value, uint32_t> valToNewReader;
     for (auto [srcVtx, dstVtx]: edgesToBreak) {
+      auto dstTOpName = eachRegionGraph[dstVtx].toucanOpName;
+      bool dstVtxIsExgWrite = (dstTOpName == CGToucanOPName::ExchangeRead);
+      bool dstVtxIsRegWrite = (dstTOpName == CGToucanOPName::RegWrite);
+      bool dstVtxIsStop = (dstTOpName == CGToucanOPName::Stop);
+      bool dstVtxIsPrint = (dstTOpName == CGToucanOPName::Print);
+
       boost::remove_edge(srcVtx, dstVtx, eachRegionGraph);
 
+      mlir::Value srcVal;
+      if (dstVtxIsRegWrite) {
+        auto dstOp = eachRegionGraph[dstVtx].op;
+        assert(isa<toucan::RegWriteOp>(dstOp));
+        srcVal = cast<toucan::RegWriteOp>(dstOp).getData();
+      } else if (dstVtxIsPrint) {
+        srcVal = cast<toucan::PrintOp>(eachRegionGraph[dstVtx].op).getEn();
+      } else if (dstVtxIsStop) {
+        srcVal = cast<toucan::StopOp>(eachRegionGraph[dstVtx].op).getEn();
+      } else if (dstVtxIsExgWrite) {
+        assert(false && "This procedure is not tested!!!");
+        assert(dstVtxIsExgWrite);
+        auto exchangeValId = eachRegionGraph[dstVtx].exchangeValId;
+        assert(codeGenInfo.exchangePool.size() > exchangeValId);
+        srcVal = codeGenInfo.exchangePool[exchangeValId].val;
+      } else {
+        dbgs() << stringifyCGToucanOPName(dstTOpName) << "\n";
+        llvm_unreachable("Unexpected break edge end point");
+      }
 
-      if (!regToNewReader.contains(srcVtx)) {
-        auto srcOp = eachRegionGraph[srcVtx].op;
 
-        mlir::Value srcVal;
-
-        if (srcOp != nullptr) {
-          // a reg read
-          assert(eachRegionGraph[srcVtx].toucanOpName == CGToucanOPName::RegRead);
-          srcVal = cast<toucan::RegReadOp>(srcOp).getResult();
-        } else {
-          // a exchange read
-          assert(eachRegionGraph[srcVtx].toucanOpName == CGToucanOPName::ExchangeRead);
-          auto exchangeValId = eachRegionGraph[srcVtx].exchangeValId;
-          assert(codeGenInfo.exchangePool.size() > exchangeValId);
-          srcVal = codeGenInfo.exchangePool[exchangeValId].val;
-        }
-
-
+      if (!valToNewReader.contains(srcVal)) {
         // create a nop
         auto newNop = rewriter.create<toucan::LUTOp>(loc, toucan::LUTOpName::LUT_Nop, srcVal);
 
@@ -706,8 +737,7 @@ void MultiRegionPartitioner::breakDirectIOConnection() {
             // Could be new NOP op. don't replace it.
             // Or could be merge ops. Don't replace.
             if (!(isa<toucan::DefVectorOp>(userOp)
-               || isa<toucan::VectorReadOp>(userOp)
-               || isa<toucan::MemWriteOp>(userOp))) {
+               || isa<toucan::VectorReadOp>(userOp))) {
               // must be the NOP
               assert(userOp == newNop);
             }
@@ -726,7 +756,6 @@ void MultiRegionPartitioner::breakDirectIOConnection() {
           // For use within current region, replace if it's a terminal vtx
           if (!shouldReplace && (
             isa<toucan::RegWriteOp>(userOp)
-            || isa<toucan::MemWriteOp>(userOp)
             || isa<toucan::PrintOp>(userOp)
             || isa<toucan::StopOp>(userOp)
           )) {
@@ -738,8 +767,8 @@ void MultiRegionPartitioner::breakDirectIOConnection() {
 
         // use this nop vtx to avoid direct contact
         boost::add_edge(srcVtx, nopVtxId, eachRegionGraph);
-        assert(!regToNewReader.contains(srcVtx));
-        regToNewReader[srcVtx] = nopVtxId;
+        assert(!valToNewReader.contains(srcVal));
+        valToNewReader[srcVal] = nopVtxId;
 
         if (eachRegionGraph[srcVtx].toucanOpName == CGToucanOPName::ExchangeRead) {
           auto exchangeValId = eachRegionGraph[srcVtx].exchangeValId;
@@ -748,7 +777,7 @@ void MultiRegionPartitioner::breakDirectIOConnection() {
       }
 
       // add edge that use the nop
-      auto nopVtxId = regToNewReader[srcVtx];
+      auto nopVtxId = valToNewReader[srcVal];
       boost::add_edge(nopVtxId, dstVtx, eachRegionGraph);
 
       // update use
@@ -766,7 +795,7 @@ void MultiRegionPartitioner::breakDirectIOConnection() {
       }
     }
 
-    llvm::outs() << "Region " << regionId << ": insert " << regToNewReader.size() << " extra NOP verticies to break " << edgesToBreak.size() << " direct IO edges\n";
+    llvm::outs() << "Region " << regionId << ": insert " << valToNewReader.size() << " extra NOP verticies to break " << edgesToBreak.size() << " direct IO edges\n";
 
     regionId++;
   }

@@ -31,6 +31,7 @@
 #include <array>
 #include <optional>
 #include <tuple>
+#include <unordered_map>
 #include <vector>
 
 
@@ -555,10 +556,8 @@ void SingleRegionMicroPartScheduler::collectConstantVecs(const PartitioningGraph
     }
   }
 
-  // Dedup vector from 2 ~ 16 sections;
-  #define ConstVecDedupMaxLength 16
-  mlir::SmallVector<mlir::DenseMap<uint64_t, size_t>> smallVecDedupTable;
-  smallVecDedupTable.resize(ConstVecDedupMaxLength);
+  // Dedup vector
+  std::map<std::vector<uint8_t>, size_t> smallVecDedupTable;
   size_t constVecDedupCount = 0;
 
   for (auto defConstVecOp: constVecDeclOps) {
@@ -572,25 +571,23 @@ void SingleRegionMicroPartScheduler::collectConstantVecs(const PartitioningGraph
 
     bool canDedup = false;
     size_t dedupValId;
-    uint64_t rawVecVal = 0;
-    auto dedupTableIndex = vecLength - 1;
+    std::vector<uint8_t> vecRawVal;
     // find if we have same vector placed
-    if (bitWidth == 4 && dedupTableIndex < smallVecDedupTable.size()) {
+    if (bitWidth == 4) {
       for (auto &vecValElem: llvm::reverse(defConstVecOp.getValues().getValue())) {
-        rawVecVal = rawVecVal << 4;
         auto elemVal = cast<mlir::IntegerAttr>(vecValElem).getValue();
         auto elemValWidth = elemVal.getBitWidth();
         assert(elemValWidth <= 4);
   
         auto elemValMask = static_cast<uint8_t>((1 << elemValWidth) - 1);
         uint8_t rawVal = elemValMask & static_cast<uint8_t>(elemVal.getZExtValue());
-        rawVecVal = rawVecVal | rawVal;
+        vecRawVal.push_back(rawVal);
       }
 
-      assert(smallVecDedupTable.size() > dedupTableIndex);
-      if (smallVecDedupTable[dedupTableIndex].contains(rawVecVal)) {
+      assert(vecRawVal.size() == vecLength);
+      if (smallVecDedupTable.contains(vecRawVal)) {
         canDedup = true;
-        dedupValId = smallVecDedupTable[dedupTableIndex][rawVecVal];
+        dedupValId = smallVecDedupTable.at(vecRawVal);
         constVecDedupCount += 1;
       } else {
         // cannot dedup. 
@@ -604,9 +601,9 @@ void SingleRegionMicroPartScheduler::collectConstantVecs(const PartitioningGraph
       auto valId = partInfo.constVecPool.size();
       partInfo.valueToValId[vecHandle] = valId;
 
-      if (bitWidth == 4 && dedupTableIndex < smallVecDedupTable.size()) {
-        assert(!smallVecDedupTable[dedupTableIndex].contains(rawVecVal));
-        smallVecDedupTable[dedupTableIndex][rawVecVal] = valId;
+      if (bitWidth == 4) {
+        assert(!smallVecDedupTable.contains(vecRawVal));
+        smallVecDedupTable[vecRawVal] = valId;
       }
 
       // Why reverse? vector decl op elements are MSB first. Reorder to LSB first to make vecRead's life easier
@@ -622,7 +619,7 @@ void SingleRegionMicroPartScheduler::collectConstantVecs(const PartitioningGraph
     }
   }
 
-  llvm::dbgs() << constVecDedupCount << " small const vecs deduplicated\n";
+  // llvm::dbgs() << constVecDedupCount << " small const vecs deduplicated\n";
 }
 
 
@@ -832,15 +829,14 @@ struct ValLifeCycle {
 static void extractMicroPartValueLifeTime(const PartitioningGraph &graph, const MicroPart &mPart, mlir::DenseMap<mlir::Value, ValLifeCycle> &valueToLifeCycle) {
   assert(mPart.levels.size() != 0);
   auto writeBackLevel = static_cast<uint32_t>(mPart.levels.size());
-  // assert(mPart.nodeToInputVals.size() != 0);
-  
-  dbgs() << "Write back level " << writeBackLevel << "\n";
+  valueToLifeCycle.clear();
 
+  mlir::DenseSet<mlir::Value> visitedInputVals;
 
   for (const auto [vtx, outputVal]: mPart.nodeToOutputVal) {        
     auto vtxLevel = mPart.nodeToLevel.at(vtx);
-    dbgs() << "Output node at level " << vtxLevel << "\n";
     assert(vtxLevel < writeBackLevel);
+    assert(!isa<toucan::ConstantOp>(outputVal.getDefiningOp()));
     if (valueToLifeCycle.contains(outputVal)) {
       // a vector
       assert(isa<mlir::TypedValue<toucan::VecType>>(outputVal));
@@ -850,13 +846,22 @@ static void extractMicroPartValueLifeTime(const PartitioningGraph &graph, const 
   for (const auto &[vtx, inputVals]: mPart.nodeToInputVals) {
     auto vtxLevel = mPart.nodeToLevel.at(vtx);
 
+    if (vtxLevel == 0) {
+      continue;
+    }
+
     for (const auto &eachVal: inputVals) {
+      assert(!isa<toucan::ConstantOp>(eachVal.getDefiningOp()));
+
+      visitedInputVals.insert(eachVal);
+
       if (!valueToLifeCycle.contains(eachVal)) {
         // an external input value that is not used by first level
         assert(mPart.inputValues.contains(eachVal));
         valueToLifeCycle[eachVal] = {0, vtxLevel};
       } else {
         // max
+        assert(valueToLifeCycle[eachVal].start < vtxLevel);
         auto oldEndTime = valueToLifeCycle[eachVal].end;
         if (oldEndTime < vtxLevel) {
           valueToLifeCycle[eachVal].end = vtxLevel;
@@ -866,7 +871,14 @@ static void extractMicroPartValueLifeTime(const PartitioningGraph &graph, const 
   }
 
   for (const auto &eachOutputVal: mPart.outputValueSet) {
-    assert(valueToLifeCycle[eachOutputVal].end == writeBackLevel);
+    assert(valueToLifeCycle.contains(eachOutputVal));
+    // Extend life time to write back
+    valueToLifeCycle[eachOutputVal].end = writeBackLevel;
+  }
+
+  for (const auto [val, lifetime]: valueToLifeCycle) {
+    assert(lifetime.start != lifetime.end);
+    assert(!isa<toucan::ConstantOp>(val.getDefiningOp()));
   }
 }
 
@@ -906,6 +918,7 @@ static void scheduleRegularMicroPart(const PartitioningGraph &graph, CGMicroPart
     }
     assert(i < thisVecNewIds.size());
 
+    assert(vecOp.getInputs().size() > i);
     return vecOp.getInputs()[i];
   };
 
@@ -915,12 +928,10 @@ static void scheduleRegularMicroPart(const PartitioningGraph &graph, CGMicroPart
   
   mlir::DenseMap<mlir::Value, ValLifeCycle> valueToLifeCycle;
   extractMicroPartValueLifeTime(graph, mPart, valueToLifeCycle);
-  auto MaxLiveLevel = static_cast<uint32_t>(mPart.levels.size());
 
-
+  auto WriteBackLevel = static_cast<uint32_t>(mPart.levels.size());
 
   mlir::DenseMap<mlir::Value, uint8_t> shuffleValueToId, shuffleValueToId_next;
-  // mlir::DenseSet<mlir::Value> passThroughValuesThisLevel;
 
   
 
@@ -937,6 +948,7 @@ static void scheduleRegularMicroPart(const PartitioningGraph &graph, CGMicroPart
     mlir::SmallVector<uint16_t> topLevelOpInputValIndecies;
     // For double check
     mlir::DenseSet<mlir::Value> allInputVals;
+    mlir::SmallVector<mlir::Value> topLevelResultVals;
 
 
     auto getLUTOpInputIds = [&](mlir::Operation *op) {
@@ -951,31 +963,31 @@ static void scheduleRegularMicroPart(const PartitioningGraph &graph, CGMicroPart
       size_t pos = 0;
       for (; pos < 3 - numLutOprands; pos++) {
         // Note: the first elem in value pool is const 0
-        topLevelOpInputValIndecies[pos] = 0;
+        assert(pos == topLevelOpInputValIndecies.size());
+        topLevelOpInputValIndecies.push_back(0);
       }
       for (auto val: lutOp.getInputs()) {
         assert(valToValId.contains(val));
         auto valId = valToValId.at(val);
         assert(valId < UINT16_MAX);
-        topLevelOpInputValIndecies[pos] = valId;
+        assert(pos == topLevelOpInputValIndecies.size());
+        topLevelOpInputValIndecies.push_back(valId);
         pos++;
 
-        allInputVals.insert(val);
+        if (!isa<toucan::ConstantOp>(val.getDefiningOp())) {
+          allInputVals.insert(val);
+        }
       }
       assert(topLevelOpInputValIndecies.size() == 3);
     };
 
-    for (auto eachVtx: mPart.levels[0]) {
+    for (auto eachVtx: mPart.levels.front()) {
       auto vtxIsDummyNop = mPartitioner.newNodeIdToDepNodeId.contains(eachVtx);
 
       if (vtxIsDummyNop) {
         // vecdecl
-        // auto depNode = mPartitioner.newNodeIdToDepNodeId.at(eachVtx);
         auto depValue = findDummyNopDepValue(eachVtx);
         // This value need to be passed through entire micro part
-        assert(valueToLifeCycle.contains(depValue));
-        assert(valueToLifeCycle[depValue].start == 0);
-        assert(valueToLifeCycle[depValue].end == MaxLiveLevel);
 
         auto depValueIdInSMem = valToValId.at(depValue);
         assert(depValueIdInSMem < UINT16_MAX);
@@ -992,20 +1004,28 @@ static void scheduleRegularMicroPart(const PartitioningGraph &graph, CGMicroPart
         // this value should be written to smem at last level!
         pendingWriteBackValueAndLocation.push_back({depValue, static_cast<uint16_t>(resultIndex)});
 
-        // also create a NOP
-        part.topLevel.push_back({
-          LUTOpName::LUT_Nop, 
-          0, 0, static_cast<uint16_t>(depValueIdInSMem)});
+        // assert(!shuffleValueToId.contains(depValue));
+        if (!shuffleValueToId_next.contains(depValue)) {
+          // This depValue has not been brought to wrap
+          // create a NOP
+          part.topLevel.push_back({
+            LUTOpName::LUT_Nop, 
+            0, 0, static_cast<uint16_t>(depValueIdInSMem)});
+          topLevelResultVals.push_back(depValue);
+          auto resultValShuffleId = static_cast<uint8_t>(opIndex + 32);
+          shuffleValueToId_next[depValue] = resultValShuffleId;
 
-        assert(!shuffleValueToId.contains(depValue));
-        auto resultValShuffleId = static_cast<uint8_t>(opIndex + 32);
-        shuffleValueToId[depValue] = resultValShuffleId;
+          if (!isa<toucan::ConstantOp>(depValue.getDefiningOp())) {
+            allInputVals.insert(depValue);
+          }
 
-        allInputVals.insert(depValue);
-
-        assert(opIndex <= 32);
-        opIndex++;
-        assert(opIndex == part.topLevel.size());
+          assert(opIndex <= 32);
+          opIndex++;
+          assert(opIndex == part.topLevel.size());
+        } else {
+          // This depValue already being read by some other NOP
+          // do nothing
+        }
       } else {
         // regular lut op
         auto rawOp = graph[eachVtx].op;
@@ -1013,11 +1033,14 @@ static void scheduleRegularMicroPart(const PartitioningGraph &graph, CGMicroPart
 
         getLUTOpInputIds(rawOp);
 
-        // get output id
         auto resultVal = lutOp.getResult();
-        assert(valToValId.contains(resultVal));
-        auto resultValId = valToValId.at(resultVal);
-        assert(resultValId < UINT16_MAX);
+
+        if (mPart.outputValueSet.contains(resultVal)) {
+          assert(valToValId.contains(resultVal));
+          auto resultIndex = valToValId.at(resultVal);
+          assert(resultIndex < UINT16_MAX);
+          pendingWriteBackValueAndLocation.push_back({resultVal, static_cast<uint16_t>(resultIndex)});
+        }
 
         assert(valueToLifeCycle.contains(resultVal));
         assert(valueToLifeCycle[resultVal].start == 0);
@@ -1027,10 +1050,11 @@ static void scheduleRegularMicroPart(const PartitioningGraph &graph, CGMicroPart
           topLevelOpInputValIndecies[0], 
           topLevelOpInputValIndecies[1], 
           topLevelOpInputValIndecies[2]});
+        topLevelResultVals.push_back(resultVal);
 
-        assert(!shuffleValueToId.contains(resultVal));
+        assert(!shuffleValueToId_next.contains(resultVal));
         auto resultValShuffleId = static_cast<uint8_t>(opIndex + 32);
-        shuffleValueToId[resultVal] = resultValShuffleId;
+        shuffleValueToId_next[resultVal] = resultValShuffleId;
 
         assert(opIndex <= 32);
         opIndex++;
@@ -1039,12 +1063,23 @@ static void scheduleRegularMicroPart(const PartitioningGraph &graph, CGMicroPart
     }
 
     // insert NOP for partition reads
+    mlir::DenseSet<mlir::Value> valuesOnlyUsedByFirstLevel;
+    assert(mPart.valuesUsedByEachLevel.size() > 0);
+    valuesOnlyUsedByFirstLevel.insert(mPart.valuesUsedByEachLevel.front().begin(), mPart.valuesUsedByEachLevel.front().end());
+    for (size_t i = 1; i < mPart.valuesUsedByEachLevel.size(); i++) {
+      for (const auto &v: mPart.valuesUsedByEachLevel[i]) {
+        if (valuesOnlyUsedByFirstLevel.contains(v)) {
+          valuesOnlyUsedByFirstLevel.erase(v);
+        }
+      }
+    }
+
     for (auto &eachInputVal: mPart.inputValues) {
-      if (!shuffleValueToId.contains(eachInputVal)) {
+      assert(!mPart.outputValueSet.contains(eachInputVal));
+      if (valuesOnlyUsedByFirstLevel.contains(eachInputVal)) continue;
+      if (!shuffleValueToId_next.contains(eachInputVal)) {
         // insert a dummy read op
         assert(valToValId.contains(eachInputVal));
-        assert(valueToLifeCycle.contains(eachInputVal));
-        assert(valueToLifeCycle[eachInputVal].start == 0);
 
         auto inputValIdInSmem = valToValId.at(eachInputVal);
         assert(inputValIdInSmem < UINT16_MAX);
@@ -1053,13 +1088,24 @@ static void scheduleRegularMicroPart(const PartitioningGraph &graph, CGMicroPart
           LUTOpName::LUT_Nop,
           0, 0, static_cast<uint16_t>(inputValIdInSmem)
         });
+        topLevelResultVals.push_back(eachInputVal);
 
-        assert(!shuffleValueToId.contains(eachInputVal));
+        assert(!shuffleValueToId_next.contains(eachInputVal));
         auto resultValShuffleId = static_cast<uint8_t>(opIndex + 32);
-        shuffleValueToId[eachInputVal] = resultValShuffleId;
+        shuffleValueToId_next[eachInputVal] = resultValShuffleId;
 
-        // passThroughValuesThisLevel.insert(eachInputVal);
+        assert(!isa<toucan::ConstantOp>(eachInputVal.getDefiningOp()));
         allInputVals.insert(eachInputVal);
+
+        if (opIndex > 32) {
+          dbgs() << "Too many ops in top level!\n";
+          mPart.print();
+          dbgs() << "Top level result val:\n";
+          for (const auto &v: topLevelResultVals) {
+            v.print(dbgs());
+            dbgs() << "\n";
+          }
+        }
 
         assert(opIndex <= 32);
         opIndex++;
@@ -1067,12 +1113,12 @@ static void scheduleRegularMicroPart(const PartitioningGraph &graph, CGMicroPart
       }
     }
 
+    assert(shuffleValueToId.empty());
+    assert(shuffleValueToId_next.size() == part.topLevel.size());
     assert(allInputVals == mPart.inputValues);
   }
 
   // remaining levels
-  // mlir::DenseSet<mlir::Value> valuesOutputOfThisLevel;
-  // mlir::DenseSet<mlir::Value> valuesUsedByThisLevel;
 
   mlir::SmallVector<uint8_t> lutOpInputValIndecies;
 
@@ -1088,7 +1134,8 @@ static void scheduleRegularMicroPart(const PartitioningGraph &graph, CGMicroPart
     size_t pos = 0;
     for (; pos < 3 - numLutOprands; pos++) {
       // Note: the first elem in value pool is const 0
-      lutOpInputValIndecies[pos] = 0;
+      assert(pos == lutOpInputValIndecies.size());
+      lutOpInputValIndecies.push_back(0);
     }
     for (auto val: lutOp.getInputs()) {
       if (auto constOp = dyn_cast<toucan::ConstantOp>(val.getDefiningOp())) {
@@ -1099,12 +1146,14 @@ static void scheduleRegularMicroPart(const PartitioningGraph &graph, CGMicroPart
         auto rawVal = static_cast<uint8_t>(constVal.getZExtValue());
         // save op result value
         assert(rawVal == (rawVal & ((1 << bitWidth) - 1)));
-        lutOpInputValIndecies[pos] = rawVal;
+        assert(pos == lutOpInputValIndecies.size());
+        lutOpInputValIndecies.push_back(rawVal);
       } else {
         // a regular value. Must be in shuffle values
         assert(shuffleValueToId.contains(val));
         auto valId = shuffleValueToId.at(val);
-        lutOpInputValIndecies[pos] = valId;
+        assert(pos == lutOpInputValIndecies.size());
+        lutOpInputValIndecies.push_back(valId);
       }
       pos++;
     }
@@ -1113,10 +1162,101 @@ static void scheduleRegularMicroPart(const PartitioningGraph &graph, CGMicroPart
 
   
   for (size_t levelId = 1; levelId < mPart.levels.size(); levelId++) {
+    std::swap(shuffleValueToId, shuffleValueToId_next);
+
+    for (const auto &[val, _] : pendingWriteBackValueAndLocation) {
+      if (valueToLifeCycle.contains(val)) {
+        if (valueToLifeCycle.at(val).start < levelId) {
+          // should be alive now
+          // if (!shuffleValueToId.contains(val)) {
+          //   dbgs() << "Level " << levelId << ", val:\n";
+          //   val.print(dbgs());
+          //   dbgs() << "\n";
+          // }
+          assert(shuffleValueToId.contains(val));
+        }
+      }
+    }
 
     uint8_t opIndex = 0;
     part.middleLevels.emplace_back();
     shuffleValueToId_next.clear();
+
+
+    // Create NOP for pass through values
+    for (const auto &[val, lifeTime]: valueToLifeCycle) {
+      // if (!(lifeTime.end > lifeTime.start)) {
+      //   dbgs() << "Value defined by:\n";
+      //   val.getDefiningOp()->print(dbgs());
+      //   dbgs() << "\nLife start at " << lifeTime.start << ", end at " << lifeTime.end << "\n";
+      // }
+      assert(lifeTime.end > lifeTime.start);
+
+      if (isa<mlir::TypedValue<toucan::VecType>>(val)) {
+        // a vector value, should only be used by first or last level, ignore
+        continue;
+      }
+
+      // future value, ignore
+      if (lifeTime.start > levelId) continue;
+      if (lifeTime.start == levelId) {
+        // value created by this level
+        // valuesOutputOfThisLevel.insert(val);
+      } else {
+        // value created by previous level
+        if (lifeTime.end > levelId) {
+          // pass through
+          assert(shuffleValueToId.contains(val));
+          if (!shuffleValueToId_next.contains(val)) {
+            // insert a dummy NOP op
+            auto valShuffleId = shuffleValueToId[val];
+
+            part.middleLevels.back().push_back({
+              LUTOpName::LUT_Nop, 
+              0, 0, valShuffleId});
+
+            // get output id
+            auto resultValShuffleId = static_cast<uint8_t>(opIndex + 32);
+            shuffleValueToId_next[val] = resultValShuffleId;
+            assert(opIndex <= 32);
+            opIndex++;
+            assert(opIndex == part.middleLevels.back().size());
+          }
+        }
+      }
+    }
+    // Create NOP for pass through values that reads from outside (and thus not in valueLifeTime)
+    for (const auto [val, _]: pendingWriteBackValueAndLocation) {
+      assert(shuffleValueToId.contains(val));
+      if (!shuffleValueToId_next.contains(val)) {
+
+        // insert a dummy NOP op
+        auto valShuffleId = shuffleValueToId[val];
+
+        part.middleLevels.back().push_back({
+          LUTOpName::LUT_Nop, 
+          0, 0, valShuffleId});
+
+        // get output id
+        auto resultValShuffleId = static_cast<uint8_t>(opIndex + 32);
+        shuffleValueToId_next[val] = resultValShuffleId;
+        assert(opIndex <= 32);
+        opIndex++;
+        assert(opIndex == part.middleLevels.back().size());
+      }
+    }
+
+    for (auto &[val, _]: pendingWriteBackValueAndLocation) {
+      if (valueToLifeCycle.contains(val)) {
+        if (valueToLifeCycle[val].start <= levelId) {
+          // Double check
+          assert(shuffleValueToId.contains(val));
+        }
+      }
+    }
+
+
+
 
 
     for (const auto eachVtx: mPart.levels[levelId]) {
@@ -1124,13 +1264,11 @@ static void scheduleRegularMicroPart(const PartitioningGraph &graph, CGMicroPart
 
       if (vtxIsDummyNop) {
         // vecdecl
-        // auto depNode = mPartitioner.newNodeIdToDepNodeId.at(eachVtx);
         auto depValue = findDummyNopDepValue(eachVtx);
         // This value need to be passed through entire micro part
-        // ?
         assert(valueToLifeCycle.contains(depValue));
         assert(valueToLifeCycle[depValue].start < levelId);
-        assert(valueToLifeCycle[depValue].end == MaxLiveLevel);
+        // Note: pass down to last level.
 
         // The input value must in somewhere in the shuffle network!
         assert(shuffleValueToId.contains(depValue));
@@ -1176,14 +1314,6 @@ static void scheduleRegularMicroPart(const PartitioningGraph &graph, CGMicroPart
         // get output id
         auto resultVal = lutOp.getResult();
 
-        // if (!shuffleValueToId_next.contains(resultVal)) {
-        //   auto resultValShuffleId = static_cast<uint8_t>(opIndex + 32);
-        //   shuffleValueToId_next[resultVal] = resultValShuffleId;
-
-        //   assert(opIndex <= 32);
-        //   opIndex++;
-        //   assert(opIndex == part.middleLevels.back().size());
-        // }
         assert(!shuffleValueToId_next.contains(resultVal));
         auto resultValShuffleId = static_cast<uint8_t>(opIndex + 32);
         shuffleValueToId_next[resultVal] = resultValShuffleId;
@@ -1195,7 +1325,7 @@ static void scheduleRegularMicroPart(const PartitioningGraph &graph, CGMicroPart
         assert(valueToLifeCycle.contains(resultVal));
         assert(valueToLifeCycle[resultVal].start == levelId);
         // or an output value
-        if (valueToLifeCycle[resultVal].end == MaxLiveLevel) {
+        if (valueToLifeCycle[resultVal].end == WriteBackLevel) {
           assert(mPart.outputValueSet.contains(resultVal));
           assert(valToValId.contains(resultVal));
           
@@ -1205,66 +1335,23 @@ static void scheduleRegularMicroPart(const PartitioningGraph &graph, CGMicroPart
       }
 
     }
-
-    // Create NOP for pass through values
-    for (const auto &[val, lifeTime]: valueToLifeCycle) {
-      assert(lifeTime.end > lifeTime.start);
-
-      // future value, ignore
-      if (lifeTime.start > levelId) continue;
-      if (lifeTime.start == levelId) {
-        // value created by this level
-        // valuesOutputOfThisLevel.insert(val);
-      } else {
-        // value created by previous level
-        if (lifeTime.end > levelId) {
-          // pass through
-          assert(!isa<mlir::TypedValue<toucan::VecType>>(val));
-          assert(shuffleValueToId.contains(val));
-          assert(!shuffleValueToId_next.contains(val));
+  }
 
 
-          // insert a dummy NOP op
-          auto valShuffleId = shuffleValueToId[val];
-
-          part.middleLevels.back().push_back({
-            LUTOpName::LUT_Nop, 
-            0, 0, valShuffleId});
-
-          // get output id
-          auto resultValShuffleId = static_cast<uint8_t>(opIndex + 32);
-          shuffleValueToId_next[val] = resultValShuffleId;
-          assert(opIndex <= 32);
-          opIndex++;
-          assert(opIndex == part.middleLevels.back().size());
-
-        }
-      }
-    }
-
+  {
+    // last level
     std::swap(shuffleValueToId, shuffleValueToId_next);
+    // Create write back NOPs
+    assert(pendingWriteBackValueAndLocation.size() <= 32);
+    for (const auto &[val, sMemIdx]: pendingWriteBackValueAndLocation) {
+      assert(shuffleValueToId.contains(val));
+      auto valShuffleId = shuffleValueToId[val];
 
-    for (auto &[val, _]: pendingWriteBackValueAndLocation) {
-      if (valueToLifeCycle[val].start <= levelId) {
-        assert(shuffleValueToId.contains(val));
-      }
+      part.lastLevel.push_back({valShuffleId, sMemIdx});
     }
+    assert(part.lastLevel.size() <= 32);
   }
 
-
-  // Create write back NOPs
-  assert(pendingWriteBackValueAndLocation.size() <= 32);
-  for (const auto &[val, sMemIdx]: pendingWriteBackValueAndLocation) {
-    assert(shuffleValueToId.contains(val));
-    auto valShuffleId = shuffleValueToId[val];
-
-    part.lastLevel.push_back({valShuffleId, sMemIdx});
-  }
-  assert(part.lastLevel.size() <= 32);
-
-
-
-  // TODO: remove all NOP levels
 }
 
 static void scheduleSpecialMicroPart(const PartitioningGraph &graph, CGMicroPartInfo &part, const MicroPart &mPart, const CGInfo &codeGenInfo, const CGPartitionMetaInfo &partInfo) {
@@ -1272,7 +1359,8 @@ static void scheduleSpecialMicroPart(const PartitioningGraph &graph, CGMicroPart
   const auto &toucanMemToId = codeGenInfo.toucanMemToId;
   const auto &memPool = codeGenInfo.memPool;
 
-  assert(mPart.levels.size() == 1);
+  assert(mPart.levels.size() == 0);
+  assert(mPart.specialOps.size() != 0);
   assert(mPart.opType != CGToucanOPName::LUT);
 
   part.clear();
@@ -1281,9 +1369,9 @@ static void scheduleSpecialMicroPart(const PartitioningGraph &graph, CGMicroPart
   uint8_t opIndex = 0;
   switch (mPart.opType) {
     case CGToucanOPName::VecRead: {
-      for (auto vtx: mPart.levels[0]) {
-        auto rawOp = graph[vtx].op;
-        auto vecVal = cast<toucan::VectorReadOp>(rawOp).getHandle();
+      for (auto rawOp: mPart.specialOps) {
+        auto vecReadOp = cast<toucan::VectorReadOp>(rawOp);
+        auto vecVal = vecReadOp.getHandle();
 
         assert(valToValId.contains(vecVal));
         auto vecValIdInSMem = valToValId.at(vecVal);
@@ -1295,71 +1383,59 @@ static void scheduleSpecialMicroPart(const PartitioningGraph &graph, CGMicroPart
         bool isConstVec = isa<toucan::DefConstVectorOp>(vecVal.getDefiningOp());
         if (!isConstVec) assert(isa<toucan::DefVectorOp>(vecVal.getDefiningOp()));
 
-        uint32_t thisNodeOpCount = 0;
-        for (auto userOp: vecVal.getUsers()) {
-          if (auto vecReadOp = dyn_cast<toucan::VectorReadOp>(userOp)) {
 
-            auto offset = vecReadOp.getOffset().getZExtValue();
-            assert(offset < UINT16_MAX);
+        auto offset = vecReadOp.getOffset().getZExtValue();
+        assert(offset < UINT16_MAX);
 
-            auto outRangeValue = vecReadOp.getOutRangeValue();
-            assert(valToValId.contains(outRangeValue));
-            auto outRangeValueId = valToValId.at(outRangeValue);
-            assert(outRangeValueId < UINT16_MAX);
+        auto outRangeValue = vecReadOp.getOutRangeValue();
+        assert(valToValId.contains(outRangeValue));
+        auto outRangeValueId = valToValId.at(outRangeValue);
+        assert(outRangeValueId < UINT16_MAX);
 
-            auto indexValues = vecReadOp.getIndicies();
-            auto numIndexValues = indexValues.size();
-            assert(numIndexValues <= 4 && "Index is too long");
+        auto indexValues = vecReadOp.getIndicies();
+        auto numIndexValues = indexValues.size();
+        assert(numIndexValues <= 4 && "Index is too long");
 
-            std::array<uint32_t, 4> vecReadOpIndexIds;
-            size_t pos = 0;
-            for (; pos < 4 - numIndexValues; pos++) {
-              // Note: the first elem in value pool is const 0
-              vecReadOpIndexIds[pos] = 0;
-            }
-            for (auto val: indexValues) {
-              assert(valToValId.contains(val));
-              auto valId = valToValId.at(val);
-              assert(valId < UINT16_MAX);
-              vecReadOpIndexIds[pos] = valId;
-              pos++;
-            }
-
-            auto resultVal = vecReadOp.getResult();
-            assert(valToValId.contains(resultVal));
-            auto resultValId = valToValId.at(resultVal);
-            assert(resultValId < UINT16_MAX);
-
-            part.vecRead.push_back({
-              static_cast<uint16_t>(vecValIdInSMem),
-              static_cast<uint16_t>(vecLength),
-              isConstVec,
-              static_cast<uint16_t>(offset),
-              static_cast<uint16_t>(vecReadOpIndexIds[0]),
-              static_cast<uint16_t>(vecReadOpIndexIds[1]),
-              static_cast<uint16_t>(vecReadOpIndexIds[2]),
-              static_cast<uint16_t>(vecReadOpIndexIds[3]),
-              static_cast<uint16_t>(outRangeValueId),
-              static_cast<uint16_t>(resultValId)
-            });
-
-            assert(opIndex <= 32);
-            opIndex++;
-            assert(opIndex == part.vecRead.size());
-            thisNodeOpCount++;
-          }
+        std::array<uint32_t, 4> vecReadOpIndexIds;
+        size_t pos = 0;
+        for (; pos < 4 - numIndexValues; pos++) {
+          // Note: the first elem in value pool is const 0
+          vecReadOpIndexIds[pos] = 0;
         }
-        assert(thisNodeOpCount == graph[vtx].opCount);
+        for (auto val: indexValues) {
+          assert(valToValId.contains(val));
+          auto valId = valToValId.at(val);
+          assert(valId < UINT16_MAX);
+          vecReadOpIndexIds[pos] = valId;
+          pos++;
+        }
 
+        auto resultVal = vecReadOp.getResult();
+        assert(valToValId.contains(resultVal));
+        auto resultValId = valToValId.at(resultVal);
+        assert(resultValId < UINT16_MAX);
+
+        part.vecRead.push_back({
+          static_cast<uint16_t>(vecValIdInSMem),
+          static_cast<uint16_t>(vecLength),
+          isConstVec,
+          static_cast<uint16_t>(offset),
+          static_cast<uint16_t>(vecReadOpIndexIds[0]),
+          static_cast<uint16_t>(vecReadOpIndexIds[1]),
+          static_cast<uint16_t>(vecReadOpIndexIds[2]),
+          static_cast<uint16_t>(vecReadOpIndexIds[3]),
+          static_cast<uint16_t>(outRangeValueId),
+          static_cast<uint16_t>(resultValId)
+        });
+
+        assert(opIndex <= 32);
+        opIndex++;
+        assert(opIndex == part.vecRead.size());
       }
       break;
     }
     case CGToucanOPName::VecLogic:{
-      for (auto vtx: mPart.levels[0]) {
-        auto rawOp = graph[vtx].op;
-        auto opCount = graph[vtx].opCount;
-        assert(opCount == 1);
-
+      for (auto rawOp: mPart.specialOps) {
         auto vecLogicOp = cast<toucan::VectorLogicOp>(rawOp);
 
         auto v1Val = vecLogicOp.getV1();
@@ -1405,11 +1481,7 @@ static void scheduleSpecialMicroPart(const PartitioningGraph &graph, CGMicroPart
       break;
     }
     case CGToucanOPName::VecArith:{
-      for (auto vtx: mPart.levels[0]) {
-        auto rawOp = graph[vtx].op;
-        auto opCount = graph[vtx].opCount;
-        assert(opCount == 1);
-
+      for (auto rawOp: mPart.specialOps) {
         auto vecArithOp = cast<toucan::VectorArithOp>(rawOp);
 
         auto v1Val = vecArithOp.getV1();
@@ -1457,11 +1529,7 @@ static void scheduleSpecialMicroPart(const PartitioningGraph &graph, CGMicroPart
       break;
     }
     case CGToucanOPName::MemRead:{
-      for (auto vtx: mPart.levels[0]) {
-        auto rawOp = graph[vtx].op;
-        auto opCount = graph[vtx].opCount;
-        assert(opCount == 1);
-
+      for (auto rawOp: mPart.specialOps) {
         auto memReadOp = cast<toucan::MemReadOp>(rawOp);
         auto memVal = memReadOp.getMem();
         auto memValId = toucanMemToId.at(memVal);
@@ -1585,7 +1653,7 @@ void SingleRegionMicroPartScheduler::schedule(const PartitioningGraph &graph, co
       for (uint32_t levelId = 0; levelId < currentMicroPartitioner.partLevels.size(); levelId++) {
         partInfo.microPartOps.emplace_back();
 
-        for (auto &eachPart: currentMicroPartitioner.partLevels[levelId]) {
+        for (const auto &eachPart: currentMicroPartitioner.partLevels[levelId]) {
           // schedule each mpart
           bool isLUTPart = (eachPart.opType == CGToucanOPName::LUT);
 

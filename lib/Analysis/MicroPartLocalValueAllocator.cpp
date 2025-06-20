@@ -144,7 +144,9 @@ void MicroPartLocalValueAllocator::allocateLocalValues() {
   for (size_t levelId = 0; levelId < totalLevels; levelId++) {
     auto &valsToAllocate = lifeTimeStartToVal[levelId];
     auto &valsToRelease = lifeTimeEndToVal[levelId];
-
+for (auto [val, valId]: valToValId) {
+assert(!isa<toucan::StaticVectorSegmentReadOp>(val.getDefiningOp()));
+}
     // sort in descending order of val life time ends
     // allocate long-lasting vals first
     std::sort(valsToAllocate.begin(), valsToAllocate.end(), [&](const mlir::Value &a, const mlir::Value &b) {
@@ -306,9 +308,7 @@ void MicroPartLocalValueAllocator::allocateLocalValues() {
           availableValIds.insert(valId);
         }
       } else {
-        // Do nothing for segment values.
-        if (vecSegmentsToVecArith.contains(eachVal)) continue;
-
+        // a regular value
         auto valIdToRelease = valToValId[eachVal];
         availableValIds.insert(valIdToRelease);
         assert(valIdToRelease >= numConsts);
@@ -317,7 +317,9 @@ void MicroPartLocalValueAllocator::allocateLocalValues() {
     }
   }
 
-
+for (auto [val, valId]: valToValId) {
+assert(!isa<toucan::StaticVectorSegmentReadOp>(val.getDefiningOp()));
+}
   // Assign ID for segment values
   for (const auto &[eachVecVal, segmentVals]: vecArithResultToSegments) {
     assert(valToValId.contains(eachVecVal) && "Result vector of VecArith should be already allocated!");
@@ -326,6 +328,11 @@ void MicroPartLocalValueAllocator::allocateLocalValues() {
 
     for (const auto &segmentVal: segmentVals) {
       assert(valToLifeTime.contains(segmentVal));
+      if (valToValId.contains(segmentVal)) {
+        dbgs() << "Value that should not appear! defined by:\n";
+        segmentVal.getDefiningOp()->print(dbgs());
+        dbgs() << "\n";
+      }
       assert(!valToValId.contains(segmentVal));
       auto segReadOp = cast<toucan::StaticVectorSegmentReadOp>(segmentVal.getDefiningOp());
       assert(segReadOp.getHandle() == eachVecVal);
@@ -411,6 +418,10 @@ void MicroPartLocalValueAllocator::populateInitialPinnedVals(const PartitioningG
     nextValId++;
   }
 
+  for (auto [val, valId]: valToValId) {
+    // pinned values should not be result of StaticVectorSegmentReadOp
+    assert(!isa<toucan::StaticVectorSegmentReadOp>(val.getDefiningOp()));
+  }
   assert(numInputVals == pinnedInputVals.size());
 }
 

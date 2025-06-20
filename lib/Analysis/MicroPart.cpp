@@ -24,6 +24,7 @@ void MicroPart::clear() {
   nodeToInputVals.clear();
   nodeToOutputVal.clear();
   specialOps.clear();
+  valuesUsedByEachLevel.clear();
 }
 
 void MicroPart::updateNodeToLevel() {
@@ -88,6 +89,7 @@ bool MicroPart::checkAndCollectRegularPartIOValues(const PartitioningGraph &g, c
   outputValueSet.clear();
   nodeToInputVals.clear();
   nodeToOutputVal.clear();
+  valuesUsedByEachLevel.clear();
 
   mlir::DenseSet<mlir::Value> allPreviousLevelResultValues;
 
@@ -111,9 +113,12 @@ bool MicroPart::checkAndCollectRegularPartIOValues(const PartitioningGraph &g, c
   for (size_t levelId = 0; levelId < levels.size(); levelId++) {
     assert(!levels[levelId].empty());
     const auto &currentLevelNodes = levels[levelId];
+    valuesUsedByEachLevel.emplace_back();
+
     for (auto eachVtx: currentLevelNodes) {
       assert(nodes.contains(eachVtx));
       auto vtxIsDummyNop = newNodeIdToDepNodeId.contains(eachVtx);
+      if (vtxIsDummyNop) dummyNodes.insert(eachVtx);
 
       if (!vtxIsDummyNop) {
         auto rawOp = g[eachVtx].op;
@@ -141,48 +146,29 @@ bool MicroPart::checkAndCollectRegularPartIOValues(const PartitioningGraph &g, c
 
       if (vtxIsDummyNop) {
         auto depVtx = newNodeIdToDepNodeId.at(eachVtx);
-        auto depOp = g[depVtx].op;
+        auto depValue = findDummyNopDepValue(eachVtx);
+        assert(!isa<mlir::TypedValue<toucan::VecType>>(depValue));
+
+        if (!isa<toucan::ConstantOp>(depValue.getDefiningOp())) {
+          // Ignore const
+          if (nodeToInputVals.contains(eachVtx)) {
+            nodeToInputVals[eachVtx].push_back(depValue);
+          } else {
+            nodeToInputVals[eachVtx] = {depValue};
+          }
+
+          if (!nodes.contains(depVtx)) {
+            // a vecDecl reads element from outside
+            inputValues.insert(depValue);
+          }
+
+          valuesUsedByEachLevel.back().insert(depValue);
+        }
 
         if (nodes.contains(depVtx)) {
           // internal node read and write to vector. Just check correctness
           auto depVtxLevel = nodeToLevel[depVtx];
-
-          if (depVtxLevel + 1 != levelId) {
-            llvm::errs() << "A dummy node " << eachVtx << " in a micro partition does NOT depends on input from previous level!\n";
-            depOp->print(llvm::errs());
-            llvm::errs() << "\n";
-            auto originalVecDeclId = newNodeIdToOriginalVecDeclId.at(eachVtx);
-            assert(g[originalVecDeclId].toucanOpName == CGToucanOPName::VecDecl);
-            auto rawOp = g[originalVecDeclId].op;
-            rawOp->print(llvm::errs());
-            llvm::errs() << "\n";
-
-            return false;
-          }
-        } else {
-          // a vecDecl reads element from outside
-          if (isa<toucan::DefVectorOp>(depOp)) {
-            llvm::dbgs() << "Op\n";
-            auto rawOp = g[newNodeIdToOriginalVecDeclId.at(eachVtx)].op;
-            rawOp->print(llvm::dbgs());
-            llvm::dbgs() << "\nDepends on external vector:\n";
-            depOp->print(llvm::dbgs());
-            llvm::dbgs() << "\n";
-          }
-          assert(!isa<toucan::DefVectorOp>(depOp));
-          auto depValue = findDummyNopDepValue(eachVtx);
-          if (!isa<toucan::ConstantOp>(depValue.getDefiningOp())) {
-            // Ignore const
-            inputValues.insert(depValue);
-            if (nodeToInputVals.contains(eachVtx)) {
-              nodeToInputVals[eachVtx].push_back(depValue);
-            } else {
-              nodeToInputVals[eachVtx] = {depValue};
-            }
-          } else {
-            // This input value of a vector is constant.
-            // Do nothing and it should not be considered as input (since we have a const pool)
-          }
+          assert(depVtxLevel + 1 == levelId);
         }
       } else {
         // regular node
@@ -193,14 +179,15 @@ bool MicroPart::checkAndCollectRegularPartIOValues(const PartitioningGraph &g, c
           assert(!isa<mlir::TypedValue<toucan::MemType>>(eachOperand));
 
           if (!isa<toucan::ConstantOp>(eachOperand.getDefiningOp())) {
+            if (nodeToInputVals.contains(eachVtx)) {
+              nodeToInputVals[eachVtx].push_back(eachOperand);
+            } else {
+              nodeToInputVals[eachVtx] = {eachOperand};
+            }
             if (!allPreviousLevelResultValues.contains(eachOperand)) {
               inputValues.insert(eachOperand);
-              if (nodeToInputVals.contains(eachVtx)) {
-                nodeToInputVals[eachVtx].push_back(eachOperand);
-              } else {
-                nodeToInputVals[eachVtx] = {eachOperand};
-              }
             }
+            valuesUsedByEachLevel.back().insert(eachOperand);
           }
         }
 
@@ -222,6 +209,16 @@ bool MicroPart::checkAndCollectRegularPartIOValues(const PartitioningGraph &g, c
         nodeToOutputVal[eachVtx] = resultVecVal;
       } else {
         // regular lut
+        assert(g[eachVtx].toucanOpName == CGToucanOPName::LUT);
+        auto rawOp = g[eachVtx].op;
+        assert(rawOp != nullptr);
+        auto lutOp = cast<toucan::LUTOp>(rawOp);
+        auto resultVal = lutOp.getResult();
+
+        assert(!nodeToOutputVal.contains(eachVtx));
+        nodeToOutputVal[eachVtx] = resultVal;
+
+
         bool outputValueUsedOutsideThisPartition = false;
 
         mlir::SmallVector<uint32_t> allUserVtxes;
@@ -229,9 +226,6 @@ bool MicroPart::checkAndCollectRegularPartIOValues(const PartitioningGraph &g, c
           auto eachUserVtx = boost::target(eachUserEdge, g);
           allUserVtxes.push_back(eachUserVtx);
         }
-
-
-
 
         for (auto edgeTarget: allUserVtxes) {
           // assert(!allPreviousLevelLUTNodes.contains(edgeTarget) && "Should follow topo order");
@@ -272,21 +266,10 @@ bool MicroPart::checkAndCollectRegularPartIOValues(const PartitioningGraph &g, c
         // Save output Value
         if (outputValueUsedOutsideThisPartition) {
           assert(!vtxIsDummyNop);
-          if (!newNodeIdToOriginalVecDeclId.contains(eachVtx)) {
-            // regular node
-            assert(g[eachVtx].toucanOpName == CGToucanOPName::LUT);
-            auto rawOp = g[eachVtx].op;
-            assert(rawOp != nullptr);
-            auto lutOp = cast<toucan::LUTOp>(rawOp);
-            auto resultVal = lutOp.getResult();
-            outputValues.push_back(resultVal);
-            assert(!outputValueSet.contains(resultVal));
-            outputValueSet.insert(resultVal);
-            nodeToOutputVal[eachVtx] = resultVal;
-          } else {
-            // VecDecl. In fact bunch of NOPs
-            assert(false && "Should not reach here");
-          }
+
+          outputValues.push_back(resultVal);
+          assert(!outputValueSet.contains(resultVal));
+          outputValueSet.insert(resultVal);
         } else {
           assert(g[eachVtx].op != nullptr);
           assert(!isa<toucan::DefVectorOp>(g[eachVtx].op));
@@ -296,6 +279,33 @@ bool MicroPart::checkAndCollectRegularPartIOValues(const PartitioningGraph &g, c
     }
 
   }
+
+mlir::DenseSet<mlir::Value> visitedInputVals;
+for (const auto &[_, vs]: nodeToInputVals) {
+  for (const auto &v: vs) {
+    visitedInputVals.insert(v);
+  }
+}
+for (const auto &val: inputValues) {
+  if (!visitedInputVals.contains(val)) {
+    llvm::dbgs() << "Value missing\n";
+    val.print(llvm::dbgs());
+    llvm::dbgs() << "\n";
+  }
+  assert(visitedInputVals.contains(val));
+}
+  // if (allInputVals.size() != inputValues.size()) {
+  //   llvm::dbgs() << "Incorrect input values\nallInputVals from nodeToInputVals:\n";
+  //   for (const auto &v: allInputVals) {
+  //     v.print(llvm::dbgs());
+  //     llvm::dbgs() << "\n";
+  //   }
+  //   llvm::dbgs() << "inputValues:\n";
+  //   for (const auto &v: inputValues) {
+  //     v.print(llvm::dbgs());
+  //     llvm::dbgs() << "\n";
+  //   }
+  // }
 
   return true;
 }
@@ -370,4 +380,41 @@ bool MicroPart::checkAndCollectIOValues(const PartitioningGraph &g, const mlir::
   assert(numOpsAtFirstLevel <= 32);
 
   return ret;
+}
+
+void MicroPart::print() const {
+  bool isRegularPart = opType == CGToucanOPName::LUT;
+
+  llvm::dbgs() << "============ Part print ===========\n";
+  llvm::dbgs() << "Part line no " << lineno << "\n";
+
+  if (isRegularPart) {
+    size_t level_id = 0;
+    for (const auto &eachLevel: levels) {
+      llvm::dbgs() << "Level " << level_id << ":\n";
+      for (const auto &eachVtx: eachLevel) {
+        if (dummyNodes.contains(eachVtx)) {
+          llvm::dbgs() << "  Dummy NOP, read from: ";
+          assert(nodeToInputVals.contains(eachVtx));
+          assert(nodeToInputVals.at(eachVtx).size() == 1);
+          nodeToInputVals.at(eachVtx).front().print(llvm::dbgs());
+          llvm::dbgs() << "\n";
+        } else {
+          llvm::dbgs() << "  Regular node: ";
+          assert(nodeToOutputVal.contains(eachVtx));
+          nodeToOutputVal.at(eachVtx).print(llvm::dbgs());
+          llvm::dbgs() << "\n";
+        }
+      }
+      level_id++;
+    }
+  } else {
+    llvm::dbgs() << "Special part has " << nodes.size() << " nodes and " << specialOps.size() << " ops\n";
+    for (const auto eachOp: specialOps) {
+      eachOp->print(llvm::dbgs());
+      llvm::dbgs() << "\n";
+    }
+  }
+
+  llvm::dbgs() << "----\n";
 }
