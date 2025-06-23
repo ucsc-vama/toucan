@@ -36,6 +36,7 @@
 #include <memory>
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 #include <tuple>
 #include <vector>
 
@@ -735,37 +736,56 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
 
     std::vector<MicroPartitioner> mps;
     for (size_t regionId = 0; regionId < numRegions; regionId++) {
-      auto regionGraph = p.regionGraphs[regionId];
       auto &regionRepCutPartitions = p.regionPartitions[regionId];
       
       auto numParts = p.regionPartitions[regionId].size();
       mps.reserve(numParts);
   
       auto thisRegionWorkDirectory = p.regionWorkDirectory[regionId];
-  
+
       for (size_t partId = 0; partId < numParts; partId++) {
-        llvm::outs() << "Partitioning region " << regionId << " part " << partId << "\n";
-
         auto thisRepCutPartition = regionRepCutPartitions[partId];
-
         mps.emplace_back(MicroPartitioner(thisRepCutPartition, thisRegionWorkDirectory, partId, p.originalVectorElementsMap));
-        auto &mp = mps.back();
+      }
+    }
+
+    for (size_t regionId = 0; regionId < numRegions; regionId++) {
+      auto regionGraph = p.regionGraphs[regionId];
+      auto numParts = p.regionPartitions[regionId].size();
+      mps.reserve(numParts);
+
+      llvm::outs() << "======= Micro partition and schedule for region " << regionId << " =======\n";
+      llvm::outs() << "Has " << numParts << " RepCut partitions\n";
+
+      auto partitionAndScheduleStatus = mlir::failableParallelForEachN(&getContext(), 0, numParts, [&](size_t partId) {
+        std::ostringstream oss;
+        oss << "Partitioning region " << regionId << " part " << partId << "\n";
+        llvm::outs() << oss.str();
+
+        assert(mps.size() > partId);
+        auto &mp = mps[partId];
 
         auto ret = mp.partition();
 
         if (failed(ret)) {
-          signalPassFailure();
-          return;
+          errs() << "Fail to partition\n";
+          return ret;
         }
 
         ret = mp.arrangeSpecialOps(regionGraph);
         if (failed(ret)) {
-          signalPassFailure();
-          return;
+          errs() << "Fail to place special ops\n";
+          return ret;
         }
 
         mp.collectPartIOValues(regionGraph);
 
+        return success();
+      });
+
+      if (failed(partitionAndScheduleStatus)) {
+        signalPassFailure();
+        return;
       }
     }
 
