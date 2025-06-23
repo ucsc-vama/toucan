@@ -5,6 +5,7 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Dialect.h"
+#include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Operation.h"
 
 #include "mlir/Bytecode/BytecodeOpInterface.h"
@@ -125,7 +126,7 @@ namespace toucan {
 
 
 
-    void schedule(const PartitioningGraph &graph, const mlir::SmallVector<mlir::SmallVector<uint32_t>> &partNodeLis);
+    void schedule(mlir::MLIRContext *context, const PartitioningGraph &graph, const mlir::SmallVector<mlir::SmallVector<uint32_t>> &partNodeLis);
     void generateRegMemLayout(const PartitioningGraph &graph, const mlir::SmallVector<mlir::SmallVector<uint32_t>> &partNodeList);
     
 

@@ -4,9 +4,25 @@
 #include "circt/Dialect/Comb/CombOps.h"
 #include "circt/Dialect/Seq/SeqOps.h"
 
+
+#include "mlir/IR/Operation.h"
+#include "mlir/IR/Builders.h"
+
+#include "mlir/IR/Threading.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Pass/AnalysisManager.h"
 #include "mlir/Support/LLVM.h"
+#include "mlir/Support/LogicalResult.h"
+
+#include "llvm/ADT/BitVector.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/Casting.h"
+#include "llvm/Support/Debug.h"
+#include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/raw_ostream.h"
+
+
 #include "toucan/MicroPartLocalValueAllocator.h"
 #include "toucan/MicroPartitioner.h"
 #include "toucan/ToucanAnalysis.h"
@@ -15,12 +31,8 @@
 #include "toucan/ToucanOps.h"
 #include "toucan/ToucanTypes.h"
 #include "toucan/ToucanUtils.h"
+#include "toucan/PartitioningGraph.h"
 
-#include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/SmallVector.h"
-#include "llvm/Support/Casting.h"
-#include "llvm/Support/Debug.h"
-#include "llvm/Support/ErrorHandling.h"
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
@@ -33,57 +45,6 @@
 #include <tuple>
 #include <unordered_map>
 #include <vector>
-
-
-using namespace toucan;
-
-using namespace mlir;
-using namespace llvm;
-using namespace circt;
-
-
-
-
-
-#include "circt/Dialect/HW/HWTypes.h"
-#include "circt/Support/LLVM.h"
-#include "circt/Dialect/Comb/CombDialect.h"
-#include "circt/Dialect/Comb/CombOps.h"
-#include "circt/Dialect/Seq/SeqOps.h"
-
-#include "mlir/IR/Operation.h"
-#include "mlir/IR/PatternMatch.h"
-#include "mlir/IR/Value.h"
-#include "mlir/Pass/AnalysisManager.h"
-#include "mlir/Support/LLVM.h"
-#include "mlir/IR/Builders.h"
-
-#include "toucan/PartitioningGraph.h"
-#include "toucan/ToucanAnalysis.h"
-#include "toucan/ToucanAttributes.h"
-#include "toucan/ToucanOps.h"
-#include "toucan/ToucanTypes.h"
-#include "toucan/ToucanUtils.h"
-
-#include "llvm/ADT/BitVector.h"
-#include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/SmallVector.h"
-#include "llvm/Support/Casting.h"
-#include "llvm/Support/Debug.h"
-#include "llvm/Support/ErrorHandling.h"
-#include "llvm/Support/raw_ostream.h"
-#include <cstddef>
-#include <cstdint>
-
-#include <boost/graph/topological_sort.hpp>
-#include <cstring>
-#include <iterator>
-#include <array>
-#include <optional>
-#include <tuple>
-#include <utility>
-#include <vector>
-#include <numeric>
 #include <algorithm>
 
 using namespace toucan;
@@ -1597,7 +1558,7 @@ static void scheduleSpecialMicroPart(const PartitioningGraph &graph, CGMicroPart
 
 
 // Scheduler entry point
-void SingleRegionMicroPartScheduler::schedule(const PartitioningGraph &graph, const mlir::SmallVector<mlir::SmallVector<uint32_t>> &partNodeList) {
+void SingleRegionMicroPartScheduler::schedule(mlir::MLIRContext *context, const PartitioningGraph &graph, const mlir::SmallVector<mlir::SmallVector<uint32_t>> &partNodeList) {
   assert(mpartitioners.size() == partNodeList.size());
 
 
@@ -1616,13 +1577,18 @@ void SingleRegionMicroPartScheduler::schedule(const PartitioningGraph &graph, co
 
   // schedule ops
   {
-    codeGenInfo.regionPartitionIds.emplace_back();
-
     auto numPartitions = partNodeList.size();
+    codeGenInfo.regionPartitionIds.emplace_back();
+    auto allPartIds = llvm::seq(static_cast<uint32_t>(0), static_cast<uint32_t>(numPartitions));
+    codeGenInfo.regionPartitionIds.back().assign(allPartIds.begin(), allPartIds.end());
 
-    for (uint32_t partId = 0; partId < numPartitions; partId++) {
+    codeGenInfo.partitionInfo.resize(numPartitions);
 
-      CGPartitionMetaInfo partInfo;
+    auto scheduleStats = mlir::failableParallelForEachN(context, 0, numPartitions, [&](size_t partId) {
+      std::ostringstream oss;
+      assert(codeGenInfo.partitionInfo.size() > partId);
+      auto &partInfo = codeGenInfo.partitionInfo[partId];
+
       std::memset(&partInfo.opStatistics, 0, sizeof(CGOpStatistics));
 
       collectConstantVecs(graph, partInfo, partNodeList[partId]);
@@ -1649,7 +1615,7 @@ void SingleRegionMicroPartScheduler::schedule(const PartitioningGraph &graph, co
 
 
       partInfo.numTotalValues = valAllocator.numTotalValSize;
-      llvm::outs() 
+      oss
         << "Part " << partId
         << " has " << currentMicroPartitioner.partLevels.size()
         << " levels, "
@@ -1659,6 +1625,7 @@ void SingleRegionMicroPartScheduler::schedule(const PartitioningGraph &graph, co
         << " consts, " << valAllocator.numOutputVals 
         << " for output, " << valAllocator.numInputVals 
         << " for input). constVecPool size of " << partInfo.constVecPool.size() << "\n";
+      llvm::outs() << oss.str();
 
       scheduleRegReads(graph, partInfo, currentMicroPartitioner.allRegReads);
 
@@ -1715,8 +1682,15 @@ void SingleRegionMicroPartScheduler::schedule(const PartitioningGraph &graph, co
         partInfo.opStatistics.numPrints = stats.numPrints;
         partInfo.opStatistics.numStops = stats.numStops;
       }
-      codeGenInfo.partitionInfo.push_back(std::move(partInfo));
-    }
+
+      oss.str("");
+      oss << "Done schedule ops for partition " << partId << "\n";
+      llvm::outs() << oss.str();
+
+      return success();
+    });
+
+    assert(succeeded(scheduleStats));
   }
   
 

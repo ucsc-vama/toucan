@@ -802,7 +802,8 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     auto partNodeList = p.regionPartitions[0];
     assert(partNodeList.size() == p.regionPartitionNumbers[0]);
 
-    scheduler.schedule(rGraph, partNodeList);
+    llvm::outs() << "================== Schedule operations ==================\n";
+    scheduler.schedule(&getContext(), rGraph, partNodeList);
     // p.regionPartitions
 
 
