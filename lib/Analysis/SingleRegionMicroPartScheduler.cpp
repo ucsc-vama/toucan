@@ -94,7 +94,6 @@ using namespace circt;
 
 
 
-// Done!
 void SingleRegionMicroPartScheduler::sortRegistersForLocality(const PartitioningGraph &graph, const mlir::SmallVector<mlir::SmallVector<uint32_t>> &partNodeList,  mlir::SmallVector<mlir::SmallVector<mlir::TypedValue<toucan::RegType>>> &regOrdered) {
 
   regOrdered.clear();
@@ -654,6 +653,16 @@ void SingleRegionMicroPartScheduler::scheduleRegReads(const PartitioningGraph &g
   std::swap(partInfo.regReadOps, currentLevelOps);
 }
 
+static bool isArrayElementIncrementalAndContinuous(const mlir::SmallVector<uint32_t> in) {
+  assert(in.size() > 0);
+
+  auto startElem = in.front();
+  for (size_t i = 1; i < in.size(); i++) {
+    auto elem = in[i];
+    if (elem != startElem + i) return false;
+  }
+  return true;
+}
 
 void SingleRegionMicroPartScheduler::scheduleRegWrites(const PartitioningGraph &graph, CGPartitionMetaInfo &partInfo, const mlir::SmallVector<uint32_t> &allRegWrites) {
 
@@ -687,6 +696,20 @@ void SingleRegionMicroPartScheduler::scheduleRegWrites(const PartitioningGraph &
     // Namehint not needed for last level ops
     regWriteOps.push_back(opMeta);
   }
+
+  // Check if regWrites in smem location are continuous 
+  mlir::SmallVector<uint32_t> memLocations;
+  memLocations.reserve(regWriteOps.size());
+  for (const auto &eachOp: regWriteOps) {
+    memLocations.push_back(eachOp.regWrite.reg);
+  }
+  assert(isArrayElementIncrementalAndContinuous(memLocations));
+  // Also check reg values in global mem are continuous
+  memLocations.clear();
+  for (const auto &eachOp: regWriteOps) {
+    memLocations.push_back(eachOp.regWrite.dat);
+  }
+  assert(isArrayElementIncrementalAndContinuous(memLocations));
 
   std::swap(partInfo.regWriteOps, regWriteOps);
 }
@@ -1625,7 +1648,6 @@ void SingleRegionMicroPartScheduler::schedule(const PartitioningGraph &graph, co
       }
 
 
-      
       partInfo.numTotalValues = valAllocator.numTotalValSize;
       llvm::outs() 
         << "Part " << partId
