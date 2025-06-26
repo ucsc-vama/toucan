@@ -664,12 +664,17 @@ void SingleRegionMicroPartScheduler::scheduleRegWrites(const PartitioningGraph &
   for (const auto &eachOp: regWriteOps) {
     memLocations.push_back(eachOp.regWrite.reg);
   }
+  // regs in smem should be aligned to 4B
+  assert(memLocations.front() % 4 == 0);
   assert(isArrayElementIncrementalAndContinuous(memLocations));
+
   // Also check reg values in global mem are continuous
   memLocations.clear();
   for (const auto &eachOp: regWriteOps) {
     memLocations.push_back(eachOp.regWrite.dat);
   }
+  // regs in global mem should also align to 4B
+  assert(memLocations.front() % 4 == 0);
   assert(isArrayElementIncrementalAndContinuous(memLocations));
 
   std::swap(partInfo.regWriteOps, regWriteOps);
@@ -1579,8 +1584,12 @@ void SingleRegionMicroPartScheduler::schedule(mlir::MLIRContext *context, const 
   {
     auto numPartitions = partNodeList.size();
     codeGenInfo.regionPartitionIds.emplace_back();
-    auto allPartIds = llvm::seq(static_cast<uint32_t>(0), static_cast<uint32_t>(numPartitions));
-    codeGenInfo.regionPartitionIds.back().assign(allPartIds.begin(), allPartIds.end());
+    // auto allPartIds = llvm::seq(static_cast<uint32_t>(0), static_cast<uint32_t>(numPartitions));
+    // codeGenInfo.regionPartitionIds.back().insert(codeGenInfo.regionPartitionIds.back().end(), allPartIds.begin(), allPartIds.end());
+    for (auto i: llvm::seq(static_cast<uint32_t>(0), static_cast<uint32_t>(numPartitions))) {
+      codeGenInfo.regionPartitionIds.back().push_back(i);
+    }
+
 
     codeGenInfo.partitionInfo.resize(numPartitions);
 

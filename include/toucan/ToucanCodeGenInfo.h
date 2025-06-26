@@ -116,6 +116,7 @@ namespace toucan {
     uint32_t en;
   };
 
+  // Exchange values are kept but not used
   struct CGExchangeReadMetaInfo {
     uint32_t exchangeVal;
     uint32_t localVal;

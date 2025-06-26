@@ -3,6 +3,7 @@
 
 #include <iostream>
 #include <cassert>
+#include <vector>
 
 using namespace toucanGPUSim;
 
@@ -20,6 +21,7 @@ using namespace toucanGPUSim;
 // }
 
 
+namespace toucanGPUSim {
 
 // Primitive type serialization
 template<typename T>
@@ -100,84 +102,88 @@ static void deserializeTuple(std::istream& in, std::tuple<T1, T2, T3>& value) {
 
 
 
-template<typename K, typename V>
-static void serializeMap(std::ostream& out, const std::unordered_map<K, std::vector<V>>& map) {
-  size_t mapSize = map.size();
-  serializePrimitive(out, mapSize);
-  for (const auto& pair : map) {
-    serializeString(out, pair.first);
-    serializeVector(out, pair.second); // Assumes V can be serialized directly or is already handled
+static void serializeCGMicroPartInfo(std::ostream& out, const CGMicroPartInfo& info) {
+  serializePrimitive(out, info.isLUTPart);
+
+  if (info.isLUTPart) {
+    serializeVector(out, info.topLevel);
+    serializePrimitive(out, info.middleLevels.size());
+    for (const auto& level : info.middleLevels) {
+      serializeVector(out, level);
+    }
+    serializeVector(out, info.lastLevel);
+  } else {
+    serializeVector(out, info.vecRead);
+    serializeVector(out, info.vecArithAndLogic);
+    serializeVector(out, info.memRead);
   }
 }
 
-template<typename K, typename V>
-static void deserializeMap(std::istream& in, std::unordered_map<K, std::vector<V>>& map) {
-  size_t mapSize;
-  deserializePrimitive(in, mapSize);
-  for (size_t i = 0; i < mapSize; ++i) {
-    K key;
-    deserializeString(in, key); // Assumes K is string
-    std::vector<V> vector;
-    deserializeVector(in, vector); // Assumes V can be deserialized directly or is already handled
-    map[key] = vector;
+static void deserializeCGMicroPartInfo(std::istream& in, CGMicroPartInfo& info) {
+  deserializePrimitive(in, info.isLUTPart);
+
+  if (info.isLUTPart) {
+    deserializeVector(in, info.topLevel);
+    size_t middleLevelsSize;
+    deserializePrimitive(in, middleLevelsSize);
+    info.middleLevels.resize(middleLevelsSize);
+    for (auto& level : info.middleLevels) {
+      deserializeVector(in, level);
+    }
+    deserializeVector(in, info.lastLevel);
+    info.vecRead.clear();
+    info.vecArithAndLogic.clear();
+    info.memRead.clear();
+  } else {
+    deserializeVector(in, info.vecRead);
+    deserializeVector(in, info.vecArithAndLogic);
+    deserializeVector(in, info.memRead);
   }
 }
 
 
 
-
-
-static void serializeSimPartitionInfo(std::ostream& out, const toucanGPUSim::SimPartitionInfo& info) {
+static void serializeSimPartitionInfo(std::ostream& out, const SimPartitionInfo& info) {
   serializeVector(out, info.valuePool);
-  out.write(reinterpret_cast<const char*>(&info.valuePoolSize), sizeof(info.valuePoolSize));
-  out.write(reinterpret_cast<const char*>(&info.numConstsInValuePool), sizeof(info.numConstsInValuePool));
-
+  serializePrimitive(out, info.valuePoolSize);
   serializeVector(out, info.constVecPool);
-
   serializeVector(out, info.ops_l0_regRead);
-  serializeVector(out, info.ops_l0_exgRead);
 
-  size_t execSize = info.ops_exec_memRead.size();
-  out.write(reinterpret_cast<const char*>(&execSize), sizeof(execSize));
-  assert(info.ops_exec_vecRead.size() == execSize);
-  assert(info.ops_exec_lut.size() == execSize);
-
-  for (size_t levelId = 0; levelId < execSize; levelId++) {
-    serializeVector(out, info.ops_exec_memRead[levelId]);
-    serializeVector(out, info.ops_exec_vecRead[levelId]);
-    serializeVector(out, info.ops_exec_lut[levelId]);
+  serializePrimitive(out, info.exec_mParts.size());
+  for (const auto& mParts : info.exec_mParts) {
+    serializePrimitive(out, mParts.size());
+    for (const auto& mPart : mParts) {
+      serializeCGMicroPartInfo(out, mPart);
+    }
   }
 
-  serializeVector(out, info.ops_last_exgWrite);
-  serializeVector(out, info.ops_last_regWrite);
+  serializePrimitive(out, info.op_last_regWrite);
   serializeVector(out, info.ops_last_memWrite);
   serializeVector(out, info.ops_last_print);
   serializeVector(out, info.ops_last_stop);
 }
 
-static void deserializeSimPartitionInfo(std::istream& in, toucanGPUSim::SimPartitionInfo& info) {
+static void deserializeSimPartitionInfo(std::istream& in, SimPartitionInfo& info) {
   deserializeVector(in, info.valuePool);
-  in.read(reinterpret_cast<char*>(&info.valuePoolSize), sizeof(info.valuePoolSize));
-  in.read(reinterpret_cast<char*>(&info.numConstsInValuePool), sizeof(info.numConstsInValuePool));
-
+  deserializePrimitive(in, info.valuePoolSize);
   deserializeVector(in, info.constVecPool);
-
   deserializeVector(in, info.ops_l0_regRead);
-  deserializeVector(in, info.ops_l0_exgRead);
-  size_t execSize;
-  in.read(reinterpret_cast<char*>(&execSize), sizeof(execSize));
 
-  info.ops_exec_vecRead.resize(execSize);
-  info.ops_exec_memRead.resize(execSize);
-  info.ops_exec_lut.resize(execSize);
-  for (size_t levelId = 0; levelId < execSize; levelId++) {
-    deserializeVector(in, info.ops_exec_memRead[levelId]);
-    deserializeVector(in, info.ops_exec_vecRead[levelId]);
-    deserializeVector(in, info.ops_exec_lut[levelId]);
+  size_t exec_mPartsSize;
+  deserializePrimitive(in, exec_mPartsSize);
+  info.exec_mParts.resize(exec_mPartsSize);
+
+  for (auto& mParts : info.exec_mParts) {
+    size_t mPartsSize;
+    deserializePrimitive(in, mPartsSize);
+    mParts.resize(mPartsSize);
+
+    for (auto& mPart : mParts) {
+      deserializeCGMicroPartInfo(in, mPart);
+    }
   }
 
-  deserializeVector(in, info.ops_last_exgWrite);
-  deserializeVector(in, info.ops_last_regWrite);
+  deserializePrimitive(in, info.op_last_regWrite);
   deserializeVector(in, info.ops_last_memWrite);
   deserializeVector(in, info.ops_last_print);
   deserializeVector(in, info.ops_last_stop);
@@ -185,62 +191,56 @@ static void deserializeSimPartitionInfo(std::istream& in, toucanGPUSim::SimParti
 
 
 
-void toucanGPUSim::serializeSimDesignInfo(std::ostream& out, const toucanGPUSim::SimDesignInfo& info) {
-  // Serialize lut and lutIndex vectors
-  serializeVector(out, info.lut);
 
-  // regPool and memPool vectors need randomization.
-
-  // Serialize regPoolSize and memPoolSize
+void serializeSimDesignInfo(std::ostream& out, const SimDesignInfo& info) {
   serializePrimitive(out, info.regPoolSize);
   serializePrimitive(out, info.memPoolSize);
-  serializePrimitive(out, info.exchangePoolSize);
+  serializePrimitive(out, info.shouldStop);
 
-  // Serialize parts (a vector of SimPartitionInfo)
+  serializeVector(out, info.lut);
+  serializeVector(out, info.regPool);
+  serializeVector(out, info.memPool);
+
   serializePrimitive(out, info.parts.size());
   for (const auto& part : info.parts) {
-    // Serialize SimPartitionInfo members...
     serializeSimPartitionInfo(out, part);
   }
 
   serializePrimitive(out, info.regionPartitionIds.size());
-  for (const auto& region: info.regionPartitionIds) {
-    serializeVector(out, region);
+  for (const auto& partitionIds : info.regionPartitionIds) {
+    serializeVector(out, partitionIds);
   }
 
-  // Serialize printMsgs (a vector of strings)
-  
   serializePrimitive(out, info.printMsgs.size());
   for (const auto& msg : info.printMsgs) {
     serializeString(out, msg);
   }
 }
 
-void toucanGPUSim::deserializeSimDesignInfo(std::istream& in, toucanGPUSim::SimDesignInfo& info) {
-  // Deserialize lut and lutIndex vectors
-  deserializeVector(in, info.lut);
 
-  // regPool and memPool vectors need randomization.
-
-  // Deserialize regPoolSize and memPoolSize
+void deserializeSimDesignInfo(std::istream& in, SimDesignInfo& info) {
   deserializePrimitive(in, info.regPoolSize);
   deserializePrimitive(in, info.memPoolSize);
-  deserializePrimitive(in, info.exchangePoolSize);
+  deserializePrimitive(in, info.shouldStop);
 
-  // Deserialize parts
+  deserializeVector(in, info.lut);
+  deserializeVector(in, info.regPool);
+  deserializeVector(in, info.memPool);
+
   size_t partsSize;
   deserializePrimitive(in, partsSize);
   info.parts.resize(partsSize);
+
   for (auto& part : info.parts) {
-    // Deserialize SimPartitionInfo members...
     deserializeSimPartitionInfo(in, part);
   }
 
-  size_t regionSize;
-  deserializePrimitive(in, regionSize);
-  info.regionPartitionIds.resize(regionSize);
-  for (auto& region: info.regionPartitionIds) {
-    deserializeVector(in, region);
+  size_t regionPartitionIdsSize;
+  deserializePrimitive(in, regionPartitionIdsSize);
+  info.regionPartitionIds.resize(regionPartitionIdsSize);
+
+  for (auto& partitionIds : info.regionPartitionIds) {
+    deserializeVector(in, partitionIds);
   }
 
   // Deserialize printMsgs
@@ -255,8 +255,7 @@ void toucanGPUSim::deserializeSimDesignInfo(std::istream& in, toucanGPUSim::SimD
 
 
 
-
-void toucanGPUSim::serializeSimDebugInfo(std::ostream& out, const toucanGPUSim::SimDebugInfo& info) {
+void serializeSimDebugInfo(std::ostream& out, const SimDebugInfo& info) {
   // Serialize regDebugInfo
   size_t regMapSize = info.regDebugInfo.size();
   serializePrimitive(out, regMapSize);
@@ -295,7 +294,7 @@ void toucanGPUSim::serializeSimDebugInfo(std::ostream& out, const toucanGPUSim::
 }
 
 
-void toucanGPUSim::deserializeSimDebugInfo(std::istream& in, toucanGPUSim::SimDebugInfo& info) {
+void deserializeSimDebugInfo(std::istream& in, SimDebugInfo& info) {
   // Deserialize regDebugInfo
   size_t regMapSize;
   deserializePrimitive(in, regMapSize);
@@ -349,3 +348,90 @@ void toucanGPUSim::deserializeSimDebugInfo(std::istream& in, toucanGPUSim::SimDe
 }
 
 
+
+template<typename T>
+static bool isPODEqual(const T& a, const T& b) {
+  return std::memcmp(&a, &b, sizeof(T)) == 0;
+}
+
+template<typename T>
+static bool isVectorEqual(const std::vector<T>& a, const std::vector<T>& b) {
+  return a.size() == b.size() && 
+           (a.empty() || std::memcmp(a.data(), b.data(), a.size() * sizeof(T)) == 0);
+}
+
+static bool isVectorOfStringEqual(const std::vector<std::string> &a, const std::vector<std::string> &b) {
+  if (a.size() != b.size()) return false;
+  for (size_t i = 0; i < a.size(); ++i) {
+    if (!(a[i] == b[i])) return false;
+  }
+  return true;
+}
+
+static bool isCGMicroPartInfoEqual(const CGMicroPartInfo& a, const CGMicroPartInfo& b) {
+  return a.isLUTPart == b.isLUTPart &&
+         std::memcmp(a.topLevel.data(), b.topLevel.data(), 
+                    a.topLevel.size() * sizeof(CGMicroPartLUTTopLevelOp)) == 0 &&
+         a.middleLevels.size() == b.middleLevels.size() &&
+         [&](){
+           for (size_t i = 0; i < a.middleLevels.size(); ++i) {
+             if (std::memcmp(a.middleLevels[i].data(), b.middleLevels[i].data(),
+                            a.middleLevels[i].size() * sizeof(CGMicroPartLUTMiddleLevelOp)) != 0)
+               return false;
+           }
+           return true;
+         }() &&
+         std::memcmp(a.lastLevel.data(), b.lastLevel.data(),
+                    a.lastLevel.size() * sizeof(CGMicroPartLUTLastLevelWriteBack)) == 0 &&
+         std::memcmp(a.vecRead.data(), b.vecRead.data(),
+                    a.vecRead.size() * sizeof(CGMicroPartVecRead)) == 0 &&
+         std::memcmp(a.vecArithAndLogic.data(), b.vecArithAndLogic.data(),
+                    a.vecArithAndLogic.size() * sizeof(CGMicroPartVecArithOrLogic)) == 0 &&
+         std::memcmp(a.memRead.data(), b.memRead.data(),
+                    a.memRead.size() * sizeof(CGMicroPartMemRead)) == 0;
+}
+
+bool isSimDesignInfoIdentical(const SimDesignInfo& a, const SimDesignInfo& b) {
+  assert(a.regPoolSize == b.regPoolSize);
+  assert(a.memPoolSize == b.memPoolSize);
+  assert(a.shouldStop == b.shouldStop);
+
+  assert(isVectorEqual(a.lut, b.lut));
+  assert(isVectorEqual(a.regPool, b.regPool));
+  assert(isVectorEqual(a.memPool, b.memPool));
+  assert(isVectorOfStringEqual(a.printMsgs, b.printMsgs));
+
+  assert(a.parts.size() == b.parts.size());
+  for (size_t i = 0; i < a.parts.size(); ++i) {
+    const auto& partA = a.parts[i];
+    const auto& partB = b.parts[i];
+
+    assert(isVectorEqual(partA.valuePool, partB.valuePool));
+    assert(partA.valuePoolSize == partB.valuePoolSize);
+    assert(isVectorEqual(partA.constVecPool, partB.constVecPool));
+    assert(isVectorEqual(partA.ops_l0_regRead, partB.ops_l0_regRead));
+
+    assert(partA.exec_mParts.size() == partB.exec_mParts.size());
+    for (size_t j = 0; j < partA.exec_mParts.size(); ++j) {
+      assert(partA.exec_mParts[j].size() == partB.exec_mParts[j].size());
+      for (size_t k = 0; k < partA.exec_mParts[j].size(); k++) {
+        assert(isCGMicroPartInfoEqual(partA.exec_mParts[j][k], partB.exec_mParts[j][k]));
+      }
+    }
+
+    assert(isPODEqual(partA.op_last_regWrite, partB.op_last_regWrite));
+    assert(isVectorEqual(partA.ops_last_memWrite, partB.ops_last_memWrite));
+    assert(isVectorEqual(partA.ops_last_print, partB.ops_last_print));
+    assert(isVectorEqual(partA.ops_last_stop, partB.ops_last_stop));
+  }
+
+  assert(a.regionPartitionIds.size() == b.regionPartitionIds.size());
+  for (size_t i = 0; i < a.regionPartitionIds.size(); ++i) {
+    assert(isVectorEqual(a.regionPartitionIds[i], b.regionPartitionIds[i]));
+  }
+
+  return true;
+}
+
+
+} // namespace toucanGPUSim

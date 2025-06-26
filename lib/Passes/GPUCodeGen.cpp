@@ -4,6 +4,7 @@
 #include "circt/Dialect/Seq/SeqDialect.h"
 #include "circt/Support/LLVM.h"
 
+#include "mlir/IR/AsmState.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/OpImplementation.h"
@@ -16,6 +17,7 @@
 #include "toucan/MicroPartitioner.h"
 #include "toucan/PartitioningGraph.h"
 #include "toucan/ToucanAnalysis.h"
+#include "toucan/ToucanCodeGenInfo.h"
 
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallPtrSet.h"
@@ -55,10 +57,6 @@ using namespace llvm;
 
 #define DEBUG_TYPE "GPUCodeGenPass"
 
-// #define ENABLE_REG_READ_DEBUG_PRINT
-// #define ENABLE_REG_WRITE_DEBUG_PRINT
-// #define ENABLE_EXG_READ_DEBUG_PRINT
-// #define ENABLE_EXG_WRITE_DEBUG_PRINT
 
 struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHelper {
   using GPUCodeGenBase<GPUCodeGenPass>::GPUCodeGenBase;
@@ -66,215 +64,192 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
   toucanGPUSim::SimDesignInfo designInfo;
   toucanGPUSim::SimDebugInfo debugInfo;
 
-  /*
-  static void packRegRead(mlir::SmallVector<toucanGPUSim::CGRegReadMetaInfo> &regReadBulks) {
-    // use packed SIMD for reg reads if possible
-    assert(!regReadBulks.empty());
 
-    // allocate thread work
-    mlir::SmallVector<toucanGPUSim::CGRegReadMetaInfo> raw_reg_read_ops;
-    for (auto bulk: regReadBulks) {
-      if (bulk.byteCount == 1) {
-        // nothing we can do for 1 byte reads. simply copy them
-        raw_reg_read_ops.push_back(bulk);
-      } else {
-        auto alignment_padding_bytes = getExtraAlignmentSpace(bulk.reg, 4 * GPU_THREAD_WARP_SIZE);
-        auto tail_bytes = (bulk.reg + bulk.byteCount) % (GPU_THREAD_WARP_SIZE * 4);
+  void populateMicroPartInfo(const CGMicroPartInfo &mp, toucanGPUSim::CGMicroPartInfo &cmp) {
 
-        auto bytes_to_pack = bulk.byteCount - alignment_padding_bytes - tail_bytes;
-        if ((bulk.byteCount < (GPU_THREAD_WARP_SIZE * 4)) || (bytes_to_pack < (GPU_THREAD_WARP_SIZE * 4))) {
-          // too small for packed SIMD
-          for (int i = 0; i < bulk.byteCount; i++) {
-            toucanGPUSim::CGRegReadMetaInfo info;
-            info.byteCount = 1;
-            info.reg = bulk.reg + i;
-            info.result = bulk.result + i;
-            raw_reg_read_ops.push_back(info);
-          }
-        } else {
-          // large bulk, worth packed SIMD copy
-          assert(bytes_to_pack <= bulk.byteCount && "bytes_to_pack should not underflow");
 
-          // copy heading aligment bytes
-          for (size_t i = 0; i < alignment_padding_bytes; i++) {
-            toucanGPUSim::CGRegReadMetaInfo info;
-            info.byteCount = 1;
-            info.reg = bulk.reg + i;
-            info.result = bulk.result + i;
-            raw_reg_read_ops.push_back(info);
-          }
+    switch (mp.opType) {
+      case CGToucanOPName::LUT: {
+        cmp.isLUTPart = true;
+        for (const auto &eachTopOp: mp.topLevel) {
+          toucanGPUSim::CGMicroPartLUTTopLevelOp op;
+          op.lutIndex = lutPos[static_cast<uint32_t>(eachTopOp.opName)];
+          op.op0 = eachTopOp.op0;
+          op.op1 = eachTopOp.op1;
+          op.op2 = eachTopOp.op2;
 
-          // reg should be aligned
-          assert((bulk.reg + alignment_padding_bytes) % 4 == 0);
-          assert(bytes_to_pack <= bulk.byteCount);
+          cmp.topLevel.push_back(op);
+        }
+        for (const auto &eachMiddleLevel: mp.middleLevels) {
+          cmp.middleLevels.emplace_back();
+          for (const auto &eachMiddleOp: eachMiddleLevel) {
+            // ensure values does not exceed expectation
+            assert(lutPos[static_cast<uint32_t>(eachMiddleOp.opName)] < (1 << 14));
+            assert(eachMiddleOp.op0 < (1 << 6));
+            assert(eachMiddleOp.op1 < (1 << 6));
+            assert(eachMiddleOp.op2 < (1 << 6));
 
-          auto numCopyIterations = bytes_to_pack / (GPU_THREAD_WARP_SIZE * 4);
-          assert(bytes_to_pack % (GPU_THREAD_WARP_SIZE * 4) == 0);
-          auto numWarpNeeded = (numCopyIterations + POLICY_PACKED_MAX_COPY_INT_COUNT - 1) / POLICY_PACKED_MAX_COPY_INT_COUNT;
-          size_t copy_offset = alignment_padding_bytes;
+            toucanGPUSim::CGMicroPartLUTMiddleLevelOp op(
+              lutPos[static_cast<uint32_t>(eachMiddleOp.opName)],
+              eachMiddleOp.op0,
+              eachMiddleOp.op1,
+              eachMiddleOp.op2
+            );
 
-          for (size_t warp_id = 0; warp_id < numWarpNeeded; warp_id++) {
-            auto iterations = (warp_id + 1 == numWarpNeeded) ? (numCopyIterations - warp_id * POLICY_PACKED_MAX_COPY_INT_COUNT) : POLICY_PACKED_MAX_COPY_INT_COUNT;
-
-            for (size_t i = 0; i < GPU_THREAD_WARP_SIZE; i++) {
-              // assign task for every threads in a warp
-              toucanGPUSim::CGRegReadMetaInfo info;
-              info.byteCount = iterations * 4;
-              info.reg = bulk.reg + copy_offset + iterations * 4 * i;
-              info.result = bulk.result + copy_offset + iterations * 4 * i;
-              raw_reg_read_ops.push_back(info);
-            }
-
-            copy_offset += iterations * GPU_THREAD_WARP_SIZE * 4;
-          }
-
-          // tail
-          assert(copy_offset + tail_bytes == bulk.byteCount);
-          for (size_t i = 0; i < tail_bytes; i++) {
-            toucanGPUSim::CGRegReadMetaInfo info;
-            info.byteCount = 1;
-            info.reg = bulk.reg + copy_offset + i;
-            info.result = bulk.result + copy_offset + i;
-            raw_reg_read_ops.push_back(info);
+            cmp.middleLevels.back().push_back(op);
           }
         }
-      }
-    }
+        for (const auto &eachLastOp: mp.lastLevel) {
+          toucanGPUSim::CGMicroPartLUTLastLevelWriteBack op;
+          op.shuffleId = eachLastOp.shuffleId;
+          op.result = eachLastOp.result;
 
-    // sort (stable) by byte size, then add padding
-    regReadBulks.clear();
-    assert(!raw_reg_read_ops.empty());
-
-    std::stable_sort(raw_reg_read_ops.begin(), raw_reg_read_ops.end(), [&](const toucanGPUSim::CGRegReadMetaInfo a, const toucanGPUSim::CGRegReadMetaInfo b) {
-      return a.byteCount < b.byteCount;
-    });
-
-    // insert proper padding
-    uint16_t last_copy_byte_count = 0;
-    for (auto op: raw_reg_read_ops) {
-      if (last_copy_byte_count == 1 && op.byteCount != 1) {
-        // done
-        auto numPaddingOps = getExtraAlignmentSpace(regReadBulks.size(), GPU_THREAD_WARP_SIZE);
-        for (size_t i = 0; i < numPaddingOps; i++) {
-          // insert a dummy copy (0 bytes)
-          regReadBulks.push_back({0, 0, 0});
+          cmp.lastLevel.push_back(op);
         }
+        break;
       }
-      last_copy_byte_count = op.byteCount;
-      regReadBulks.push_back(op);
+      case CGToucanOPName::VecRead: {
+        cmp.isLUTPart = false;
+        assert(mp.vecRead.size() > 0);
+
+        for (const auto &eachOp: mp.vecRead) {
+          toucanGPUSim::CGMicroPartVecRead op;
+
+          op.vecBase = eachOp.vecBase;
+          op.offset = eachOp.offset;
+          op.isConstVec = eachOp.isConstVec;
+
+          op.index0 = eachOp.index0;
+          op.index1 = eachOp.index1;
+          op.index2 = eachOp.index2;
+          op.index3 = eachOp.index3;
+          op.outRangeValue = eachOp.outRangeValue;
+          op.result = eachOp.result;
+
+          cmp.vecRead.push_back(op);
+        }
+        break;
+      }
+      case CGToucanOPName::MemRead: {
+        cmp.isLUTPart = false;
+        assert(mp.memRead.size() > 0);
+
+        for (const auto &eachOp: mp.memRead) {
+          toucanGPUSim::CGMicroPartMemRead op;
+
+          op.hasMultipleWriter = eachOp.hasMultipleWriter;
+          op.memBase = eachOp.memBase;
+          op.en = eachOp.en;
+          op.addrVec = eachOp.addrVec;
+          op.result = eachOp.result;
+
+          cmp.memRead.push_back(op);
+        }
+        break;
+      }
+      case CGToucanOPName::VecLogic: 
+      case CGToucanOPName::VecArith: {
+        llvm_unreachable("VecLogic and VecArith is not expected to appear here!");
+      }
+      default: {
+        llvm_unreachable("Should not reach here");
+      }
     }
   }
 
-  static void packExgRead(mlir::SmallVector<toucanGPUSim::CGExchangeReadMetaInfo> &exgReadBulks) {
-    // use packed SIMD for exg reads if possible
-    assert(!exgReadBulks.empty());
+  void populateVecArithAndVecLogicMicroParts(mlir::SmallVector<toucanGPUSim::CGMicroPartInfo> &newMps, const mlir::SmallVector<CGMicroPartVecArith> &allVecArithOps, const mlir::SmallVector<CGMicroPartVecLogic> &allVecLogicOps) {
+    mlir::SmallVector<toucanGPUSim::CGMicroPartVecArithOrLogic> allOps;
 
-    // allocate thread work
-    mlir::SmallVector<toucanGPUSim::CGExchangeReadMetaInfo> raw_exg_read_ops;
-    for (auto bulk: exgReadBulks) {
-      if (bulk.byteCount == 1) {
-        // nothing we can do for 1 byte reads. simply copy them
-        raw_exg_read_ops.push_back(bulk);
-      } else {
-        auto alignment_padding_bytes = getExtraAlignmentSpace(bulk.exchangeVal, 4 * GPU_THREAD_WARP_SIZE);
-        auto tail_bytes = (bulk.exchangeVal + bulk.byteCount) % (GPU_THREAD_WARP_SIZE * 4);
+    for (const auto &eachVecArithOp: allVecArithOps) {
+      toucanGPUSim::CGMicroPartVecArithOrLogic op;
+      op.isVec1Const = eachVecArithOp.isVec1Const;
+      op.isVec2Const = eachVecArithOp.isVec2Const;
+      op.vec1Base = eachVecArithOp.vec1Base;
+      op.vec2Base = eachVecArithOp.vec2Base;
+      // For now, vecLength is limited by TOUCAN_VEC_OP_MAX_WIDTH
+      assert(eachVecArithOp.vecLength < UINT8_MAX);
+      op.vecLength = eachVecArithOp.vecLength;
+      op.result = eachVecArithOp.result;
 
-        auto bytes_to_pack = bulk.byteCount - alignment_padding_bytes - tail_bytes;
-        if ((bulk.byteCount < (GPU_THREAD_WARP_SIZE * 4)) || (bytes_to_pack < (GPU_THREAD_WARP_SIZE * 4))) {
-          // too small for packed SIMD
-          for (int i = 0; i < bulk.byteCount; i++) {
-            toucanGPUSim::CGExchangeReadMetaInfo info;
-            info.byteCount = 1;
-            info.exchangeVal = bulk.exchangeVal + i;
-            info.localVal = bulk.localVal + i;
-            raw_exg_read_ops.push_back(info);
-          }
-        } else {
-          // large bulk, worth packed SIMD copy
-          assert(bytes_to_pack <= bulk.byteCount && "bytes_to_pack should not underflow");
-
-          // copy heading aligment bytes
-          for (size_t i = 0; i < alignment_padding_bytes; i++) {
-            toucanGPUSim::CGExchangeReadMetaInfo info;
-            info.byteCount = 1;
-            info.exchangeVal = bulk.exchangeVal + i;
-            info.localVal = bulk.localVal + i;
-            raw_exg_read_ops.push_back(info);
-          }
-
-          // reg should be aligned
-          assert((bulk.exchangeVal + alignment_padding_bytes) % 4 == 0);
-          assert(bytes_to_pack <= bulk.byteCount);
-
-          auto numCopyIterations = bytes_to_pack / (GPU_THREAD_WARP_SIZE * 4);
-          assert(bytes_to_pack % (GPU_THREAD_WARP_SIZE * 4) == 0);
-          auto numWarpNeeded = (numCopyIterations + POLICY_PACKED_MAX_COPY_INT_COUNT - 1) / POLICY_PACKED_MAX_COPY_INT_COUNT;
-          size_t copy_offset = alignment_padding_bytes;
-
-          for (size_t warp_id = 0; warp_id < numWarpNeeded; warp_id++) {
-            auto iterations = (warp_id + 1 == numWarpNeeded) ? (numCopyIterations - warp_id * POLICY_PACKED_MAX_COPY_INT_COUNT) : POLICY_PACKED_MAX_COPY_INT_COUNT;
-
-            for (size_t i = 0; i < GPU_THREAD_WARP_SIZE; i++) {
-              // assign task for every threads in a warp
-              toucanGPUSim::CGExchangeReadMetaInfo info;
-              info.byteCount = iterations * 4;
-              info.exchangeVal = bulk.exchangeVal + copy_offset + iterations * 4 * i;
-              info.localVal = bulk.localVal + copy_offset + iterations * 4 * i;
-              raw_exg_read_ops.push_back(info);
-            }
-
-            copy_offset += iterations * GPU_THREAD_WARP_SIZE * 4;
-          }
-
-          // tail
-          assert(copy_offset + tail_bytes == bulk.byteCount);
-          for (size_t i = 0; i < tail_bytes; i++) {
-            toucanGPUSim::CGExchangeReadMetaInfo info;
-            info.byteCount = 1;
-            info.exchangeVal = bulk.exchangeVal + copy_offset + i;
-            info.localVal = bulk.localVal + copy_offset + i;
-            raw_exg_read_ops.push_back(info);
-          }
+      switch (eachVecArithOp.opName) {
+        case VecArithOpName::VecArith_Add: {
+          op.opName = VEC_ARITH_ADD;
+          break;
         }
+        case VecArithOpName::VecArith_Sub:{
+          op.opName = VEC_ARITH_SUB;
+          break;
+        }
+        case VecArithOpName::VecArith_Mul:{
+          op.opName = VEC_ARITH_MUL;
+          break;
+        }
+        // default: llvm_unreachable("Whats this");
       }
+
+      allOps.push_back(op);
     }
 
-    // sort (stable) by byte size, then add padding
-    exgReadBulks.clear();
-    assert(!raw_exg_read_ops.empty());
+    for (const auto &eachVecLogicOp: allVecLogicOps) {
+      toucanGPUSim::CGMicroPartVecArithOrLogic op;
+      op.isVec1Const = eachVecLogicOp.isVec1Const;
+      op.isVec2Const = eachVecLogicOp.isVec2Const;
+      op.vec1Base = eachVecLogicOp.vec1Base;
+      op.vec2Base = eachVecLogicOp.vec2Base;
+      // For now, vecLength is limited by TOUCAN_VEC_OP_MAX_WIDTH
+      assert(eachVecLogicOp.vecLength < UINT8_MAX);
+      op.vecLength = eachVecLogicOp.vecLength;
+      op.result = eachVecLogicOp.result;
 
-    std::stable_sort(raw_exg_read_ops.begin(), raw_exg_read_ops.end(), [&](const toucanGPUSim::CGExchangeReadMetaInfo a, const toucanGPUSim::CGExchangeReadMetaInfo b) {
-      return a.byteCount < b.byteCount;
-    });
-
-    // insert proper padding
-    uint16_t last_copy_byte_count = 0;
-    for (auto op: raw_exg_read_ops) {
-      if (last_copy_byte_count == 1 && op.byteCount != 1) {
-        // done
-        auto numPaddingOps = getExtraAlignmentSpace(exgReadBulks.size(), GPU_THREAD_WARP_SIZE);
-        for (size_t i = 0; i < numPaddingOps; i++) {
-          // insert a dummy copy (0 bytes)
-          exgReadBulks.push_back({0, 0, 0});
+      switch (eachVecLogicOp.opName) {
+        case VecLogicOpName::VecLogic_Eq: {
+          op.opName = VEC_LOGIC_EQ;
+          break;
         }
+        case VecLogicOpName::VecLogic_Lt: {
+          op.opName = VEC_LOGIC_LT;
+          break;
+        }
+        case VecLogicOpName::VecLogic_Le: {
+          op.opName = VEC_LOGIC_LE;
+          break;
+        }
+        // default: llvm_unreachable("Whats this");
       }
-      last_copy_byte_count = op.byteCount;
-      exgReadBulks.push_back(op);
+
+      allOps.push_back(op);
     }
+
+    assert(allOps.size() > 0);
+    assert(newMps.size() == 0);
+    size_t pos = 0;
+    while (pos < allOps.size()) {
+      auto remainingOps = allOps.size() - pos;
+      auto newPartSize = std::min(remainingOps, static_cast<size_t>(32));
+
+      newMps.emplace_back();
+      newMps.back().isLUTPart = false;
+      newMps.back().vecArithAndLogic.assign(allOps.begin() + pos, allOps.begin() + (pos + newPartSize));
+      assert(newMps.back().vecArithAndLogic.size() == newPartSize);
+
+      pos += newPartSize;
+    }
+    assert(pos == allOps.size());
+
   }
 
 
-  void populateSinglePartition(const CGPartitionMetaInfo &part, uint32_t regionId, uint32_t partId) {
+  void populateSinglePartition(const CGPartitionMetaInfo &part, uint32_t partId) {
     toucanGPUSim::SimPartitionInfo partInfo;
-    // have at least 2 levels. one for input, one for output
-    assert(part.opPool.size() >= 2);
+    // at lease 1 level
+    assert(part.microPartOps.size() >= 1);
     partInfo.valuePool.resize(part.numConstsInValuePool);
     for (size_t i = 0; i < part.numConstsInValuePool; i++) {
       partInfo.valuePool[i] = part.constValuePool[i];
     }
     assert(part.constValuePool.size() == part.numConstsInValuePool);
     partInfo.valuePoolSize = part.numTotalValues;
-    partInfo.numConstsInValuePool = part.numConstsInValuePool;
+
     if (partInfo.valuePoolSize > UINT16_MAX) {
       llvm::errs() << "Value pool size is " << partInfo.valuePoolSize << ", which exceeds UINT16_MAX. This should not happen.\n";
     }
@@ -283,360 +258,152 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     // copy const vec data
     std::copy(part.constVecPool.begin(), part.constVecPool.end(), std::back_inserter(partInfo.constVecPool));
 
-#if defined (ENABLE_EXG_READ_DEBUG_PRINT) || defined (ENABLE_REG_READ_DEBUG_PRINT) || defined (ENABLE_EXG_WRITE_DEBUG_PRINT) || defined (ENABLE_REG_WRITE_DEBUG_PRINT)
-    llvm::dbgs() << "Info in a new partition ========\n";
-#endif
+    partInfo.ops_l0_regRead.reserve(part.regReadOps.size());
+    for (const auto &opMeta: part.regReadOps) {
+      toucanGPUSim::CGRegReadMetaInfo rr;
+      rr.reg = opMeta.regRead.reg;
+      rr.result = opMeta.regRead.result;
+      partInfo.ops_l0_regRead.push_back(rr);
+    }
 
-    mlir::SmallVector<toucanGPUSim::CGRegReadMetaInfo> regReadBulks;
-    toucanGPUSim::CGRegReadMetaInfo rr_bulk = {0, 0, 0};
+    // ensure mem locations in ascending order
+    if (partInfo.ops_l0_regRead.size() > 1) {
+      auto rr_reg_last = partInfo.ops_l0_regRead.front().reg;
+      auto rr_result_last = partInfo.ops_l0_regRead.front().result;
 
-    mlir::SmallVector<toucanGPUSim::CGExchangeReadMetaInfo> exgReadBulks;
-    toucanGPUSim::CGExchangeReadMetaInfo er_bulk = {0, 0, 0};
+      for (size_t i = 1; i < partInfo.ops_l0_regRead.size(); i++) {
+        auto rr_reg = partInfo.ops_l0_regRead[i].reg;
+        auto rr_result = partInfo.ops_l0_regRead[i].result;
+        assert(rr_reg > rr_reg_last);
+        assert(rr_result > rr_result_last);
+        rr_reg_last = rr_reg;
+        rr_result_last = rr_result;
+      }
+    }
 
-    for (size_t i = 0; i < part.opPool[0].size(); i++) {
-      auto &opMeta = part.opPool[0][i];
 
-      switch (opMeta.opName) {
-        case CGToucanOPName::RegRead: {
-          assert(opMeta.regRead.result <= UINT16_MAX);
+    // Micro parts
+    for (const auto &eachMPLevel: part.microPartOps) {
+      partInfo.exec_mParts.emplace_back();
 
+      mlir::SmallVector<CGMicroPartVecArith> allVecArithOps;
+      mlir::SmallVector<CGMicroPartVecLogic> allVecLogicOps;
 
-          if (rr_bulk.byteCount == 0) {
-            // begin
-            rr_bulk.byteCount = 1;
-            rr_bulk.reg = opMeta.regRead.reg;
-            rr_bulk.result = opMeta.regRead.result;
+      for (const auto &eachMP: eachMPLevel) {
+        if (eachMP.opType != CGToucanOPName::VecArith && eachMP.opType != CGToucanOPName::VecLogic) {
+          partInfo.exec_mParts.back().emplace_back();
+          populateMicroPartInfo(eachMP, partInfo.exec_mParts.back().back());
+        } else {
+          // Note: VecArith and VecLogic have same byte code format
+          if (eachMP.opType == CGToucanOPName::VecArith) {
+            assert(eachMP.vecArith.size() > 0);
+            allVecArithOps.append(eachMP.vecArith);
           } else {
-            if ((rr_bulk.reg + rr_bulk.byteCount == opMeta.regRead.reg) && (rr_bulk.result + rr_bulk.byteCount == opMeta.regRead.result)) {
-              // continus 
-              rr_bulk.byteCount++;
-            } else {
-              // break
-              regReadBulks.push_back(rr_bulk);
-
-              rr_bulk.byteCount = 1;
-              rr_bulk.reg = opMeta.regRead.reg;
-              rr_bulk.result = opMeta.regRead.result;
-            }
+            assert(eachMP.opType == CGToucanOPName::VecLogic);
+            assert(eachMP.vecLogic.size() > 0);
+            allVecLogicOps.append(eachMP.vecLogic);
           }
-
-          // partInfo.ops_l0_regRead.push_back(info);
-          break;
-        }
-        case CGToucanOPName::ExchangeRead: {
-          assert(opMeta.exgRead.localVal <= UINT16_MAX);
-
-          if (er_bulk.byteCount == 0) {
-            // begin
-            er_bulk.byteCount = 1;
-            er_bulk.exchangeVal = opMeta.exgRead.exchangeVal;
-            er_bulk.localVal = opMeta.exgRead.localVal;
-          } else {
-            if ((er_bulk.exchangeVal + er_bulk.byteCount == opMeta.exgRead.exchangeVal) && (er_bulk.localVal + er_bulk.byteCount == opMeta.exgRead.localVal)) {
-              // continus 
-              er_bulk.byteCount++;
-            } else {
-              // break
-              exgReadBulks.push_back(er_bulk);
-
-              er_bulk.byteCount = 1;
-              er_bulk.exchangeVal = opMeta.exgRead.exchangeVal;
-              er_bulk.localVal = opMeta.exgRead.localVal;
-            }
-          }
-
-          // partInfo.ops_l0_exgRead.push_back(info);
-          break;
-        }
-        default: {
-          llvm_unreachable("Unknow op name appears in first level");
         }
       }
+
+      if (allVecArithOps.size() + allVecLogicOps.size() > 0) {
+        mlir::SmallVector<toucanGPUSim::CGMicroPartInfo> newMps;
+
+        populateVecArithAndVecLogicMicroParts(newMps, allVecArithOps, allVecLogicOps);
+        assert(newMps.size() != 0);
+        assert(newMps.front().vecArithAndLogic.size() != 0);
+
+        partInfo.exec_mParts.back().insert(partInfo.exec_mParts.back().end(), newMps.begin(), newMps.end());
+      }
+
+      // sort for performance
+      assert(partInfo.exec_mParts.size() < UINT16_MAX);
+      auto getPartWeight = [](const toucanGPUSim::CGMicroPartInfo &p) {
+        if (p.isLUTPart) return p.middleLevels.size();
+        size_t numOps = 0;
+        if (p.memRead.size() != 0) numOps = p.memRead.size();
+        else if (p.vecRead.size() != 0) numOps = p.vecRead.size();
+        else numOps = p.vecArithAndLogic.size();
+        assert(numOps != 0);
+        return UINT16_MAX + numOps;
+      };
+      std::sort(partInfo.exec_mParts.back().begin(), partInfo.exec_mParts.back().end(), [getPartWeight](const auto &a, const auto &b) {
+        auto weight_a = getPartWeight(a);
+        auto weight_b = getPartWeight(b);
+        return weight_a > weight_b;
+      });
+
     }
 
-    if (rr_bulk.byteCount != 0) {
-      regReadBulks.push_back(rr_bulk);
-    }
 
-    if (er_bulk.byteCount != 0) {
-      exgReadBulks.push_back(er_bulk);
-    }
+    // mem writes
+    for (const auto &opMeta: part.memWriteOps) {
+      assert(opMeta.memWrite.addrVec <= UINT16_MAX);
+      assert(opMeta.memWrite.dat <= UINT16_MAX);
+      assert(opMeta.memWrite.en <= UINT16_MAX);
 
-#ifdef ENABLE_REG_READ_DEBUG_PRINT
-    for (auto eachBulk: regReadBulks) {
-      llvm::dbgs() << "Reg read bulk, from reg " << eachBulk.reg << " to local " << eachBulk.result << ", bulk size " << eachBulk.byteCount << "\n";
-    }
-#endif
-
-#ifdef ENABLE_EXG_READ_DEBUG_PRINT
-    for (auto eachBulk: exgReadBulks) {
-      llvm::dbgs() << "Exchange read bulk, from exchange pool " << eachBulk.exchangeVal << " to local " << eachBulk.localVal << ", bulk size " << eachBulk.byteCount << "\n";
-    }
-#endif
-
-    // use packed SIMD for reg reads if possible
-    if (!regReadBulks.empty()) {
-      packRegRead(regReadBulks);
+      toucanGPUSim::CGMemWriteMetaInfo info;
+      info.hasMultipleWriter = opMeta.memWrite.hasMultipleWriter;
+      // info.memDepth = opMeta.memWrite.memDepth;
+      info.memBase = opMeta.memWrite.memBase;
+      info.addrVec = opMeta.memWrite.addrVec;
+      info.dat = opMeta.memWrite.dat;
+      info.en = opMeta.memWrite.en;
       
-      partInfo.ops_l0_regRead.reserve(regReadBulks.size());
-      std::copy(regReadBulks.begin(), regReadBulks.end(), std::back_inserter(partInfo.ops_l0_regRead));
+      partInfo.ops_last_memWrite.push_back(info);
     }
 
+    // print
+    for (const auto &opMeta: part.printOps) {
+      assert(opMeta.print.en <= UINT16_MAX);
+      assert(opMeta.print.msg <= UINT16_MAX);
 
-#ifdef ENABLE_REG_READ_DEBUG_PRINT
-    mlir::SmallVector<uint32_t> rr_copyCounts;
-    rr_copyCounts.resize(POLICY_PACKED_MAX_COPY_INT_COUNT * 4 + 1, 0);
+      toucanGPUSim::CGPrintMetaInfo info;
+      info.en = opMeta.print.en;
+      info.msg = opMeta.print.msg;
 
-    for (auto op: partInfo.ops_l0_regRead) {
-      rr_copyCounts[op.byteCount]++;
+      partInfo.ops_last_print.push_back(info);
     }
 
-    for (size_t numBytes = 0; numBytes < POLICY_PACKED_MAX_COPY_INT_COUNT * 4 + 1; numBytes++) {
-      auto opCount = rr_copyCounts[numBytes];
-      if (opCount != 0) {
-        llvm::dbgs() << " " << opCount << " ops write to " << numBytes << " bytes\n";
-      }
-    }
-#endif
+    // stop
+    for (const auto &opMeta: part.stopOps) {
+      assert(opMeta.stop.en <= UINT16_MAX);
 
-    // use packed SIMD for exchange reads if possible
-    if (!exgReadBulks.empty()) {
-      llvm::dbgs() << "Exgread ops bulks " << exgReadBulks.size() << "\n";
+      toucanGPUSim::CGStopMetaInfo info;
+      info.en = opMeta.stop.en;
 
-      packExgRead(exgReadBulks);
-      
-      partInfo.ops_l0_exgRead.reserve(exgReadBulks.size());
-      std::copy(exgReadBulks.begin(), exgReadBulks.end(), std::back_inserter(partInfo.ops_l0_exgRead));
+      partInfo.ops_last_stop.push_back(info);
     }
 
-
-#ifdef ENABLE_EXG_READ_DEBUG_PRINT
-    mlir::SmallVector<uint32_t> er_copyCounts;
-    er_copyCounts.resize(POLICY_PACKED_MAX_COPY_INT_COUNT * 4 + 1, 0);
-
-    llvm::dbgs() << "Exgread ops " << partInfo.ops_l0_exgRead.size() << "\n";
-
-    for (auto op: partInfo.ops_l0_exgRead) {
-      assert(op.byteCount < er_copyCounts.size());
-      er_copyCounts[op.byteCount]++;
-    }
-
-    for (size_t numBytes = 0; numBytes < POLICY_PACKED_MAX_COPY_INT_COUNT * 4 + 1; numBytes++) {
-      auto opCount = er_copyCounts[numBytes];
-      if (opCount != 0) {
-        llvm::dbgs() << " Exchange read: " << opCount << " ops write to " << numBytes << " bytes\n";
-      }
-    }
-#endif
-
-    // ops, middle levels
-    for (size_t levelId = 1; levelId < part.opPool.size() - 1; levelId++) {
-      auto execOpsIdx = levelId - 1;
-      auto &currentLevel = part.opPool[levelId];
-
-      partInfo.ops_exec_memRead.emplace_back();
-      partInfo.ops_exec_vecRead.emplace_back();
-      partInfo.ops_exec_lut.emplace_back();
-
-      for (size_t i = 0; i < currentLevel.size(); i++) {
-        auto &opMeta = currentLevel[i];
-        switch (opMeta.opName) {
-          case CGToucanOPName::LUT: {
-            assert(opMeta.lut.op0 <= UINT16_MAX);
-            assert(opMeta.lut.op1 <= UINT16_MAX);
-            assert(opMeta.lut.op2 <= UINT16_MAX);
-            assert(opMeta.lut.result <= UINT16_MAX);
-            toucanGPUSim::CGLUTMetaInfo info;
-
-            auto lutIndex = lutPos[static_cast<uint32_t>(opMeta.lut.lutId)];
-            info.lutIndex = lutIndex;
-            info.op0 = opMeta.lut.op0;
-            info.op1 = opMeta.lut.op1;
-            info.op2 = opMeta.lut.op2;
-            info.result = opMeta.lut.result;
-
-            partInfo.ops_exec_lut.back().push_back(info);
-            break;
-          }
-          case CGToucanOPName::VecRead: {
-            assert(opMeta.vec.index0 <= UINT16_MAX);
-            assert(opMeta.vec.index1 <= UINT16_MAX);
-            assert(opMeta.vec.index2 <= UINT16_MAX);
-            assert(opMeta.vec.index3 <= UINT16_MAX);
-            assert(opMeta.vec.outRangeValue <= UINT16_MAX);
-            assert(opMeta.vec.result <= UINT16_MAX);
-
-            assert(opMeta.vec.vecLength < UINT16_MAX && "Vector is too long");
-
-            toucanGPUSim::CGVecReadMetaInfo info;
-
-            info.vecBase = opMeta.vec.vecBase;
-            info.vecLength = opMeta.vec.vecLength;
-            info.isConstVec = opMeta.vec.isConstVec;
-            info.index0 = opMeta.vec.index0;
-            info.index1 = opMeta.vec.index1;
-            info.index2 = opMeta.vec.index2;
-            info.index3 = opMeta.vec.index3;
-            info.outRangeValue = opMeta.vec.outRangeValue;
-            info.offset = opMeta.vec.offset;
-            info.result = opMeta.vec.result;
-
-            partInfo.ops_exec_vecRead.back().push_back(info);
-            break;
-          }
-          case CGToucanOPName::MemRead: {
-            assert(opMeta.memRead.en <= UINT16_MAX);
-            assert(opMeta.memRead.addrVec <= UINT16_MAX);
-            assert(opMeta.memRead.result <= UINT16_MAX);
-
-            toucanGPUSim::CGMemReadMetaInfo info;
-
-            info.hasMultipleWriter = opMeta.memRead.hasMultipleWriter;
-            // info.memDepth = opMeta.memRead.memDepth;
-            info.memBase = opMeta.memRead.memBase;
-            info.en = opMeta.memRead.en;
-            info.addrVec = opMeta.memRead.addrVec;
-            info.result = opMeta.memRead.result;
-
-            partInfo.ops_exec_memRead.back().push_back(info);
-            break;
-          }
-          default: {
-            llvm::dbgs() << static_cast<uint32_t>(opMeta.opName);
-            llvm_unreachable("Other ops should not appear here");
-          }
-        }
-      }
-    }
-
-    uint32_t ew_bulk_size = 0;
-    uint32_t ew_bulk_start_local = 0;
-    uint32_t ew_bulk_start_exchange = 0;  
-
+    // reg write
     uint32_t rw_bulk_size = 0;
     uint32_t rw_bulk_start_dat = 0;
     uint32_t rw_bulk_start_reg = 0;
+    for (const auto &opMeta: part.regWriteOps) {
+      assert(opMeta.regWrite.dat <= UINT16_MAX);
 
-    // ops, last level
-    for (size_t i = 0; i < part.opPool.back().size(); i++) {
-      auto &opMeta = part.opPool.back()[i];
-      switch (opMeta.opName) {
-        case CGToucanOPName::Print: {
-          assert(opMeta.print.en <= UINT16_MAX);
-          assert(opMeta.print.msg <= UINT16_MAX);
-
-          toucanGPUSim::CGPrintMetaInfo info;
-          info.en = opMeta.print.en;
-          info.msg = opMeta.print.msg;
-          
-          partInfo.ops_last_print.push_back(info);
-          break;
-        }
-        case CGToucanOPName::Stop: {
-          assert(opMeta.stop.en <= UINT16_MAX);
-
-          toucanGPUSim::CGStopMetaInfo info;
-          info.en = opMeta.stop.en;
-          
-          partInfo.ops_last_stop.push_back(info);
-          break;
-        }
-        case CGToucanOPName::RegWrite: {
-          // special handling for regWrites
-          assert(opMeta.regWrite.dat <= UINT16_MAX);
-
-          if (rw_bulk_size == 0) {
-            rw_bulk_start_dat = opMeta.regWrite.dat;
-            rw_bulk_start_reg = opMeta.regWrite.reg;
-            rw_bulk_size = 1;
-          } else {
-            if (opMeta.regWrite.dat == rw_bulk_start_dat + rw_bulk_size && opMeta.regWrite.reg == rw_bulk_start_reg + rw_bulk_size) {
-              // bulk
-              rw_bulk_size += 1;
-            } else {
-              // a new bulk. This should not happen
-              assert(false && "Each partition should only write to a contiguous range of registers");
-            }
-          }
-
-          break;
-        }
-        case CGToucanOPName::MemWrite: {
-          assert(opMeta.memWrite.addrVec <= UINT16_MAX);
-          assert(opMeta.memWrite.dat <= UINT16_MAX);
-          assert(opMeta.memWrite.en <= UINT16_MAX);
-
-          toucanGPUSim::CGMemWriteMetaInfo info;
-          info.hasMultipleWriter = opMeta.memWrite.hasMultipleWriter;
-          // info.memDepth = opMeta.memWrite.memDepth;
-          info.memBase = opMeta.memWrite.memBase;
-          info.addrVec = opMeta.memWrite.addrVec;
-          info.dat = opMeta.memWrite.dat;
-          info.en = opMeta.memWrite.en;
-          
-          partInfo.ops_last_memWrite.push_back(info);
-          break;
-        }
-        case CGToucanOPName::ExchangeWrite: {
-          assert(opMeta.exgWrite.localVal <= UINT16_MAX);
-
-          if (ew_bulk_size == 0) {
-            ew_bulk_start_local = opMeta.exgWrite.localVal;
-            ew_bulk_start_exchange = opMeta.exgWrite.exchangeVal;
-            ew_bulk_size = 1;
-          } else {
-            if (opMeta.exgWrite.localVal == ew_bulk_start_local + ew_bulk_size && opMeta.exgWrite.exchangeVal == ew_bulk_start_exchange + ew_bulk_size) {
-              // bulk
-              ew_bulk_size += 1;
-            } else {
-              // a new bulk. This should not happen
-              assert(false && "Each partition should only write to a contiguous range of exchange pool");
-            }
-          }
-
-          break;
-        }
-        default: {
-          llvm_unreachable("Other type of ops should not appear in last level!");
+      if (rw_bulk_size == 0) {
+        rw_bulk_start_dat = opMeta.regWrite.dat;
+        rw_bulk_start_reg = opMeta.regWrite.reg;
+        rw_bulk_size = 1;
+      } else {
+        if (opMeta.regWrite.dat == rw_bulk_start_dat + rw_bulk_size && opMeta.regWrite.reg == rw_bulk_start_reg + rw_bulk_size) {
+          // bulk
+          rw_bulk_size += 1;
+        } else {
+          // a new bulk. This should not happen
+          assert(false && "Each partition should only write to a contiguous range of registers");
         }
       }
     }
-
     // add extra padding
     if (rw_bulk_size != 0) {
       rw_bulk_size += getExtraAlignmentSpace(rw_bulk_size, 16);
     }
-
-    if (ew_bulk_size != 0) {
-      ew_bulk_size += getExtraAlignmentSpace(ew_bulk_size, 16);
-    }
-
-    // special handling for exchange writes
-#ifdef ENABLE_EXG_WRITE_DEBUG_PRINT
-    if (ew_bulk_size != 0) {
-      llvm::dbgs() << "Exchange write bulk, from local pool " << ew_bulk_start_local << " to exchange pool " << ew_bulk_start_exchange << ", bulk size " << ew_bulk_size << "\n";
-    }
-#endif
-
-    if (ew_bulk_size != 0) {
-      assert(ew_bulk_start_local == 16 && "Local data should starts from shared memory addr 16");
-      assert(ew_bulk_start_exchange % 16 == 0 && "Register should be aligned to 16B");
-      assert(ew_bulk_size < UINT16_MAX && "Register write count should fit in uint16");
-
-      toucanGPUSim::CGExchangeWriteMetaInfo info;
-      info.localVal = ew_bulk_start_local;
-      info.exchangeVal = ew_bulk_start_exchange;
-      info.count = ew_bulk_size;
-
-      partInfo.ops_last_exgWrite.push_back(info);
-    }
-
     // special handling for regWrites
-#ifdef ENABLE_REG_WRITE_DEBUG_PRINT
-    if (rw_bulk_size != 0) {
-      llvm::dbgs() << "Reg write bulk, from data " << rw_bulk_start_dat << " to reg " << rw_bulk_start_reg << ", bulk size " << rw_bulk_size << "\n";
-    }
-#endif
+
+    llvm::outs() << "Partition " << partId << " reg writes: from data(shared mem) " << rw_bulk_start_dat << " to reg(global mem) " << rw_bulk_start_reg << ", size " << rw_bulk_size << "B\n";
+
     if (rw_bulk_size != 0) {
       assert(rw_bulk_start_dat + rw_bulk_size - 1 <= UINT16_MAX);
       // Note: This is guarenteed by LocalValueAllocator
@@ -649,7 +416,7 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
       info.dat = rw_bulk_start_dat;
       info.count = rw_bulk_size;
 
-      partInfo.ops_last_regWrite.push_back(info);
+      partInfo.op_last_regWrite = info;
     }
 
     designInfo.parts.push_back(std::move(partInfo));
@@ -689,7 +456,7 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
       debugInfo.signalDebugInfo[sigNameRef.str()] = eachSignalDbgInfo;
     }
   }
-    */
+
 
   void runOnOperation() final {
     // Mark all analyses as preserved. This is a read only pass
@@ -804,58 +571,58 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
 
     llvm::outs() << "================== Schedule operations ==================\n";
     scheduler.schedule(&getContext(), rGraph, partNodeList);
-    // p.regionPartitions
 
-
-    // Under construction...
-
-    return;
-
-    
+    llvm::outs() << "======================= Code Gen =======================\n";
 
 
     // Fill lut
     populateLUT();
-    // designInfo.lut.assign(lutContent.begin(), lutContent.end());
+    designInfo.lut.assign(lutContent.begin(), lutContent.end());
 
-    // // copy pool size
-    // designInfo.regPoolSize = p.codeGenInfo.regPool.size();
-    // designInfo.memPoolSize = p.codeGenInfo.totalMemSize;
-    // designInfo.exchangePoolSize = p.codeGenInfo.exchangePool.size();
+    // copy pool size
+    designInfo.regPoolSize = scheduler.codeGenInfo.regPool.size();
+    designInfo.memPoolSize = scheduler.codeGenInfo.totalMemSize;
 
-    // uint32_t partId = 0;
-    // uint32_t regionId = 0;
-    // for (const auto &eachRegionParts: p.codeGenInfo.regionPartitionIds) {
-    //   designInfo.regionPartitionIds.emplace_back();
-    //   for (const auto &eachPartId: eachRegionParts) {
-    //     assert(eachPartId == partId);
+    assert(designInfo.regPoolSize != 0);
+    assert(scheduler.codeGenInfo.regionPartitionIds.size() == 1);
 
-    //     // save partition region info
-    //     designInfo.regionPartitionIds.back().push_back(partId);
-    //     // codegen for a single partition
-    //     populateSinglePartition(p.codeGenInfo.partitionInfo[partId], regionId, partId);
-    //     partId++;
-    //   }
-    //   regionId++;
-    // }
+    uint32_t partId = 0;
+    for (const auto &eachRegionParts: scheduler.codeGenInfo.regionPartitionIds) {
+      designInfo.regionPartitionIds.emplace_back();
+      for (const auto &eachPartId: eachRegionParts) {
+        assert(eachPartId == partId);
 
-    // // Fill print msgs
-    // designInfo.printMsgs.resize(p.codeGenInfo.printStrings.size());
-    // for (auto [k, v]: p.codeGenInfo.printStrings) {
-    //   assert(designInfo.printMsgs[v].empty());
-    //   designInfo.printMsgs[v] = k;
-    // }
+        // save partition region info
+        designInfo.regionPartitionIds.back().push_back(partId);
+        // codegen for a single partition
+        populateSinglePartition(scheduler.codeGenInfo.partitionInfo[partId], partId);
+        partId++;
+      }
+    }
+
+    // Fill print msgs
+    designInfo.printMsgs.resize(scheduler.codeGenInfo.printStrings.size());
+    for (auto [k, v]: scheduler.codeGenInfo.printStrings) {
+      assert(designInfo.printMsgs[v].empty());
+      designInfo.printMsgs[v] = k;
+    }
 
     // // Fill debug info
-    // populateDebugInfo(p.codeGenInfo);
+    populateDebugInfo(scheduler.codeGenInfo);
 
 
-
+    llvm::outs() << "=================== Serialize Netlist ===================\n";
     // Save. serialize
     auto outputDesignFileFullName = std::filesystem::path(outputDirectory.getValue()) / outputDesignFilename.getValue();
     std::ofstream ofs_design(outputDesignFileFullName, std::ios::binary | std::ios::out);
     toucanGPUSim::serializeSimDesignInfo(ofs_design, designInfo);
     ofs_design.close();
+
+    // debug: deserialize it, ensure everything is same
+    std::ifstream ifs_design(outputDesignFileFullName, std::ios::binary);
+    toucanGPUSim::SimDesignInfo design_read_back;
+    toucanGPUSim::deserializeSimDesignInfo(ifs_design, design_read_back);
+    assert(isSimDesignInfoIdentical(designInfo, design_read_back));
 
 
     // Debug symbols
@@ -869,7 +636,7 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     debugInfo.signalDebugInfo.clear();
     std::erase_if(debugInfo.regDebugInfo, [&](auto const &item) {
       auto const& [k, v] = item;
-      return !(p.codeGenInfo.ioSignals.contains(k));
+      return !(scheduler.codeGenInfo.ioSignals.contains(k));
     });
 
     auto outputIOSymbolFileFullName = std::filesystem::path(outputDirectory.getValue()) / outputIOSymbolFilename.getValue();
