@@ -53,7 +53,7 @@ using namespace mlir;
 using namespace llvm;
 using namespace circt;
 
-
+// #define DEBUG_PRINT_CONST_VEC_DEDUP_COUNT
 
 void SingleRegionMicroPartScheduler::sortRegistersForLocality(const PartitioningGraph &graph, const mlir::SmallVector<mlir::SmallVector<uint32_t>> &partNodeList,  mlir::SmallVector<mlir::SmallVector<mlir::TypedValue<toucan::RegType>>> &regOrdered) {
 
@@ -518,7 +518,9 @@ void SingleRegionMicroPartScheduler::collectConstantVecs(const PartitioningGraph
 
   // Dedup vector
   std::map<std::vector<uint8_t>, size_t> smallVecDedupTable;
+#ifdef DEBUG_PRINT_CONST_VEC_DEDUP_COUNT
   size_t constVecDedupCount = 0;
+#endif
 
   for (auto defConstVecOp: constVecDeclOps) {
     // a const vector used in this graph/region. 
@@ -548,7 +550,9 @@ void SingleRegionMicroPartScheduler::collectConstantVecs(const PartitioningGraph
       if (smallVecDedupTable.contains(vecRawVal)) {
         canDedup = true;
         dedupValId = smallVecDedupTable.at(vecRawVal);
+#ifdef DEBUG_PRINT_CONST_VEC_DEDUP_COUNT
         constVecDedupCount += 1;
+#endif
       } else {
         // cannot dedup. 
       }
@@ -579,7 +583,9 @@ void SingleRegionMicroPartScheduler::collectConstantVecs(const PartitioningGraph
     }
   }
 
-  // llvm::dbgs() << constVecDedupCount << " small const vecs deduplicated\n";
+#ifdef DEBUG_PRINT_CONST_VEC_DEDUP_COUNT
+  llvm::dbgs() << constVecDedupCount << " const vecs deduplicated\n";
+#endif
 }
 
 

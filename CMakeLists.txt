@@ -15,6 +15,11 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED YES)
 
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  # Remove this warning introduced by mlir
+  add_compile_options(-Wno-ambiguous-reversed-operator)
+endif()
+
 list(APPEND CMAKE_PREFIX_PATH "./install/")
 
 find_package(MLIR REQUIRED CONFIG)

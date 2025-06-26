@@ -80,7 +80,7 @@ void MultiRegionPartitioner::findCutPoints(DesignGraph &graph) {
   return;
   mlir::SmallVector<uint32_t> regionSizes;
 
-  size_t totalLevels = graphLevels.size();
+  // size_t totalLevels = graphLevels.size();
   // int firstRegionLevels = std::min(static_cast<int>(graphSize * 0.4), 10);
   // cutPoints.push_back(firstRegionLevels);
   int firstRegionLevels = 0, firstRegionSize = 0, currentRegionLevels = 0;

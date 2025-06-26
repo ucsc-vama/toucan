@@ -25,65 +25,6 @@ using namespace llvm;
 
 
 
-
-
-
-static void packNodes(const mlir::SmallVector<NodeIdAndOpCount>& nodesSorted,
- mlir::SmallVector<mlir::SmallVector<NodeIdAndOpCount>>& resultPacks) {
-  // Validate input sorting in debug builds
-#ifndef NDEBUG
-  for (size_t i = 1; i < nodesSorted.size(); ++i) {
-    assert(nodesSorted[i-1].opCount >= nodesSorted[i].opCount &&
-           "Input must be sorted in descending opCount order");
-  }
-#endif
-
-  resultPacks.clear();
-  mlir::SmallVector<uint32_t> packRemaining;
-
-  for (const auto& node : nodesSorted) {
-    uint32_t remaining = node.opCount;
-    
-    // First try to place full node in existing packs
-    for (size_t i = 0; i < packRemaining.size() && remaining > 0; ++i) {
-      if (packRemaining[i] >= remaining) {
-        resultPacks[i].push_back({node.node, remaining});
-        packRemaining[i] -= remaining;
-        remaining = 0;
-        break;
-      }
-    }
-
-    // Split remaining across packs if needed
-    while (remaining > 0) {
-      uint32_t allocated = 0;
-      
-      // Try to fill existing packs
-      for (size_t i = 0; i < packRemaining.size() && remaining > 0; ++i) {
-        const uint32_t chunk = std::min(remaining, packRemaining[i]);
-        if (chunk > 0) {
-          resultPacks[i].push_back({node.node, chunk});
-          packRemaining[i] -= chunk;
-          remaining -= chunk;
-          allocated += chunk;
-        }
-      }
-
-      // Create new packs for remaining
-      if (remaining > 0) {
-        const uint32_t chunk = std::min(remaining, 32u);
-        resultPacks.push_back({{node.node, chunk}});
-        packRemaining.push_back(32 - chunk);
-        remaining -= chunk;
-        allocated += chunk;
-      }
-
-      if (allocated == 0) break; // Prevent infinite loop
-    }
-  }
-}
-
-
 LogicalResult MicroPartitioner::arrangeSpecialOps(PartitioningGraph &g) {
 
 
@@ -157,10 +98,6 @@ LogicalResult MicroPartitioner::arrangeSpecialOps(PartitioningGraph &g) {
           }
           std::sort(idAndOpCount.begin(), idAndOpCount.end(), [](const NodeIdAndOpCount&a, const NodeIdAndOpCount&b) {return a.opCount > b.opCount; });
 
-          // TODO: Am I right? Ensure descending
-          for (size_t i = 0; i < idAndOpCount.size() - 1; i++) {
-            assert(idAndOpCount[i].opCount >= idAndOpCount[i+1].opCount);
-          }
 
           specialOps.clear();
           for (auto [eachVtx, opCount]: idAndOpCount) {

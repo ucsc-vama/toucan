@@ -114,7 +114,7 @@ struct ExpandMemoryDelayPass : toucan::impl::ExpandMemoryDelayBase<ExpandMemoryD
             if (i == 0) markAsPipelineHeadingRegister(pipelineRegister);
           }
           // Replace all reference with new value, except pipelining registers
-          memReadOp.getResult().replaceUsesWithIf(lastReg->getResult(), [=](mlir::OpOperand& oprand) { 
+          memReadOp.getResult().replaceUsesWithIf(lastReg->getResult(), [&](mlir::OpOperand& oprand) { 
             auto op = oprand.getOwner();
             if (isPipelineHeadingRegister(op)) {
               unsetPipelineHeadingRegister(op);
