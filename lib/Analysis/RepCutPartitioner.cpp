@@ -411,6 +411,12 @@ LogicalResult RepCutPartitioner::callRepCutAndWait(uint32_t nParts, float target
 
   llvm::StringRef args[] = {rcpBinary, "--target_ib", ibString, "--nparts", nPartsString, "--graph_file", graphFile, "--work_directory", workingDirectory.c_str(), "--log_level", "debug"};
 
+  std::ostringstream oss;
+  for (const auto &ea: args) {
+    oss << ea.str() << " ";
+  }
+  llvm::outs() << "RCP args: " << oss.str() << "\n";
+
   std::optional<llvm::StringRef> redirects[] = {
     std::nullopt,
     repcutPrintLogPath,
