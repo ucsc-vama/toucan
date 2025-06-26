@@ -263,7 +263,7 @@ namespace toucan {
 
   class RepCutPartitioner: public MultiRegionPartitioner {
     public:
-    float targetIb = 0.06;
+    float targetIb = 0.015;
     uint32_t rePartitionMaxIterations = 4;
 
     const uint32_t PARTITION_MAX_WEIGHT = 50000;
