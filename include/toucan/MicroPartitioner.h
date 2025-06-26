@@ -181,8 +181,6 @@ namespace toucan {
     mlir::LogicalResult loadMicroParts();
     mlir::LogicalResult loadVectorNopMap();
 
-    // TODO: reorganize exclude nodes
-
   };
 
 }
