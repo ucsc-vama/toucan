@@ -936,6 +936,7 @@ static void scheduleRegularMicroPart(const PartitioningGraph &graph, CGMicroPart
     uint16_t sMemLocation;
   };
   mlir::SmallVector<PendingWriteBack> pendingWriteBackValueAndLocation;
+  pendingWriteBackValueAndLocation.reserve(32);
 
   {
     // first level
@@ -945,6 +946,10 @@ static void scheduleRegularMicroPart(const PartitioningGraph &graph, CGMicroPart
     mlir::DenseSet<mlir::Value> allInputVals;
     mlir::SmallVector<mlir::Value> topLevelResultVals;
 
+    topLevelOpInputValIndecies.reserve(3);
+    allInputVals.reserve(64);
+    topLevelResultVals.reserve(32);
+    part.topLevel.reserve(32);
 
     auto getLUTOpInputIds = [&](mlir::Operation *op) {
       assert(isa<toucan::LUTOp>(op));
@@ -1059,6 +1064,8 @@ static void scheduleRegularMicroPart(const PartitioningGraph &graph, CGMicroPart
 
     // insert NOP for partition reads
     mlir::DenseSet<mlir::Value> valuesOnlyUsedByFirstLevel;
+    valuesOnlyUsedByFirstLevel.reserve(64);
+
     assert(mPart.valuesUsedByEachLevel.size() > 0);
     valuesOnlyUsedByFirstLevel.insert(mPart.valuesUsedByEachLevel.front().begin(), mPart.valuesUsedByEachLevel.front().end());
     for (size_t i = 1; i < mPart.valuesUsedByEachLevel.size(); i++) {
@@ -1116,6 +1123,7 @@ static void scheduleRegularMicroPart(const PartitioningGraph &graph, CGMicroPart
   // remaining levels
 
   mlir::SmallVector<uint8_t> lutOpInputValIndecies;
+  lutOpInputValIndecies.reserve(3);
 
   auto getLUTOpInputShuffleIds = [&lutOpInputValIndecies, &shuffleValueToId](mlir::Operation *op) {
     assert(isa<toucan::LUTOp>(op));
@@ -1176,6 +1184,9 @@ static void scheduleRegularMicroPart(const PartitioningGraph &graph, CGMicroPart
     uint8_t opIndex = 0;
     part.middleLevels.emplace_back();
     shuffleValueToId_next.clear();
+
+    part.middleLevels.back().reserve(32);
+    shuffleValueToId_next.reserve(32);
 
 
     // Create NOP for pass through values
@@ -1335,6 +1346,7 @@ static void scheduleRegularMicroPart(const PartitioningGraph &graph, CGMicroPart
 
   {
     // last level
+    part.lastLevel.reserve(32);
     std::swap(shuffleValueToId, shuffleValueToId_next);
     // Create write back NOPs
     assert(pendingWriteBackValueAndLocation.size() <= 32);
@@ -1600,6 +1612,8 @@ void SingleRegionMicroPartScheduler::schedule(mlir::MLIRContext *context, const 
     codeGenInfo.partitionInfo.resize(numPartitions);
 
     auto scheduleStats = mlir::failableParallelForEachN(context, 0, numPartitions, [&](size_t partId) {
+      auto start = std::chrono::system_clock::now();
+
       std::ostringstream oss;
       assert(codeGenInfo.partitionInfo.size() > partId);
       auto &partInfo = codeGenInfo.partitionInfo[partId];
@@ -1698,8 +1712,12 @@ void SingleRegionMicroPartScheduler::schedule(mlir::MLIRContext *context, const 
         partInfo.opStatistics.numStops = stats.numStops;
       }
 
+      auto stop = std::chrono::system_clock::now();
+      auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start);
+      uint64_t time_ms = duration.count();
+
       oss.str("");
-      oss << "Done schedule ops for partition " << partId << "\n";
+      oss << "Done schedule ops for partition " << partId << " in " << time_ms << "ms\n";
       llvm::outs() << oss.str();
 
       return success();
