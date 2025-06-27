@@ -117,12 +117,15 @@ LogicalResult RepCutPartitioner::_partition(mlir::MLIRContext *context, DesignGr
 
   auto ret = mlir::failableParallelForEach(context, regionIds.begin(), regionIds.end(), [&](uint32_t regionId) {
     auto start = std::chrono::high_resolution_clock::now();
+    auto maxThreads = context->getNumThreads();
 
     auto ret = workerFunc(
       regionGraphs[regionId], 
       regionWorkDirectory[regionId], 
       regionPartitions[regionId], 
-      regionPartitionNumbers[regionId]);
+      regionPartitionNumbers[regionId],
+      maxThreads);
+    if (failed(ret)) return ret;
 
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
@@ -143,9 +146,10 @@ LogicalResult RepCutPartitioner::_partition(mlir::MLIRContext *context, DesignGr
       auto numPartsBefore = regionPartitions[regionId].size();
 
       auto rePartitionRet = rePartition(
-      regionId, regionGraphs[regionId], 
-      regionWorkDirectory[regionId], 
-      regionPartitions[regionId]);
+        context, 
+        regionId, regionGraphs[regionId], 
+        regionWorkDirectory[regionId], 
+        regionPartitions[regionId]);
       if (failed(rePartitionRet)) return failure();
 
       auto numPartsAfter = regionPartitions[regionId].size();
@@ -398,18 +402,32 @@ void RepCutPartitioner::collectAndDumpGraphVectorDeclInfoToFile(const Partitioni
   ofs.close();
 }
 
-LogicalResult RepCutPartitioner::callRepCutAndWait(uint32_t nParts, float target_ib, const std::string &graphFile, const std::filesystem::path &workingDirectory) {
+int RepCutPartitioner::decideRepCutNumThreads(int maxThreads, int numTargetPartitions) {
+  return std::min(maxThreads, static_cast<int>(numTargetPartitions / 4) + 1);
+}
+
+LogicalResult RepCutPartitioner::callRepCutAndWait(uint32_t nParts, float target_ib, const std::string &graphFile, const std::filesystem::path &workingDirectory, int maxThreads) {
   // auto programLocation = boost::dll::program_location().string();
   const char* rcpBinary = "rcp";
   auto ibString = std::to_string(target_ib);
   auto nPartsString = std::to_string(nParts);
+  auto numThreads = decideRepCutNumThreads(maxThreads, nParts);
+  auto numThreadsString = std::to_string(numThreads);
   std::string repcutPrintLogPath = workingDirectory / repcutConsoleLogFileName;
 
   if (!std::filesystem::exists(graphFile)) {
     llvm_unreachable("RepCut partitioner input file doesn't exists! This should not happen");
   }
 
-  llvm::StringRef args[] = {rcpBinary, "--target_ib", ibString, "--nparts", nPartsString, "--graph_file", graphFile, "--work_directory", workingDirectory.c_str(), "--log_level", "debug"};
+  llvm::StringRef args[] = {
+    rcpBinary, 
+    "--target_ib", ibString, 
+    "--nparts", nPartsString, 
+    "--graph_file", graphFile, 
+    "--work_directory", workingDirectory.c_str(), 
+    "--log_level", "debug", 
+    "--threads", numThreadsString
+  };
 
   std::ostringstream oss;
   for (const auto &ea: args) {
@@ -537,7 +555,7 @@ void RepCutPartitioner::printPartitionStatistics(const RepCutPartitioningStatist
 }
 
 
-LogicalResult RepCutPartitioner::workerFunc(const PartitioningGraph &graph, std::filesystem::path workDirectory, mlir::SmallVector<mlir::SmallVector<uint32_t>> &partOutput, uint32_t nParts) {
+LogicalResult RepCutPartitioner::workerFunc(const PartitioningGraph &graph, std::filesystem::path workDirectory, mlir::SmallVector<mlir::SmallVector<uint32_t>> &partOutput, uint32_t nParts, int maxThreads) {
   if (!std::filesystem::exists(workDirectory)) {
     if (!std::filesystem::create_directories(workDirectory)) {
       llvm::errs() << "Fail to create directory " << workDirectory << "\n";
@@ -560,7 +578,7 @@ LogicalResult RepCutPartitioner::workerFunc(const PartitioningGraph &graph, std:
   dumpGraphToFile(graph, graphPath);
   collectAndDumpGraphVectorDeclInfoToFile(graph, graphVectorDeclInfoPath);
 
-  auto partitionSucc = callRepCutAndWait(nParts, targetIb, graphPath, workDirectory);
+  auto partitionSucc = callRepCutAndWait(nParts, targetIb, graphPath, workDirectory, maxThreads);
   if (failed(partitionSucc)) {
     llvm::errs() << "RepCut partitioner returns error\n";
     return failure();
@@ -616,7 +634,7 @@ static PartitioningGraph createNewGraphFromPartition(const PartitioningGraph &gr
   return newGraph;
 }
 
-mlir::LogicalResult RepCutPartitioner::rePartition(uint32_t regionId, const PartitioningGraph &graph, std::filesystem::path regionWorkDirectory, mlir::SmallVector<mlir::SmallVector<uint32_t>> &partOutput) {
+mlir::LogicalResult RepCutPartitioner::rePartition(mlir::MLIRContext *context, uint32_t regionId, const PartitioningGraph &graph, std::filesystem::path regionWorkDirectory, mlir::SmallVector<mlir::SmallVector<uint32_t>> &partOutput) {
 
   mlir::SmallVector<mlir::SmallVector<uint32_t>> partitions;
   mlir::SmallVector<uint32_t> partsNeedRepartition;
@@ -655,8 +673,12 @@ mlir::LogicalResult RepCutPartitioner::rePartition(uint32_t regionId, const Part
     msgOss << "Region " << regionId << " part " << oldPartId
         << ": original size " << partWeight 
         << ", target num parts: " << targetNumPartitions << "\n";
+    llvm::outs() << msgOss.str();
+    msgOss.str("");
+
+    auto maxThreads = context->getNumThreads();
     
-    auto ret = workerFunc(newGraph, workDir, newPartitions, targetNumPartitions);
+    auto ret = workerFunc(newGraph, workDir, newPartitions, targetNumPartitions, maxThreads);
     if (failed(ret)) {
       msgOss << "Error on re-partition!\n";
       llvm::errs() << msgOss.str();

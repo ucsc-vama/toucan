@@ -1,0 +1,7 @@
+cmake make boost 
+
+MtKaHyPar:
+tbb hwloc 
+
+mPartitioner:
+python-networkx

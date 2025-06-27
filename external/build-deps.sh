@@ -19,18 +19,17 @@ make -j$(nproc) install
 
 popd
 
-# build KaHyPar
-# Note: Use RELEASE build type for kahypar to avoid bug. Kahypar might not correctly finish when using DEBUG build type.
-pushd kahypar
+# build MtKaHyPar
+pushd mt-kahypar
 
 [ -d build ] || mkdir build
 cd build
 cmake .. \
     -DCMAKE_INSTALL_PREFIX=$INSTALL_PREFIX \
     -DCMAKE_BUILD_TYPE=RELEASE
-make -j$(nproc) KaHyPar
+make -j$(nproc) MtKaHyPar
 
-cp ./kahypar/application/KaHyPar $INSTALL_PREFIX/bin/
+cp ./mt-kahypar/application/MtKaHyPar $INSTALL_PREFIX/bin/
 
 popd
 
