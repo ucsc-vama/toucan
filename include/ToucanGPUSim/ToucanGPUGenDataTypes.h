@@ -160,14 +160,13 @@ namespace toucanGPUSim {
   #define VEC_LOGIC_LT 4
   #define VEC_LOGIC_LE 5
   struct CGMicroPartVecArithOrLogic {
-    bool isVec1Const;
-    bool isVec2Const;
-
     uint16_t vec1Base;
     uint16_t vec2Base;
 
-    uint8_t vecLength;
+    uint16_t vecLength;
     uint8_t opName;
+    // 00, 01, 10, 11
+    uint8_t isV1V2Const;
 
     uint16_t result;
   };

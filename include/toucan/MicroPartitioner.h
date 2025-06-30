@@ -88,13 +88,6 @@ namespace toucan {
     
     bool checkAndCollectIOValues(const PartitioningGraph &g, const mlir::DenseSet<uint32_t> &allNodes, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToDepNodeId, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToOriginalVecDeclId, const mlir::DenseMap<uint32_t, mlir::SmallVector<uint32_t>> outputVectorNopMap);
 
-    // void moveOutputValsToLastLevel();
-    // void collectValueLifetime();
-    // void addDummyNOPs();
-    // // void 
-
-    // // TODO
-    // void sortOpsForLocality();
 
     private:
     void updateNodeToLevel();
@@ -116,13 +109,14 @@ namespace toucan {
     // Stop, Print can be moved to last
     mlir::SmallVector<uint32_t> allStops, allPrints;
 
+    // vecDecl -> [vec nop (new)]
     mlir::DenseMap<uint32_t, mlir::SmallVector<uint32_t>> outputVectorNopMap;
-    // VecDecl -> [vector element ids]
+    // VecDecl -> [vector element ids (old)]
     mlir::DenseMap<uint32_t, mlir::SmallVector<uint32_t>> originalVectorElementsMap;
     mlir::DenseMap<uint32_t, uint32_t> newNodeIdToOriginalVecDeclId;
     mlir::DenseMap<uint32_t, uint32_t> newNodeIdToDepNodeId;
 
-    MicroPartitioner(const mlir::SmallVector<uint32_t> &thisRepCutPartition, std::filesystem::path workDirectory, size_t partId, mlir::DenseMap<uint32_t, mlir::SmallVector<uint32_t>> vectorElementsMap) : originalVectorElementsMap(vectorElementsMap), partId(partId), workDirectory(workDirectory) {
+    MicroPartitioner(const mlir::SmallVector<uint32_t> &thisRepCutPartition, const std::filesystem::path workDirectory, const size_t partId, const mlir::DenseMap<uint32_t, mlir::SmallVector<uint32_t>> vectorElementsMap) : originalVectorElementsMap(vectorElementsMap), partId(partId), workDirectory(workDirectory) {
       allNodes.insert(thisRepCutPartition.begin(), thisRepCutPartition.end());
       assert(allNodes.size() == thisRepCutPartition.size() && "RepCut partition should not have duplicated node!");
 

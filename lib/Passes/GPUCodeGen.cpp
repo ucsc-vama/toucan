@@ -162,12 +162,13 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
 
     for (const auto &eachVecArithOp: allVecArithOps) {
       toucanGPUSim::CGMicroPartVecArithOrLogic op;
-      op.isVec1Const = eachVecArithOp.isVec1Const;
-      op.isVec2Const = eachVecArithOp.isVec2Const;
+      op.isV1V2Const = 0;
+      if (eachVecArithOp.isVec1Const) op.isV1V2Const |= 0b10;
+      if (eachVecArithOp.isVec2Const) op.isV1V2Const |= 1;
       op.vec1Base = eachVecArithOp.vec1Base;
       op.vec2Base = eachVecArithOp.vec2Base;
       // For now, vecLength is limited by TOUCAN_VEC_OP_MAX_WIDTH
-      assert(eachVecArithOp.vecLength < UINT8_MAX);
+      assert(eachVecArithOp.vecLength < UINT16_MAX);
       op.vecLength = eachVecArithOp.vecLength;
       op.result = eachVecArithOp.result;
 
@@ -192,12 +193,13 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
 
     for (const auto &eachVecLogicOp: allVecLogicOps) {
       toucanGPUSim::CGMicroPartVecArithOrLogic op;
-      op.isVec1Const = eachVecLogicOp.isVec1Const;
-      op.isVec2Const = eachVecLogicOp.isVec2Const;
+      op.isV1V2Const = 0;
+      if (eachVecLogicOp.isVec1Const) op.isV1V2Const |= 0b10;
+      if (eachVecLogicOp.isVec2Const) op.isV1V2Const |= 1;
       op.vec1Base = eachVecLogicOp.vec1Base;
       op.vec2Base = eachVecLogicOp.vec2Base;
       // For now, vecLength is limited by TOUCAN_VEC_OP_MAX_WIDTH
-      assert(eachVecLogicOp.vecLength < UINT8_MAX);
+      assert(eachVecLogicOp.vecLength < UINT16_MAX);
       op.vecLength = eachVecLogicOp.vecLength;
       op.result = eachVecLogicOp.result;
 
@@ -504,29 +506,31 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     std::vector<MicroPartitioner> mps;
     for (size_t regionId = 0; regionId < numRegions; regionId++) {
       auto &regionRepCutPartitions = p.regionPartitions[regionId];
+      auto &originalVectorElementsMap = p.originalVectorElementsMapForEachRegion[regionId];
       
       auto numParts = p.regionPartitions[regionId].size();
       mps.reserve(numParts);
-  
+
       auto thisRegionWorkDirectory = p.regionWorkDirectory[regionId];
 
       for (size_t partId = 0; partId < numParts; partId++) {
         auto thisRepCutPartition = regionRepCutPartitions[partId];
-        mps.emplace_back(MicroPartitioner(thisRepCutPartition, thisRegionWorkDirectory, partId, p.originalVectorElementsMap));
+        mps.emplace_back(MicroPartitioner(thisRepCutPartition, thisRegionWorkDirectory, partId, originalVectorElementsMap));
       }
     }
 
     for (size_t regionId = 0; regionId < numRegions; regionId++) {
+      assert(regionId == 0);
       auto regionGraph = p.regionGraphs[regionId];
       auto numParts = p.regionPartitions[regionId].size();
-      mps.reserve(numParts);
 
       llvm::outs() << "======= Micro partition and schedule for region " << regionId << " =======\n";
       llvm::outs() << "Has " << numParts << " RepCut partitions\n";
+      assert(mps.size() == numParts);
 
       auto partitionAndScheduleStatus = mlir::failableParallelForEachN(&getContext(), 0, numParts, [&](size_t partId) {
         std::ostringstream oss;
-        oss << "Partitioning region " << regionId << " part " << partId << "\n";
+        oss << "Running micro partitioner for region " << regionId << " part " << partId << "\n";
         llvm::outs() << oss.str();
 
         assert(mps.size() > partId);
@@ -644,6 +648,7 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     toucanGPUSim::serializeSimDebugInfo(ofs_io_symbol, debugInfo);
     ofs_io_symbol.close();
 
+    llvm::outs() << "Done\n";
   }
 
 };

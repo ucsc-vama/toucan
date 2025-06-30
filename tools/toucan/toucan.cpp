@@ -170,7 +170,6 @@ static LogicalResult compileAndEmit(
         gpuCodeGenOptions.ibFactor = partitionIbFactor;
 
         pm.addPass(toucan::createGPUCodeGenPass(gpuCodeGenOptions));
-        llvm::outs() << "GPU code gen\n";
     }
 
 

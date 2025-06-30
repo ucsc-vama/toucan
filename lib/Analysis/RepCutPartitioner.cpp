@@ -92,6 +92,7 @@ LogicalResult RepCutPartitioner::_partition(mlir::MLIRContext *context, DesignGr
   assert(numRegions == regionPartitionNumbers.size());
   regionPartitions.clear();
   regionPartitions.resize(numRegions);
+  originalVectorElementsMapForEachRegion.resize(numRegions);
 
   mlir::SmallVector<uint32_t> regionIds(numRegions);
   std::iota(regionIds.begin(), regionIds.end(), 0);
@@ -118,6 +119,9 @@ LogicalResult RepCutPartitioner::_partition(mlir::MLIRContext *context, DesignGr
   auto ret = mlir::failableParallelForEach(context, regionIds.begin(), regionIds.end(), [&](uint32_t regionId) {
     auto start = std::chrono::high_resolution_clock::now();
     auto maxThreads = context->getNumThreads();
+
+    std::filesystem::path graphVectorDeclInfoPath = regionWorkDirectory[regionId] / graphVectorDeclInfoFileName;
+    collectAndDumpGraphVectorDeclInfoToFile(regionId, regionGraphs[regionId], graphVectorDeclInfoPath);
 
     auto ret = workerFunc(
       regionGraphs[regionId], 
@@ -154,7 +158,12 @@ LogicalResult RepCutPartitioner::_partition(mlir::MLIRContext *context, DesignGr
 
       auto numPartsAfter = regionPartitions[regionId].size();
       assert(numPartsAfter >= numPartsBefore);
-      if (numPartsAfter == numPartsBefore) converged = true;
+      if (numPartsAfter == numPartsBefore) {
+        converged = true;
+      } else {
+        // num parts changed
+        regionPartitionNumbers[regionId] = numPartsAfter;
+      }
       
       rePartIterationCount++;
     }
@@ -325,7 +334,10 @@ void RepCutPartitioner::dumpAllPartitionsToFile() {
   }
 }
 
-void RepCutPartitioner::collectAndDumpGraphVectorDeclInfoToFile(const PartitioningGraph &g, std::string fileName) {
+void RepCutPartitioner::collectAndDumpGraphVectorDeclInfoToFile(const uint32_t regionId, const PartitioningGraph &g, std::string fileName) {
+  assert(originalVectorElementsMapForEachRegion.size() > regionId);
+  auto &originalVectorElementsMap = originalVectorElementsMapForEachRegion[regionId];
+
   originalVectorElementsMap.clear();
 
   auto ofs = std::ofstream(fileName);
@@ -573,10 +585,8 @@ LogicalResult RepCutPartitioner::workerFunc(const PartitioningGraph &graph, std:
   // Save graph to file
   std::filesystem::path graphPath = workDirectory / graphFileName;
   std::filesystem::path repcutOutputPath = workDirectory / repcutOutputFileName;
-  std::filesystem::path graphVectorDeclInfoPath = workDirectory / graphVectorDeclInfoFileName;
 
   dumpGraphToFile(graph, graphPath);
-  collectAndDumpGraphVectorDeclInfoToFile(graph, graphVectorDeclInfoPath);
 
   auto partitionSucc = callRepCutAndWait(nParts, targetIb, graphPath, workDirectory, maxThreads);
   if (failed(partitionSucc)) {
