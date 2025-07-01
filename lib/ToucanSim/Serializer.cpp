@@ -1,5 +1,6 @@
 #include "ToucanSim/ToucanGenDataTypes.h"
 #include <fstream>
+#include <cstring>
 
 #include <iostream>
 
