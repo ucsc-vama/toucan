@@ -4,6 +4,7 @@
 #include <iostream>
 #include <cassert>
 #include <vector>
+#include <cstring>
 
 using namespace toucanGPUSim;
 
