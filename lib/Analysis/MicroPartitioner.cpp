@@ -223,8 +223,8 @@ mlir::LogicalResult MicroPartitioner::callExternalPartitioner() {
 
   std::optional<llvm::StringRef> redirects[] = {
     std::nullopt,
-    consoleLogFilePrefix,
-    consoleLogFilePrefix
+    consoleLogFile,
+    consoleLogFile
   };
 
 
@@ -238,7 +238,7 @@ mlir::LogicalResult MicroPartitioner::callExternalPartitioner() {
 
   if (result != 0) {
     llvm::errs() << "MicroPart partitioner returns non-zero code: " << result << "\n";
-    llvm::errs() << mpartExe.get() << " ";
+    llvm::errs() << "Partitioner at: " << mpartExe.get() << "\n";
     for (const auto &eachArg: args) {
       llvm::errs() << eachArg << " ";
     }
