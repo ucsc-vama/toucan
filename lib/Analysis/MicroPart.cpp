@@ -131,15 +131,18 @@ bool MicroPart::checkAndCollectRegularPartIOValues(const PartitioningGraph &g, c
       }
 
       // Must read something
-      auto inDegree = boost::in_degree(eachVtx, g);
-      if (inDegree == 0 && !vtxIsDummyNop) {
-        llvm::errs() << "In micro part level " << levelId << ", vtx " << eachVtx << " has in degree == 0\n";
-        auto vtxRawOp = g[eachVtx].op;
-        vtxRawOp->print(llvm::errs());
-        llvm::errs() << "\n";
-        // llvm::errs() << stringifyCGToucanOPName(opType) << "\n";
-        return false;
+      if (!vtxIsDummyNop) {
+        auto inDegree = boost::in_degree(eachVtx, g);
+        if (inDegree == 0) {
+          llvm::errs() << "In micro part level " << levelId << ", vtx " << eachVtx << " has in degree == 0\n";
+          auto vtxRawOp = g[eachVtx].op;
+          vtxRawOp->print(llvm::errs());
+          llvm::errs() << "\n";
+          // llvm::errs() << stringifyCGToucanOPName(opType) << "\n";
+          return false;
+        }
       }
+
 
 
       // Check if is levelized correctly, also collect input val
