@@ -305,7 +305,7 @@ namespace toucan {
     auto indexBits = hw::getBitWidth(index.getType());
 
     assert(indexBits < 20);
-    assert((1L << indexBits) >= values.size());
+    assert(static_cast<size_t>(1L << indexBits) >= values.size());
 
 
     for (int64_t level = 0; level < indexBits; level++) {
