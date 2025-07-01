@@ -1656,6 +1656,11 @@ void SingleRegionMicroPartScheduler::schedule(mlir::MLIRContext *context, const 
         << " for input). constVecPool size of " << partInfo.constVecPool.size() << "\n";
       llvm::outs() << oss.str();
 
+      if (valAllocator.numTotalValSize >= UINT16_MAX) {
+        llvm::errs() << "Values in a partition exceeds UINT16_MAX, cannot proceed.\n";
+        llvm_unreachable("Consider lower PARTITION_MAX_WEIGHT");
+      }
+
       scheduleRegReads(graph, partInfo, currentMicroPartitioner.allRegReads);
 
       // Save statistics

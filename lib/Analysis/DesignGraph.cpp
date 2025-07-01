@@ -37,19 +37,31 @@ bool DesignGraph::opShouldRemoveInGraph(mlir::Operation *op) {
 
 
 static uint32_t getOpWeight(Operation* op) {
-  if (isa<toucan::RegReadOp>(op)) return 1;
+  if (isa<toucan::RegReadOp>(op)) return 10;
 
-  // terminal ops: their input values are alive to the last
-  if (isa<toucan::RegWriteOp>(op)) return 1;
-  if (isa<toucan::MemWriteOp>(op)) return 2;
-  if (isa<toucan::PrintOp>(op)) return 1;
-  if (isa<toucan::StopOp>(op)) return 1;
+  // terminal ops: their input values are alive to the last. Don't produce any value
+  if (isa<toucan::RegWriteOp>(op)) return 0;
+  if (isa<toucan::MemWriteOp>(op)) return 0;
+  if (isa<toucan::PrintOp>(op)) return 0;
+  if (isa<toucan::StopOp>(op)) return 0;
+  // Consts and const vecs don't have place in smem
+  if (isa<toucan::ConstantOp>(op)) return 0;
+  if (isa<toucan::DefConstVectorOp>(op)) return 0;
+  // Static segment read ops are just pointer to certain place of vector value
+  if (isa<toucan::StaticVectorSegmentReadOp>(op)) return 0;
 
+  // vectors should be placed in smem, with weight of vecSize (*10 to avoid floating point)
   if (auto vecDeclOp = dyn_cast<toucan::DefVectorOp>(op)) {
     auto vecSize = vecDeclOp.getHandle().getType().getLength();
-    return vecSize;
+    return vecSize * 10;
   }
-  return 0;
+  if (auto vecArithOp = dyn_cast<toucan::VectorArithOp>(op)) {
+    auto resultVecSize = vecArithOp.getResult().getType().getLength();
+    return resultVecSize * 10;
+  }
+
+  // regular values. weight 0.5
+  return 1;
 }
 
 static uint32_t getOpCount(Operation* op) {

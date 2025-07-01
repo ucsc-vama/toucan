@@ -148,22 +148,27 @@ for (auto [val, valId]: valToValId) {
 assert(!isa<toucan::StaticVectorSegmentReadOp>(val.getDefiningOp()));
 }
     // sort in descending order of val life time ends
-    // allocate long-lasting vals first
+    auto getValueLength = [](const mlir::Value &val) -> uint64_t {
+      if (auto vecVal = dyn_cast<mlir::TypedValue<toucan::VecType>>(val)) {
+        // a vector
+        return vecVal.getType().getLength();
+      } 
+      return 1;
+    };
+    // Move wide vals to first
     std::sort(valsToAllocate.begin(), valsToAllocate.end(), [&](const mlir::Value &a, const mlir::Value &b) {
+      auto a_length = getValueLength(a);
+      auto b_length = getValueLength(b);
+      return a_length > b_length;
+    });
+    // allocate long-lasting vals first
+    std::stable_sort(valsToAllocate.begin(), valsToAllocate.end(), [&](const mlir::Value &a, const mlir::Value &b) {
       assert(valToLifeTime.contains(a));
       assert(valToLifeTime.contains(b));
       auto a_end = valToLifeTime.at(a).end;
       auto b_end = valToLifeTime.at(b).end;
       return a_end > b_end;
     });
-
-    // Move vec vals to first
-    std::stable_sort(valsToAllocate.begin(), valsToAllocate.end(), [&](const mlir::Value &a, const mlir::Value &b) {
-      auto a_is_vec = vecValToLength.contains(a);
-      auto b_is_vec = vecValToLength.contains(b);
-      return a_is_vec && (!b_is_vec);
-    });
-
     // uint32_t pinnedCount = 0;
 
     // allocate for all values that starts active in this level

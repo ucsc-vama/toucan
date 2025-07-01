@@ -266,9 +266,9 @@ namespace toucan {
     float targetIb = 0.015;
     uint32_t rePartitionMaxIterations = 4;
 
-    const uint32_t PARTITION_MAX_WEIGHT = 50000;
-    const uint32_t PARTITION_PREFERRED_WEIGHT = 45000;
-    const uint32_t REPARTITION_PREFERRED_WEIGHT = 40000;
+    const uint32_t PARTITION_MAX_WEIGHT = 590000;
+    const uint32_t PARTITION_PREFERRED_WEIGHT = 490000;
+    const uint32_t REPARTITION_PREFERRED_WEIGHT = 450000;
 
     mlir::SmallVector<uint32_t> regionPartitionNumbers;
 
