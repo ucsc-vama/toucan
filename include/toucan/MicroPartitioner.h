@@ -162,13 +162,11 @@ namespace toucan {
     const char* graphVectorDeclInfoFileName = "vec_decl_info.txt";
     const char* outputVectorMapFilePrefix = "micro_part_result_vecmap_";
     const char* outputVectorMapFileSuffix = ".txt";
-    const char* pythonName = "python3";
 
 
     mlir::SmallVector<mlir::SmallVector<uint32_t>> excludeNodeLevels;
 
-    // TODO: Update this path!!!!!
-    const char* microPartitionerPythonPath = "/Users/hwang/project/gsim/graph-dse/MicroPartitioner.py";
+    const char* microPartitionerBin = "toucan-mpart";
 
     
     mlir::LogicalResult callExternalPartitioner();

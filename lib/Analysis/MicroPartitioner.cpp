@@ -202,9 +202,6 @@ mlir::LogicalResult MicroPartitioner::partition() {
 
 
 mlir::LogicalResult MicroPartitioner::callExternalPartitioner() {
-  if (!std::filesystem::exists(microPartitionerPythonPath)) {
-    llvm_unreachable("Micro partitioner script doesn't exists! This should not happen");
-  }
   if (!std::filesystem::exists(inputGraphFile)) {
     llvm_unreachable("Micro partitioner input file doesn't exists! This should not happen");
   }
@@ -213,8 +210,7 @@ mlir::LogicalResult MicroPartitioner::callExternalPartitioner() {
   }
 
   llvm::StringRef args[] = {
-    pythonName,
-    microPartitionerPythonPath,
+    microPartitionerBin,
     "--graph",
     inputGraphFile,
     "--vector",
@@ -232,17 +228,17 @@ mlir::LogicalResult MicroPartitioner::callExternalPartitioner() {
   };
 
 
-  auto pythonExe = llvm::sys::findProgramByName(pythonName);
-  if (!pythonExe) {
-    llvm::errs() << "Cannot find " << pythonName << ". Please ensure it's in your PATH!\n";
+  auto mpartExe = llvm::sys::findProgramByName(microPartitionerBin);
+  if (!mpartExe) {
+    llvm::errs() << "Cannot find toucan-mpart. Please ensure it's in your PATH!\n";
     return failure();
   }
 
-  int result = llvm::sys::ExecuteAndWait(*pythonExe, args, std::nullopt, redirects);
+  int result = llvm::sys::ExecuteAndWait(*mpartExe, args, std::nullopt, redirects);
 
   if (result != 0) {
     llvm::errs() << "MicroPart partitioner returns non-zero code: " << result << "\n";
-    llvm::errs() << pythonExe.get() << " ";
+    llvm::errs() << mpartExe.get() << " ";
     for (const auto &eachArg: args) {
       llvm::errs() << eachArg << " ";
     }
