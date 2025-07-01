@@ -828,7 +828,7 @@ static void extractMicroPartValueLifeTime(const PartitioningGraph &graph, const 
 
   mlir::DenseSet<mlir::Value> visitedInputVals;
 
-  for (const auto [vtx, outputVal]: mPart.nodeToOutputVal) {        
+  for (const auto &[vtx, outputVal]: mPart.nodeToOutputVal) {        
     auto vtxLevel = mPart.nodeToLevel.at(vtx);
     assert(vtxLevel < writeBackLevel);
     assert(!isa<toucan::ConstantOp>(outputVal.getDefiningOp()));
@@ -871,7 +871,7 @@ static void extractMicroPartValueLifeTime(const PartitioningGraph &graph, const 
     valueToLifeCycle[eachOutputVal].end = writeBackLevel;
   }
 
-  for (const auto [val, lifetime]: valueToLifeCycle) {
+  for (const auto &[val, lifetime]: valueToLifeCycle) {
     assert(lifetime.start != lifetime.end);
     assert(!isa<toucan::ConstantOp>(val.getDefiningOp()));
   }
@@ -1232,7 +1232,7 @@ static void scheduleRegularMicroPart(const PartitioningGraph &graph, CGMicroPart
       }
     }
     // Create NOP for pass through values that reads from outside (and thus not in valueLifeTime)
-    for (const auto [val, _]: pendingWriteBackValueAndLocation) {
+    for (const auto &[val, _]: pendingWriteBackValueAndLocation) {
       assert(shuffleValueToId.contains(val));
       if (!shuffleValueToId_next.contains(val)) {
 
