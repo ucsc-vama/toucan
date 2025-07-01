@@ -153,7 +153,8 @@ LogicalResult RepCutPartitioner::_partition(mlir::MLIRContext *context, DesignGr
         context, 
         regionId, regionGraphs[regionId], 
         regionWorkDirectory[regionId], 
-        regionPartitions[regionId]);
+        regionPartitions[regionId],
+        rePartIterationCount);
       if (failed(rePartitionRet)) return failure();
 
       auto numPartsAfter = regionPartitions[regionId].size();
@@ -604,6 +605,7 @@ LogicalResult RepCutPartitioner::workerFunc(const PartitioningGraph &graph, std:
 }
 
 static PartitioningGraph createNewGraphFromPartition(const PartitioningGraph &graph, const mlir::SmallVector<uint32_t> &part, mlir::SmallVector<uint32_t> &graphNewIdToOldId) {
+  assert(part.size() != 0);
   PartitioningGraph newGraph;
   mlir::DenseMap<uint32_t, uint32_t> graphOldIdToNewId;
 
@@ -644,75 +646,101 @@ static PartitioningGraph createNewGraphFromPartition(const PartitioningGraph &gr
   return newGraph;
 }
 
-mlir::LogicalResult RepCutPartitioner::rePartition(mlir::MLIRContext *context, uint32_t regionId, const PartitioningGraph &graph, std::filesystem::path regionWorkDirectory, mlir::SmallVector<mlir::SmallVector<uint32_t>> &partOutput) {
+mlir::LogicalResult RepCutPartitioner::rePartition(mlir::MLIRContext *context, uint32_t regionId, const PartitioningGraph &graph, std::filesystem::path regionWorkDirectory, mlir::SmallVector<mlir::SmallVector<uint32_t>> &partOutput, const uint32_t iterId) {
 
   mlir::SmallVector<mlir::SmallVector<uint32_t>> partitions;
   mlir::SmallVector<uint32_t> partsNeedRepartition;
 
-  uint32_t oldPartId = 0;
-  for (const auto &eachPart: partOutput) {
+
+  for (uint32_t oldPartId = 0; oldPartId < partOutput.size(); oldPartId++) {
+    const auto &eachPart = partOutput[oldPartId];
     auto partWeight = getPartWeight(eachPart, graph);
     if (partWeight <= PARTITION_MAX_WEIGHT) {
       // a leagel sized partition
       partitions.push_back(eachPart);
     } else {
       partsNeedRepartition.push_back(oldPartId);
-      // Need re-partition
     }
-    oldPartId++;
   }
 
-  for (auto oldPartId: partsNeedRepartition) {
-    // TODO: This can be parallel
-    const auto &eachPart = partOutput[oldPartId];
-    auto partWeight = getPartWeight(eachPart, graph);
+  if (partsNeedRepartition.empty()) return success();
 
-    mlir::SmallVector<uint32_t> graphNewIdToOldId;
-    auto newGraph = createNewGraphFromPartition(graph, eachPart, graphNewIdToOldId);
-    assert(!graphNewIdToOldId.empty());
-    mlir::SmallVector<mlir::SmallVector<uint32_t>> newPartitions;
+  
+  uint32_t numOldParts = partsNeedRepartition.size();
+  auto targetNumNewParts = std::max(static_cast<uint32_t>(numOldParts * REPARTITION_SIZE_TARGET_RATIO), numOldParts + 1);
+  mlir::SmallVector<uint32_t> allNodesInNeedRepartition;
+  
+  {
+    // Merge all nodes into a single partition, dedup
+    mlir::DenseSet<uint32_t> allNodesInNeedRepartitionSet;
+    size_t expectedNodeCount = 0;
+    for (const auto &partId: partsNeedRepartition) {
+      expectedNodeCount += partOutput[partId].size();
+    }
+    allNodesInNeedRepartitionSet.reserve(expectedNodeCount);
+    for (const auto &partId: partsNeedRepartition) {
+      const auto &eachPart = partOutput[partId];
+      allNodesInNeedRepartitionSet.insert(eachPart.begin(), eachPart.end());
+    }
+    assert(allNodesInNeedRepartitionSet.size() != 0);
 
-    std::ostringstream oss;
-    oss << "rePartition_" << oldPartId;
-    std::string dirName = oss.str();
-    auto workDir = regionWorkDirectory / dirName;
-
-    int targetNumPartitions = (partWeight / REPARTITION_PREFERRED_WEIGHT) + 1;
-
-    std::ostringstream msgOss;
-    msgOss << "Region " << regionId << " part " << oldPartId
-        << ": original size " << partWeight 
-        << ", target num parts: " << targetNumPartitions << "\n";
-    llvm::outs() << msgOss.str();
-    msgOss.str("");
-
-    auto maxThreads = context->getNumThreads();
-    
-    auto ret = workerFunc(newGraph, workDir, newPartitions, targetNumPartitions, maxThreads);
-    if (failed(ret)) {
-      msgOss << "Error on re-partition!\n";
-      llvm::errs() << msgOss.str();
-      return failure();
+    allNodesInNeedRepartition.reserve(allNodesInNeedRepartitionSet.size());
+    for (const auto &ev: allNodesInNeedRepartitionSet) {
+      allNodesInNeedRepartition.push_back(ev);
     }
 
-    msgOss << "  Result: ";
-
-    for (const auto &eachNewPartition: newPartitions) {
-      auto newPartWeight = getPartWeight(eachNewPartition, newGraph);
-      msgOss << newPartWeight << " ";
-
-      mlir::SmallVector<uint32_t> partInOldVtxes;
-      partInOldVtxes.reserve(eachNewPartition.size());
-      for (const auto &eachNewVtx: eachNewPartition) {
-        assert(eachNewVtx < graphNewIdToOldId.size());
-        auto oldVtx = graphNewIdToOldId[eachNewVtx];
-        partInOldVtxes.push_back(oldVtx);
-      }
-      partitions.push_back(std::move(partInOldVtxes));
-    }
-    msgOss << "\n";
-    llvm::outs() << msgOss.str();
+    assert(allNodesInNeedRepartition.size() != 0);
   }
+  
+
+
+  auto partWeight = getPartWeight(allNodesInNeedRepartition, graph);
+
+  mlir::SmallVector<uint32_t> graphNewIdToOldId;
+  auto newGraph = createNewGraphFromPartition(graph, allNodesInNeedRepartition, graphNewIdToOldId);
+  assert(!graphNewIdToOldId.empty());
+  mlir::SmallVector<mlir::SmallVector<uint32_t>> newPartitions;
+
+  std::ostringstream oss;
+  oss << "rePartition_" << iterId;
+  std::string dirName = oss.str();
+  auto workDir = regionWorkDirectory / dirName;
+
+
+  std::ostringstream msgOss;
+  msgOss << "Region " << regionId << " repartition iteration " << iterId
+      << ": original weight " << partWeight 
+      << ", old num parts: " << partsNeedRepartition.size()
+      << ", target num parts: " << targetNumNewParts << "\n";
+  llvm::outs() << msgOss.str();
+  msgOss.str("");
+
+  auto maxThreads = context->getNumThreads();
+  
+  auto ret = workerFunc(newGraph, workDir, newPartitions, targetNumNewParts, maxThreads);
+  if (failed(ret)) {
+    msgOss << "Error on re-partition!\n";
+    llvm::errs() << msgOss.str();
+    return failure();
+  }
+
+  msgOss << "  Result: ";
+
+  for (const auto &eachNewPartition: newPartitions) {
+    auto newPartWeight = getPartWeight(eachNewPartition, newGraph);
+    msgOss << newPartWeight << " ";
+
+    mlir::SmallVector<uint32_t> partInOldVtxes;
+    partInOldVtxes.reserve(eachNewPartition.size());
+    for (const auto &eachNewVtx: eachNewPartition) {
+      assert(eachNewVtx < graphNewIdToOldId.size());
+      auto oldVtx = graphNewIdToOldId[eachNewVtx];
+      partInOldVtxes.push_back(oldVtx);
+    }
+    partitions.push_back(std::move(partInOldVtxes));
+  }
+  msgOss << "\n";
+  llvm::outs() << msgOss.str();
 
   std::swap(partitions, partOutput);
   return success();

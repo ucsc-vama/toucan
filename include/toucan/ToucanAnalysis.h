@@ -264,11 +264,11 @@ namespace toucan {
   class RepCutPartitioner: public MultiRegionPartitioner {
     public:
     float targetIb = 0.015;
-    uint32_t rePartitionMaxIterations = 4;
+    uint32_t rePartitionMaxIterations = 10;
 
     const uint32_t PARTITION_MAX_WEIGHT = 590000;
-    const uint32_t PARTITION_PREFERRED_WEIGHT = 490000;
-    const uint32_t REPARTITION_PREFERRED_WEIGHT = 450000;
+    const uint32_t PARTITION_PREFERRED_WEIGHT = 500000;
+    const float REPARTITION_SIZE_TARGET_RATIO = 1.3;
 
     mlir::SmallVector<uint32_t> regionPartitionNumbers;
 
@@ -311,7 +311,7 @@ namespace toucan {
 
     mlir::LogicalResult workerFunc(const PartitioningGraph &graph, std::filesystem::path workDirectory, mlir::SmallVector<mlir::SmallVector<uint32_t>> &partOutput, uint32_t nParts, int maxThreads);
 
-    mlir::LogicalResult rePartition(mlir::MLIRContext *context, uint32_t regionId, const PartitioningGraph &graph, std::filesystem::path regionWorkDirectory, mlir::SmallVector<mlir::SmallVector<uint32_t>> &partOutput);
+    mlir::LogicalResult rePartition(mlir::MLIRContext *context, uint32_t regionId, const PartitioningGraph &graph, std::filesystem::path regionWorkDirectory, mlir::SmallVector<mlir::SmallVector<uint32_t>> &partOutput, const uint32_t iterId);
 
     int decideRepCutNumThreads(int maxThreads, int numTargetPartitions);
   };
