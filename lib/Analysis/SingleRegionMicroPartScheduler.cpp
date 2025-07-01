@@ -1019,7 +1019,7 @@ static void scheduleRegularMicroPart(const PartitioningGraph &graph, CGMicroPart
             allInputVals.insert(depValue);
           }
 
-          assert(opIndex <= 32);
+          assert(opIndex < 32);
           opIndex++;
           assert(opIndex == part.topLevel.size());
         } else {
@@ -1056,7 +1056,7 @@ static void scheduleRegularMicroPart(const PartitioningGraph &graph, CGMicroPart
         auto resultValShuffleId = static_cast<uint8_t>(opIndex + 32);
         shuffleValueToId_next[resultVal] = resultValShuffleId;
 
-        assert(opIndex <= 32);
+        assert(opIndex < 32);
         opIndex++;
         assert(opIndex == part.topLevel.size());
       }
@@ -1109,7 +1109,7 @@ static void scheduleRegularMicroPart(const PartitioningGraph &graph, CGMicroPart
           }
         }
 
-        assert(opIndex <= 32);
+        assert(opIndex < 32);
         opIndex++;
         assert(opIndex == part.topLevel.size());
       }
@@ -1224,7 +1224,7 @@ static void scheduleRegularMicroPart(const PartitioningGraph &graph, CGMicroPart
             // get output id
             auto resultValShuffleId = static_cast<uint8_t>(opIndex + 32);
             shuffleValueToId_next[val] = resultValShuffleId;
-            assert(opIndex <= 32);
+            assert(opIndex < 32);
             opIndex++;
             assert(opIndex == part.middleLevels.back().size());
           }
@@ -1246,7 +1246,7 @@ static void scheduleRegularMicroPart(const PartitioningGraph &graph, CGMicroPart
         // get output id
         auto resultValShuffleId = static_cast<uint8_t>(opIndex + 32);
         shuffleValueToId_next[val] = resultValShuffleId;
-        assert(opIndex <= 32);
+        assert(opIndex < 32);
         opIndex++;
         assert(opIndex == part.middleLevels.back().size());
       }
@@ -1300,7 +1300,7 @@ static void scheduleRegularMicroPart(const PartitioningGraph &graph, CGMicroPart
           auto resultValShuffleId = static_cast<uint8_t>(opIndex + 32);
           shuffleValueToId_next[depValue] = resultValShuffleId;
 
-          assert(opIndex <= 32);
+          assert(opIndex < 32);
           opIndex++;
           assert(opIndex == part.middleLevels.back().size());
         }
@@ -1323,7 +1323,7 @@ static void scheduleRegularMicroPart(const PartitioningGraph &graph, CGMicroPart
         assert(!shuffleValueToId_next.contains(resultVal));
         auto resultValShuffleId = static_cast<uint8_t>(opIndex + 32);
         shuffleValueToId_next[resultVal] = resultValShuffleId;
-        assert(opIndex <= 32);
+        assert(opIndex < 32);
         opIndex++;
         assert(opIndex == part.middleLevels.back().size());
 
@@ -1435,7 +1435,7 @@ static void scheduleSpecialMicroPart(const PartitioningGraph &graph, CGMicroPart
           static_cast<uint16_t>(resultValId)
         });
 
-        assert(opIndex <= 32);
+        assert(opIndex < 32);
         opIndex++;
         assert(opIndex == part.vecRead.size());
       }
@@ -1481,7 +1481,7 @@ static void scheduleSpecialMicroPart(const PartitioningGraph &graph, CGMicroPart
           resultValIdInSmem
         });
 
-        assert(opIndex <= 32);
+        assert(opIndex < 32);
         opIndex++;
         assert(opIndex == part.vecLogic.size());
       }
@@ -1529,7 +1529,7 @@ static void scheduleSpecialMicroPart(const PartitioningGraph &graph, CGMicroPart
           resultValIdInSmem
         });
 
-        assert(opIndex <= 32);
+        assert(opIndex < 32);
         opIndex++;
         assert(opIndex == part.vecArith.size());
       }
@@ -1568,7 +1568,7 @@ static void scheduleSpecialMicroPart(const PartitioningGraph &graph, CGMicroPart
           static_cast<uint16_t>(resultValId)
         });
 
-        assert(opIndex <= 32);
+        assert(opIndex < 32);
         opIndex++;
         assert(opIndex == part.memRead.size());
       }
