@@ -496,7 +496,10 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     if (failed(result)) {
       return signalPassFailure();
     }
-    p.dumpAllPartitionsToFile();
+    result = p.dumpAllPartitionsToFile();
+    if (failed(result)) {
+      return signalPassFailure();
+    }
 
     // Second level partitioning
     // For now, don't cut in the middle

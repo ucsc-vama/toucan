@@ -281,7 +281,7 @@ namespace toucan {
     mlir::LogicalResult _partition(mlir::MLIRContext *context, DesignGraph &graph);
     mlir::LogicalResult _schedule(mlir::MLIRContext *context, DesignGraph &graph);
     
-    void dumpAllPartitionsToFile();
+    mlir::LogicalResult dumpAllPartitionsToFile();
 
     mlir::LogicalResult partitionAndSchedule(mlir::MLIRContext *context, DesignGraph &graph);
 
@@ -298,9 +298,9 @@ namespace toucan {
     const char* repcutConsoleLogFileName = "repcut_print.txt";
 
     private:
-    void dumpGraphToFile(const PartitioningGraph &g, std::string fileName) const;
+    mlir::LogicalResult dumpGraphToFile(const PartitioningGraph &g, std::string fileName) const;
     mlir::LogicalResult collectAndDumpGraphVectorDeclInfoToFile(const uint32_t retionId, const PartitioningGraph &g, std::string fileName);
-    void dumpSinglePartitionToFile(const PartitioningGraph &g, mlir::SmallVector<uint32_t> partNodes, std::string fileName) const;
+    mlir::LogicalResult dumpSinglePartitionToFile(const PartitioningGraph &g, mlir::SmallVector<uint32_t> partNodes, std::string fileName) const;
 
     mlir::LogicalResult callRepCutAndWait(uint32_t nParts, float target_ib, const std::string &graphFile, const std::filesystem::path &workingDirectory, int maxThreads);
 

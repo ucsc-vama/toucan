@@ -242,8 +242,13 @@ bool are_ids_consecutive(const PartitioningGraph& g) {
 }
 
 
-void RepCutPartitioner::dumpGraphToFile(const PartitioningGraph &g, std::string fileName) const {
-  auto ofs = std::ofstream(fileName);
+LogicalResult RepCutPartitioner::dumpGraphToFile(const PartitioningGraph &g, std::string fileName) const {
+  auto ofs = std::ofstream(fileName, std::ios::out | std::ios::trunc);
+
+  if (!ofs.is_open()) {
+    llvm::errs() << "Cannot open file for write: " << fileName << "\n";
+    return failure();
+  }
 
   assert(are_ids_consecutive(g));
 
@@ -270,9 +275,10 @@ void RepCutPartitioner::dumpGraphToFile(const PartitioningGraph &g, std::string 
   }
 
   ofs.close();
+  return success();
 }
 
-void RepCutPartitioner::dumpSinglePartitionToFile(const PartitioningGraph &g, mlir::SmallVector<uint32_t> partNodes, std::string fileName) const {
+LogicalResult RepCutPartitioner::dumpSinglePartitionToFile(const PartitioningGraph &g, mlir::SmallVector<uint32_t> partNodes, std::string fileName) const {
   mlir::DenseSet<uint32_t> partNodeSet;
   for (auto n: partNodes) {
     partNodeSet.insert(n);
@@ -307,14 +313,20 @@ void RepCutPartitioner::dumpSinglePartitionToFile(const PartitioningGraph &g, ml
   assert(numValidVtxes == partNodeSet.size());
 
 
-  auto ofs = std::ofstream(fileName);
+  auto ofs = std::ofstream(fileName, std::ios::out | std::ios::trunc);
+  if (!ofs.is_open()) {
+    llvm::errs() << "Cannot open file for write: " << fileName << "\n";
+    return failure();
+  }
   ofs << numValidEdges << ' ' << numValidVtxes << "\n";
   ofs << oss.str();
 
   ofs.close();
+
+  return success();
 }
 
-void RepCutPartitioner::dumpAllPartitionsToFile() {
+LogicalResult RepCutPartitioner::dumpAllPartitionsToFile() {
   auto numRegions = regionGraphs.size();
   assert(numRegions >= 1);
 
@@ -332,9 +344,13 @@ void RepCutPartitioner::dumpAllPartitionsToFile() {
       oss << "dump_part_" << partId << ".graph";
       auto graphFileName = thisRegionWorkDirectory / oss.str();
       
-      dumpSinglePartitionToFile(regionGraphs[regionId], parts[partId], graphFileName);
+      auto ret = dumpSinglePartitionToFile(regionGraphs[regionId], parts[partId], graphFileName);
+
+      if (failed(ret)) return ret;
     }
   }
+
+  return success();
 }
 
 LogicalResult RepCutPartitioner::collectAndDumpGraphVectorDeclInfoToFile(const uint32_t regionId, const PartitioningGraph &g, std::string fileName) {
@@ -595,7 +611,8 @@ LogicalResult RepCutPartitioner::workerFunc(const PartitioningGraph &graph, std:
   std::filesystem::path graphPath = workDirectory / graphFileName;
   std::filesystem::path repcutOutputPath = workDirectory / repcutOutputFileName;
 
-  dumpGraphToFile(graph, graphPath);
+  auto ret = dumpGraphToFile(graph, graphPath);
+  if (failed(ret)) return ret;
 
   auto partitionSucc = callRepCutAndWait(nParts, targetIb, graphPath, workDirectory, maxThreads);
   if (failed(partitionSucc)) {
