@@ -1224,6 +1224,12 @@ static void scheduleRegularMicroPart(const PartitioningGraph &graph, CGMicroPart
             // get output id
             auto resultValShuffleId = static_cast<uint8_t>(opIndex + 32);
             shuffleValueToId_next[val] = resultValShuffleId;
+            if (opIndex >= 32) {
+              dbgs() << "Too many ops in middle level as pass through vals!\n";
+              val.print(llvm::dbgs());
+              llvm::dbgs() << "\n";
+              mPart.print();
+            }
             assert(opIndex < 32);
             opIndex++;
             assert(opIndex == part.middleLevels.back().size());
@@ -1246,6 +1252,13 @@ static void scheduleRegularMicroPart(const PartitioningGraph &graph, CGMicroPart
         // get output id
         auto resultValShuffleId = static_cast<uint8_t>(opIndex + 32);
         shuffleValueToId_next[val] = resultValShuffleId;
+
+        if (opIndex >= 32) {
+          dbgs() << "Too many ops in middle level as pass through vals that reads from outside!\n";
+          val.print(llvm::dbgs());
+          llvm::dbgs() << "\n";
+          mPart.print();
+        }
         assert(opIndex < 32);
         opIndex++;
         assert(opIndex == part.middleLevels.back().size());
@@ -1300,6 +1313,12 @@ static void scheduleRegularMicroPart(const PartitioningGraph &graph, CGMicroPart
           auto resultValShuffleId = static_cast<uint8_t>(opIndex + 32);
           shuffleValueToId_next[depValue] = resultValShuffleId;
 
+          if (opIndex >= 32) {
+            dbgs() << "Too many ops in middle level (NOP)!\n";
+            depValue.print(llvm::dbgs());
+            llvm::dbgs() << "\n";
+            mPart.print();
+          }
           assert(opIndex < 32);
           opIndex++;
           assert(opIndex == part.middleLevels.back().size());
@@ -1323,6 +1342,13 @@ static void scheduleRegularMicroPart(const PartitioningGraph &graph, CGMicroPart
         assert(!shuffleValueToId_next.contains(resultVal));
         auto resultValShuffleId = static_cast<uint8_t>(opIndex + 32);
         shuffleValueToId_next[resultVal] = resultValShuffleId;
+
+        if (opIndex >= 32) {
+          dbgs() << "Too many ops in middle level (LUT)!\nOp: ";
+          lutOp.print(llvm::dbgs());
+          llvm::dbgs() << "\n";
+          mPart.print();
+        }
         assert(opIndex < 32);
         opIndex++;
         assert(opIndex == part.middleLevels.back().size());
