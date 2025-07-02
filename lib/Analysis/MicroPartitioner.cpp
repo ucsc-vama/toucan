@@ -203,9 +203,11 @@ mlir::LogicalResult MicroPartitioner::partition() {
 
 mlir::LogicalResult MicroPartitioner::callExternalPartitioner() {
   if (!std::filesystem::exists(inputGraphFile)) {
+    llvm::errs() << "File " << inputGraphFile << " does not exist!\n";
     llvm_unreachable("Micro partitioner input file doesn't exists! This should not happen");
   }
   if (!std::filesystem::exists(graphVectorInfoFile)) {
+    llvm::errs() << "File " << graphVectorInfoFile << " does not exist!\n";
     llvm_unreachable("Graph vector info file doesn't exists! This should not happen");
   }
 
