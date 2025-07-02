@@ -1099,7 +1099,7 @@ static void scheduleRegularMicroPart(const PartitioningGraph &graph, CGMicroPart
         assert(!isa<toucan::ConstantOp>(eachInputVal.getDefiningOp()));
         allInputVals.insert(eachInputVal);
 
-        if (opIndex > 32) {
+        if (opIndex >= 32) {
           dbgs() << "Too many ops in top level!\n";
           mPart.print();
           dbgs() << "Top level result val:\n";
