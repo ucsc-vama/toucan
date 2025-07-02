@@ -16,6 +16,7 @@
 
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/Program.h"
 #include "llvm/Support/raw_ostream.h"
 #include <cstdint>
@@ -121,9 +122,10 @@ LogicalResult RepCutPartitioner::_partition(mlir::MLIRContext *context, DesignGr
     auto maxThreads = context->getNumThreads();
 
     std::filesystem::path graphVectorDeclInfoPath = regionWorkDirectory[regionId] / graphVectorDeclInfoFileName;
-    collectAndDumpGraphVectorDeclInfoToFile(regionId, regionGraphs[regionId], graphVectorDeclInfoPath);
+    auto ret = collectAndDumpGraphVectorDeclInfoToFile(regionId, regionGraphs[regionId], graphVectorDeclInfoPath);
+    if (failed(ret)) return ret;
 
-    auto ret = workerFunc(
+    ret = workerFunc(
       regionGraphs[regionId], 
       regionWorkDirectory[regionId], 
       regionPartitions[regionId], 
@@ -335,13 +337,18 @@ void RepCutPartitioner::dumpAllPartitionsToFile() {
   }
 }
 
-void RepCutPartitioner::collectAndDumpGraphVectorDeclInfoToFile(const uint32_t regionId, const PartitioningGraph &g, std::string fileName) {
+LogicalResult RepCutPartitioner::collectAndDumpGraphVectorDeclInfoToFile(const uint32_t regionId, const PartitioningGraph &g, std::string fileName) {
   assert(originalVectorElementsMapForEachRegion.size() > regionId);
   auto &originalVectorElementsMap = originalVectorElementsMapForEachRegion[regionId];
 
   originalVectorElementsMap.clear();
 
-  auto ofs = std::ofstream(fileName);
+  auto ofs = std::ofstream(fileName, std::ios::out | std::ios::trunc);
+
+  if (!ofs.is_open()) {
+    llvm::errs() << "Cannot open file for write: " << fileName << "\n";
+    return failure();
+  }
 
   ofs << "Format:\nVecDecl_node_id Vector_element_id_0 Vector_element_id_1 ...\n";
 
@@ -413,6 +420,7 @@ void RepCutPartitioner::collectAndDumpGraphVectorDeclInfoToFile(const uint32_t r
   }
 
   ofs.close();
+  return success();
 }
 
 int RepCutPartitioner::decideRepCutNumThreads(int maxThreads, int numTargetPartitions) {

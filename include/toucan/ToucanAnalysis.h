@@ -299,7 +299,7 @@ namespace toucan {
 
     private:
     void dumpGraphToFile(const PartitioningGraph &g, std::string fileName) const;
-    void collectAndDumpGraphVectorDeclInfoToFile(const uint32_t retionId, const PartitioningGraph &g, std::string fileName);
+    mlir::LogicalResult collectAndDumpGraphVectorDeclInfoToFile(const uint32_t retionId, const PartitioningGraph &g, std::string fileName);
     void dumpSinglePartitionToFile(const PartitioningGraph &g, mlir::SmallVector<uint32_t> partNodes, std::string fileName) const;
 
     mlir::LogicalResult callRepCutAndWait(uint32_t nParts, float target_ib, const std::string &graphFile, const std::filesystem::path &workingDirectory, int maxThreads);
