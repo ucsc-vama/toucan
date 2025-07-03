@@ -389,7 +389,7 @@ void MicroPart::print() const {
   bool isRegularPart = opType == CGToucanOPName::LUT;
 
   llvm::dbgs() << "============ Part print ===========\n";
-  llvm::dbgs() << "Part line no " << lineno << "\n";
+  llvm::dbgs() << "Part line no " << lineno + 1 << "\n";
 
   if (isRegularPart) {
     size_t level_id = 0;
