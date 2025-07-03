@@ -32,12 +32,25 @@
 
 #include <numeric>
 #include <vector>
+#include <filesystem>
 
 using namespace toucan;
 
 using namespace mlir;
 using namespace llvm;
 using namespace circt;
+
+static bool isDirectoryExists(const std::string &dir) {
+  return std::filesystem::exists(dir);
+}
+
+static bool createDirectoryIfNotExists(const std::string dir) {
+  if (!isDirectoryExists(dir)) {
+    bool created = std::filesystem::create_directory(dir);
+    return created;
+  }
+  return true;
+}
 
 static uint32_t getPartWeight(const mlir::SmallVector<uint32_t> &part, const PartitioningGraph &graph) {
   uint32_t weight = 0;
@@ -76,6 +89,10 @@ void RepCutPartitioner::setPartitionTarget() {
 }
 
 LogicalResult RepCutPartitioner::_partition(mlir::MLIRContext *context, DesignGraph &graph) {
+  if (!isDirectoryExists(outputDirectory)) {
+    llvm::errs() << "Output directory does not exists! (" << outputDirectory << ")\n";
+    return failure();
+  }
 
   // Clear unneeded data
   graphLevels.clear();
@@ -122,6 +139,9 @@ LogicalResult RepCutPartitioner::_partition(mlir::MLIRContext *context, DesignGr
   auto ret = mlir::failableParallelForEach(context, regionIds.begin(), regionIds.end(), [&](uint32_t regionId) {
     auto start = std::chrono::high_resolution_clock::now();
     auto maxThreads = context->getNumThreads();
+
+    auto created = createDirectoryIfNotExists(regionWorkDirectory[regionId]);
+    if (!created) return failure();
 
     std::filesystem::path graphVectorDeclInfoPath = regionWorkDirectory[regionId] / graphVectorDeclInfoFileName;
     auto ret = collectAndDumpGraphVectorDeclInfoToFile(regionId, regionGraphs[regionId], graphVectorDeclInfoPath);
@@ -818,6 +838,9 @@ mlir::LogicalResult RepCutPartitioner::rePartition(mlir::MLIRContext *context, u
   oss << "rePartition_" << iterId;
   std::string dirName = oss.str();
   auto workDir = regionWorkDirectory / dirName;
+
+  auto created = createDirectoryIfNotExists(workDir);
+  if (!created) return failure();
 
 
   std::ostringstream msgOss;
