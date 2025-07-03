@@ -4,6 +4,7 @@
 #include "circt/Dialect/Comb/CombOps.h"
 #include "circt/Dialect/Seq/SeqOps.h"
 
+#include "mlir/IR/Value.h"
 #include "mlir/Pass/AnalysisManager.h"
 #include "mlir/IR/Threading.h"
 #include "mlir/Support/LLVM.h"
@@ -30,6 +31,7 @@
 #include <iomanip>
 
 #include <numeric>
+#include <vector>
 
 using namespace toucan;
 
@@ -242,7 +244,45 @@ bool are_ids_consecutive(const PartitioningGraph& g) {
 }
 
 
+// Dump graph for RepCut use
+// Note: Different from dumpSinglePartitionToFile!!!!!
+// Merge all duplicated edges (does not allow parallel edge)
 LogicalResult RepCutPartitioner::dumpGraphToFile(const PartitioningGraph &g, std::string fileName) const {
+
+  auto oss = std::ostringstream();
+
+  auto numVtxes = boost::num_vertices(g);
+  // Note: numEdges may not be same with boost::num_edges(g). See later for reason
+  uint64_t numEdges = 0;
+
+
+
+  assert(are_ids_consecutive(g));
+  for (uint32_t vtx = 0; vtx < numVtxes; vtx++) {
+    auto tOpName = g[vtx].toucanOpName;
+
+
+    mlir::SmallVector<uint32_t> outNeighs;
+    // dedup same edge
+    mlir::DenseSet<uint32_t> outNeighsSet;
+    for (auto ei = boost::out_edges(vtx, g); ei.first != ei.second; ++ei.first) {
+      auto v = boost::target(*ei.first, g);
+      outNeighsSet.insert(v);
+    }
+    outNeighs.assign(outNeighsSet.begin(), outNeighsSet.end());
+
+
+
+    numEdges += outNeighs.size();
+    oss << stringifyCGToucanOPName(tOpName);
+    oss << ' ' << g[vtx].weight;
+    for (const auto en: outNeighs) {
+      oss << ' ' << en;
+    }
+    oss << "\n";
+  }
+
+
   auto ofs = std::ofstream(fileName, std::ios::out | std::ios::trunc);
 
   if (!ofs.is_open()) {
@@ -250,34 +290,17 @@ LogicalResult RepCutPartitioner::dumpGraphToFile(const PartitioningGraph &g, std
     return failure();
   }
 
-  assert(are_ids_consecutive(g));
-
-  ofs << boost::num_edges(g) << ' ' << boost::num_vertices(g) << "\n";
-
-  auto numVtxes = boost::num_vertices(g);
-  // std::vector<uint32_t> allVtxes;
-  // allVtxes.reserve(numVtxes);
-
-  // for (auto vtx: boost::make_iterator_range((boost::vertices(g)))) {
-  //   allVtxes.push_back(vtx);
-  // }
-  //   ofs << vtx << ' ';
-  for (uint32_t vtx = 0; vtx < numVtxes; vtx++) {
-    ofs << stringifyCGToucanOPName(g[vtx].toucanOpName);
-
-    ofs << ' ' << g[vtx].weight;
-    
-    for (auto ei = boost::out_edges(vtx, g); ei.first != ei.second; ++ei.first) {
-      auto v = boost::target(*ei.first, g);
-      ofs << ' ' << v;
-    }
-    ofs << "\n";
-  }
+  ofs << numEdges << ' ' << numVtxes << "\n";
+  ofs << oss.str();
 
   ofs.close();
   return success();
 }
 
+// Dump graph for MicroPartitioner use
+// Note: Different from dumpGraphToFile!!!
+// Partially allow parallel edge: parallel edge from VecRead/VecArith implies
+//    multiple value read from a merged node
 LogicalResult RepCutPartitioner::dumpSinglePartitionToFile(const PartitioningGraph &g, mlir::SmallVector<uint32_t> partNodes, std::string fileName) const {
   mlir::DenseSet<uint32_t> partNodeSet;
   for (auto n: partNodes) {
@@ -293,18 +316,83 @@ LogicalResult RepCutPartitioner::dumpSinglePartitionToFile(const PartitioningGra
     if (partNodeSet.contains(vtx)) {
       // valid node
       numValidVtxes++;
+      auto tOpName = g[vtx].toucanOpName;
+
+      mlir::SmallVector<uint32_t> outNeighs;
+
+      if (tOpName == CGToucanOPName::VecArith || tOpName == CGToucanOPName::VecRead) {
+        // Use parallel edge to represent multiple reads from same merged node (but different ops)
+        auto rawOp = g[vtx].op;
+        assert(rawOp != nullptr);
+        mlir::DenseSet<mlir::Value> allResultValueOfThisNode;
+
+        // Collect output values for the same merged node
+        if (auto vecReadOp = dyn_cast<toucan::VectorReadOp>(rawOp)) {
+          assert(tOpName == CGToucanOPName::VecRead);
+          auto vecVal = vecReadOp.getHandle();
+
+          for (auto userOp: vecVal.getUsers()) {
+            if (auto vecReadOp = dyn_cast<toucan::VectorReadOp>(userOp)) {
+              allResultValueOfThisNode.insert(vecReadOp.getResult());
+            }
+          }
+        } else {
+          assert(tOpName == CGToucanOPName::VecArith);
+          auto vecArithOp = cast<toucan::VectorArithOp>(rawOp);
+          auto vecVal = vecArithOp.getResult();
+          for (auto userOp: vecVal.getUsers()) {
+            if (auto staticReadOp = dyn_cast<toucan::StaticVectorSegmentReadOp>(userOp)) {
+              allResultValueOfThisNode.insert(staticReadOp.getResult());
+            }
+          }
+        }
+
+        for (auto ei = boost::out_edges(vtx, g); ei.first != ei.second; ++ei.first) {
+          auto v = boost::target(*ei.first, g);
+
+          // Use parallel edge to represent multiple reads from a same merged node
+          // This allows MicroPartitioner correctly track read count
+          uint32_t readCount = 0;
+          auto rawOp = g[v].op;
+          if (rawOp == nullptr) {
+            readCount = 1;
+          } else {
+            for (const auto eachOperand: rawOp->getOperands()) {
+              if (allResultValueOfThisNode.contains(eachOperand)) {
+                readCount += 1;
+              }
+            }
+          }
+          assert(readCount >= 1);
+          for (size_t i = 0; i < readCount; i++) {
+            outNeighs.push_back(v);
+          }
+        }
+      } else {
+        // Otherwise, dedup same edge
+        mlir::DenseSet<uint32_t> outNeighsSet;
+        for (auto ei = boost::out_edges(vtx, g); ei.first != ei.second; ++ei.first) {
+          auto v = boost::target(*ei.first, g);
+          outNeighsSet.insert(v);
+        }
+        outNeighs.assign(outNeighsSet.begin(), outNeighsSet.end());
+      }
+
+
+      mlir::SmallVector<uint32_t> validOutNeighs;
+      for (auto &target: outNeighs) {
+        if (partNodeSet.contains(target)) {
+          validOutNeighs.push_back(target);
+        }
+      }
+
+      numValidEdges += validOutNeighs.size();
 
       oss << vtx << ' ';
-
-      oss << stringifyCGToucanOPName(g[vtx].toucanOpName);
+      oss << stringifyCGToucanOPName(tOpName);
       oss << ' ' << g[vtx].weight;
-
-      for (auto ei = boost::out_edges(vtx, g); ei.first != ei.second; ++ei.first) {
-        auto v = boost::target(*ei.first, g);
-        if (partNodeSet.contains(v))  {
-          numValidEdges++;
-          oss << ' ' << v;
-        }
+      for (const auto v: validOutNeighs) {
+        oss << ' ' << v;
       }
       oss << "\n";
     }
