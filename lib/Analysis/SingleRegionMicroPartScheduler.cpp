@@ -1099,22 +1099,21 @@ static void scheduleRegularMicroPart(const PartitioningGraph &graph, CGMicroPart
         assert(!isa<toucan::ConstantOp>(eachInputVal.getDefiningOp()));
         allInputVals.insert(eachInputVal);
 
-        if (opIndex >= 32) {
-          dbgs() << "Too many ops in top level!\n";
-          mPart.print();
-          dbgs() << "Top level result val:\n";
-          for (const auto &v: topLevelResultVals) {
-            v.print(dbgs());
-            dbgs() << "\n";
-          }
-        }
-
-        assert(opIndex < 32);
         opIndex++;
         assert(opIndex == part.topLevel.size());
       }
     }
+    if (opIndex > 32) {
+      dbgs() << "Too many ops in top level!\n";
+      mPart.print();
+      dbgs() << "Top level result val:\n";
+      for (const auto &v: topLevelResultVals) {
+        v.print(dbgs());
+        dbgs() << "\n";
+      }
+    }
 
+    assert(opIndex <= 32);
     assert(shuffleValueToId.empty());
     assert(shuffleValueToId_next.size() == part.topLevel.size());
     assert(allInputVals == mPart.inputValues);
@@ -1224,19 +1223,19 @@ static void scheduleRegularMicroPart(const PartitioningGraph &graph, CGMicroPart
             // get output id
             auto resultValShuffleId = static_cast<uint8_t>(opIndex + 32);
             shuffleValueToId_next[val] = resultValShuffleId;
-            if (opIndex >= 32) {
-              dbgs() << "Too many ops in middle level as pass through vals!\n";
-              val.print(llvm::dbgs());
-              llvm::dbgs() << "\n";
-              mPart.print();
-            }
-            assert(opIndex < 32);
+
             opIndex++;
             assert(opIndex == part.middleLevels.back().size());
           }
         }
       }
     }
+    if (opIndex > 32) {
+      dbgs() << "Too many ops in middle level as pass through vals!\n";
+      mPart.print();
+    }
+    assert(opIndex <= 32);
+
     // Create NOP for pass through values that reads from outside (and thus not in valueLifeTime)
     for (const auto &[val, _]: pendingWriteBackValueAndLocation) {
       assert(shuffleValueToId.contains(val));
@@ -1253,17 +1252,16 @@ static void scheduleRegularMicroPart(const PartitioningGraph &graph, CGMicroPart
         auto resultValShuffleId = static_cast<uint8_t>(opIndex + 32);
         shuffleValueToId_next[val] = resultValShuffleId;
 
-        if (opIndex >= 32) {
-          dbgs() << "Too many ops in middle level as pass through vals that reads from outside!\n";
-          val.print(llvm::dbgs());
-          llvm::dbgs() << "\n";
-          mPart.print();
-        }
-        assert(opIndex < 32);
         opIndex++;
         assert(opIndex == part.middleLevels.back().size());
       }
     }
+    if (opIndex > 32) {
+      dbgs() << "Too many ops in middle level as pass through vals that reads from outside!\n";
+      llvm::dbgs() << "\n";
+      mPart.print();
+    }
+    assert(opIndex <= 32);
 
     for (auto &[val, _]: pendingWriteBackValueAndLocation) {
       if (valueToLifeCycle.contains(val)) {
@@ -1313,13 +1311,6 @@ static void scheduleRegularMicroPart(const PartitioningGraph &graph, CGMicroPart
           auto resultValShuffleId = static_cast<uint8_t>(opIndex + 32);
           shuffleValueToId_next[depValue] = resultValShuffleId;
 
-          if (opIndex >= 32) {
-            dbgs() << "Too many ops in middle level (NOP)!\n";
-            depValue.print(llvm::dbgs());
-            llvm::dbgs() << "\n";
-            mPart.print();
-          }
-          assert(opIndex < 32);
           opIndex++;
           assert(opIndex == part.middleLevels.back().size());
         }
@@ -1343,13 +1334,6 @@ static void scheduleRegularMicroPart(const PartitioningGraph &graph, CGMicroPart
         auto resultValShuffleId = static_cast<uint8_t>(opIndex + 32);
         shuffleValueToId_next[resultVal] = resultValShuffleId;
 
-        if (opIndex >= 32) {
-          dbgs() << "Too many ops in middle level (LUT)!\nOp: ";
-          lutOp.print(llvm::dbgs());
-          llvm::dbgs() << "\n";
-          mPart.print();
-        }
-        assert(opIndex < 32);
         opIndex++;
         assert(opIndex == part.middleLevels.back().size());
 
@@ -1365,8 +1349,14 @@ static void scheduleRegularMicroPart(const PartitioningGraph &graph, CGMicroPart
           pendingWriteBackValueAndLocation.push_back({resultVal, static_cast<uint16_t>(resultValIdInSMem)});
         }
       }
-
     }
+
+    if (opIndex > 32) {
+      dbgs() << "Too many ops in middle level!\n";
+      llvm::dbgs() << "\n";
+      mPart.print();
+    }
+    assert(opIndex <= 32);
   }
 
 
@@ -1683,6 +1673,7 @@ void SingleRegionMicroPartScheduler::schedule(mlir::MLIRContext *context, const 
       llvm::outs() << oss.str();
 
       if (valAllocator.numTotalValSize >= UINT16_MAX) {
+        // TODO: If this happens, consider fall back to rePartition
         llvm::errs() << "Values in a partition exceeds UINT16_MAX, cannot proceed.\n";
         llvm_unreachable("Consider lower PARTITION_MAX_WEIGHT");
       }
