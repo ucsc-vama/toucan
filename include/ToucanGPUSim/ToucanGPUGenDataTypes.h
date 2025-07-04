@@ -137,7 +137,7 @@ namespace toucanGPUSim {
   struct CGMicroPartVecRead {
     uint16_t vecBase;
     // Note: vecLength is static
-    // uint16_t vecLength;
+    uint16_t vecLength;
     // Note: This offset is a static value!!!!
     uint16_t offset;
     bool isConstVec;

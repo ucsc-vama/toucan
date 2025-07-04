@@ -116,6 +116,7 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
           toucanGPUSim::CGMicroPartVecRead op;
 
           op.vecBase = eachOp.vecBase;
+          op.vecLength = eachOp.vecLength;
           op.offset = eachOp.offset;
           op.isConstVec = eachOp.isConstVec;
 
