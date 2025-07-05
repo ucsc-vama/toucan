@@ -203,6 +203,11 @@ LogicalResult MemReadOp::verify() {
   if (vecLength != 8) {
     return emitError() << "MemRead addrVec should have length of 8, but got " << vecLength;
   }
+
+  auto vecElemWidth = getAddrVec().getType().getElementWidth();
+  if (vecElemWidth != 4) {
+    return emitError() << "MemRead addrVec should have element width of 4";
+  }
   return success();
 }
 
@@ -212,6 +217,10 @@ LogicalResult VectorArithOp::verify() {
 
   auto v2Length = getV2().getType().getLength();
   auto v2Width = getV2().getType().getElementWidth();
+
+  if (v1Width != 4) {
+    return emitError() << "For now only support 4 bit vector ops!";
+  }
   
   if (v1Length != v2Length) {
     return emitError() << "Vector arith should have identical input vectors";
@@ -221,7 +230,7 @@ LogicalResult VectorArithOp::verify() {
     return emitError() << "Vector arith should have identical input vectors";
   }
 
-  if (v1Width > TOUCAN_VEC_OP_MAX_WIDTH) {
+  if ((v1Width * v1Length) > TOUCAN_VEC_OP_MAX_WIDTH) {
     return emitError("Vector width is too large.");
   }
 
