@@ -586,6 +586,7 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     // Fill lut
     populateLUT();
     designInfo.lut.assign(lutContent.begin(), lutContent.end());
+    llvm::outs() << "LUT size " << designInfo.lut.size() << "B\n";
 
     // copy pool size
     designInfo.regPoolSize = scheduler.codeGenInfo.regPool.size();
