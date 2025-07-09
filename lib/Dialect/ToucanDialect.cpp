@@ -189,6 +189,10 @@ LogicalResult DefVectorOp::verify() {
 }
 
 LogicalResult MemWriteOp::verify() {
+  auto addrVecDeclOp = getAddrVec().getDefiningOp();
+  if (isa<toucan::DefConstVectorOp>(addrVecDeclOp)) {
+    return emitError() << "For now does not support write to a constant memory address";
+  }
   auto vecLength = getAddrVec().getType().getLength();
 
   if (vecLength != 8) {
@@ -198,6 +202,10 @@ LogicalResult MemWriteOp::verify() {
 }
 
 LogicalResult MemReadOp::verify() {
+  auto addrVecDeclOp = getAddrVec().getDefiningOp();
+  if (isa<toucan::DefConstVectorOp>(addrVecDeclOp)) {
+    return emitError() << "For now does not support read from a constant memory address";
+  }
   auto vecLength = getAddrVec().getType().getLength();
 
   if (vecLength != 8) {
