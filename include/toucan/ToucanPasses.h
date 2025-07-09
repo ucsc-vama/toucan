@@ -39,6 +39,7 @@ std::unique_ptr<mlir::Pass> createEnsureToucanOnlyPass();
 std::unique_ptr<mlir::Pass> createDeduplicateRegistersPass();
 std::unique_ptr<mlir::Pass> createRemoveConstRegsPass();
 std::unique_ptr<mlir::Pass> createMergeConstPass();
+std::unique_ptr<mlir::Pass> createBreakPinnedValueToOutputConnectionPass();
 
 // std::unique_ptr<mlir::Pass> createCPUSingleThreadCodeGenPass(CPUSingleThreadCodeGenOptions options);
 std::unique_ptr<mlir::Pass> createGPUCodeGenPass(GPUCodeGenOptions options);

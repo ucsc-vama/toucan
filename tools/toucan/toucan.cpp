@@ -145,6 +145,7 @@ static LogicalResult compileAndEmit(
         // pm.addPass(toucan::createRemoveConstRegsPass());
         pm.addPass(toucan::createMergeConstPass());
         pm.addPass(toucan::createEnsureToucanOnlyPass());
+        pm.addPass(toucan::createBreakPinnedValueToOutputConnectionPass());
     }
 
     // if (cpuCodeGen) {

@@ -481,7 +481,9 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     // // Cut into 2 subgraph
     // p.findCutPoints(graph);
     // p.cutGraph(graph);
-    p.breakDirectIOConnection();
+
+    // Work done by BreakPinnedValueToOutputConnection pass
+    // p.breakDirectIOConnection();
 
     // Detect number of partitions in each region by heuristic.
     p.setPartitionTarget();

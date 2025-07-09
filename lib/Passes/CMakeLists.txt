@@ -23,6 +23,7 @@ add_circt_dialect_library(
   DeduplicateRegisters.cpp
   RemoveConstRegs.cpp
   MergeConst.cpp
+  BreakPinnedValueToOutputConnection.cpp
   GPUCodeGen.cpp
 
   DEPENDS

@@ -207,6 +207,7 @@ namespace toucan {
     void levelizeGraphForCut(DesignGraph &graph);
     void findCutPoints(DesignGraph &graph);
     void cutGraph(DesignGraph &graph);
+    [[deprecated("Direct IO connection should be break by BreakPinnedValueToOutputConnectionPass")]]
     void breakDirectIOConnection();
 
     void doNotCutGraph(DesignGraph &graph);

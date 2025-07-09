@@ -235,6 +235,17 @@ def MergeConst: Pass<"merge-const", "circt::ModuleOp"> {
   ];
 }
 
+def BreakPinnedValueToOutputConnection: Pass<"break-pinned-value-to-output-connection", "circt::ModuleOp"> {
+  let summary = "Add NOPs to avoid edges directly from input node and vector node to output nodes. This pass is necessary to ensure RegWrite being allocated to contiguous space";
+  let description = summary;
+  let constructor = "toucan::createBreakPinnedValueToOutputConnectionPass()";
+
+  let statistics = [
+    Statistic<"insertedNOPs", "insertedNOPs", "NOPs inserted">,
+    Statistic<"breakedEdges", "breakedEdges", "Direct edges thaat breaked">
+  ];
+}
+
 // def CPUSingleThreadCodeGen: Pass<"cpu-singhe-thread-codegen", "circt::ModuleOp"> {
 //   let summary = "Code generation, CPU, single thread";
 //   let description = summary;
