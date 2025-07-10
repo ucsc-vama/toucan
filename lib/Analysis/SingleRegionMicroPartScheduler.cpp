@@ -1622,6 +1622,9 @@ void SingleRegionMicroPartScheduler::fillSignalDebugInfoForSinglePart(const Micr
   //     // valToFragmentId[val] = fragment_id_int;
   //   }
   // }
+
+  // TODO: complete dump for regular signals
+  // Consider: Is it necessary? most signals are hidden in warp shuffle, saving limited number of signals may not be helpful for debugging
   return;
 }
 
