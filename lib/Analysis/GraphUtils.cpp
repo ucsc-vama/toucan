@@ -29,25 +29,43 @@ void toucan::mergeVerticies(uint32_t dst, const mlir::SmallVector<uint32_t> &toM
     inVtxes.insert(source);
   }
 
+  mlir::DenseSet<uint32_t> edgesToRemove;
+
   for (auto vtxToMerge: toMerge) {
+    edgesToRemove.clear();
     mergedOpCount += g[vtxToMerge].opCount;
     auto out_edges = boost::out_edges(vtxToMerge, g);
     for(auto ei = out_edges.first; ei != out_edges.second; ++ei) {
       auto target = boost::target(*ei, g);
-      if ((target != dst) && (!outVtxes.contains(target))) {
+      edgesToRemove.insert(target);
+      if ((target != dst)) {
         boost::add_edge(dst, target, g);
         outVtxes.insert(target);
       }
     }
+    for (const auto &target: edgesToRemove) {
+      boost::remove_edge(vtxToMerge, target, g);
+    }
+    edgesToRemove.clear();
+
     auto in_edges = boost::in_edges(vtxToMerge, g);
     for (auto ei = in_edges.first; ei != in_edges.second; ++ei) {
       auto source = boost::source(*ei, g);
-      if ((source != dst) && (!inVtxes.contains(source))) {
+      edgesToRemove.insert(source);
+      if ((source != dst)) {
         boost::add_edge(source, dst, g);
         inVtxes.insert(source);
       }
     }
+    for (const auto &source: edgesToRemove) {
+      boost::remove_edge(source, vtxToMerge, g);
+    }
+
+    // Remove all edges, but don't remove nodes since it's expensive
+    assert(boost::in_degree(vtxToMerge, g) == 0);
+    assert(boost::out_degree(vtxToMerge, g) == 0);
   }
+
   // update op count
   if (increseOpCount) g[dst].opCount += mergedOpCount;
 }
