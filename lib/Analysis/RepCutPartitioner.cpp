@@ -20,6 +20,7 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/Program.h"
 #include "llvm/Support/raw_ostream.h"
+#include <cassert>
 #include <cstdint>
 #include <fstream>
 #include <string>
@@ -367,22 +368,72 @@ LogicalResult RepCutPartitioner::dumpSinglePartitionToFile(const PartitioningGra
           }
         }
 
+        mlir::DenseSet<uint32_t> visitedEdges;
         for (auto ei = boost::out_edges(vtx, g); ei.first != ei.second; ++ei.first) {
           auto v = boost::target(*ei.first, g);
+
+          if (visitedEdges.contains(v)) {
+            // Dont visit parallel edge, they are recalculated later
+            continue;
+          }
+          visitedEdges.insert(v);
 
           // Use parallel edge to represent multiple reads from a same merged node
           // This allows MicroPartitioner correctly track read count
           uint32_t readCount = 0;
-          auto rawOp = g[v].op;
-          if (rawOp == nullptr) {
-            readCount = 1;
-          } else {
-            for (const auto eachOperand: rawOp->getOperands()) {
-              if (allResultValueOfThisNode.contains(eachOperand)) {
-                readCount += 1;
+
+          mlir::SmallVector<mlir::Operation*> targetRawOps;
+          auto _targetRawOp = g[v].op;
+          switch (g[v].toucanOpName) {
+            case toucan::CGToucanOPName::VecRead: {
+              uint32_t thisNodeOpCount = 0;
+              auto vecReadOp = cast<toucan::VectorReadOp>(_targetRawOp);
+              auto vecVal = vecReadOp.getHandle();
+
+              for (auto userOp: vecVal.getUsers()) {
+                if (isa<toucan::VectorReadOp>(userOp)) {
+                  targetRawOps.push_back(userOp);
+                  thisNodeOpCount++;
+                }
+              }
+
+              assert(thisNodeOpCount == g[v].opCount);
+              break;
+            }
+
+            case toucan::CGToucanOPName::MemWrite: {
+              uint32_t thisNodeOpCount = 0;
+              auto mwOp = cast<toucan::MemWriteOp>(_targetRawOp);
+              auto memVal = mwOp.getMem();
+
+              for (auto userOp: memVal.getUsers()) {
+                if (isa<toucan::MemWriteOp>(userOp)) {
+                  targetRawOps.push_back(userOp);
+                  thisNodeOpCount++;
+                }
+              }
+
+              assert(thisNodeOpCount == g[v].opCount);
+              break;
+            }
+            default: {
+              // Note: do nothing for VecArith following VecStaticSegRead, as they only read from producing result of VecArith
+              targetRawOps.push_back(_targetRawOp);
+            }
+          }
+
+          for (auto targetRawOp: targetRawOps) {
+            if (targetRawOp == nullptr) {
+              readCount = 1;
+            } else {
+              for (const auto eachOperand: targetRawOp->getOperands()) {
+                if (allResultValueOfThisNode.contains(eachOperand)) {
+                  readCount += 1;
+                }
               }
             }
           }
+
           assert(readCount >= 1);
           for (size_t i = 0; i < readCount; i++) {
             outNeighs.push_back(v);
@@ -502,7 +553,11 @@ LogicalResult RepCutPartitioner::collectAndDumpGraphVectorDeclInfoToFile(const u
             auto mergedVecReadOp = cast<toucan::VectorReadOp>(userOp);
             auto resultVal = mergedVecReadOp.getResult();
 
-            assert(!vecInputValToOpId.contains(resultVal));
+            // It's OK to see same value many times, as we allow parallel edge
+            if (vecInputValToOpId.contains(resultVal)) {
+              assert(vecInputValToOpId[resultVal] == inputNodeId);
+            }
+
             vecInputValToOpId[resultVal] = inputNodeId;
           }
         } else if (inputNodeOpName == CGToucanOPName::VecArith) {
@@ -511,7 +566,11 @@ LogicalResult RepCutPartitioner::collectAndDumpGraphVectorDeclInfoToFile(const u
             auto segReadOp = cast<toucan::StaticVectorSegmentReadOp>(userOp);
             auto resultVal = segReadOp.getResult();
 
-            assert(!vecInputValToOpId.contains(resultVal));
+            // It's OK to see same value many times, as we allow parallel edge
+            if (vecInputValToOpId.contains(resultVal)) {
+              assert(vecInputValToOpId[resultVal] == inputNodeId);
+            }
+
             vecInputValToOpId[resultVal] = inputNodeId;
           }
         } else {
