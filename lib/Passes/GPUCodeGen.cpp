@@ -430,6 +430,8 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     std::vector<std::tuple<uint32_t, uint32_t, uint32_t>> eachMemDbgInfo;
     std::vector<std::tuple<uint32_t, uint32_t, uint32_t>> eachSignalDbgInfo;
 
+    dbgs() << "CG regs " << codeGenInfo.regDebugInfo.size() << "\n";
+
     for (auto [regNameRef, ids]: codeGenInfo.regDebugInfo) {
       eachRegDbgInfo.clear();
       for (auto regId: ids) {
@@ -620,6 +622,7 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
 
     // // Fill debug info
     populateDebugInfo(scheduler.codeGenInfo);
+    assert(scheduler.codeGenInfo.ioSignals.size() != 0);
 
 
     llvm::outs() << "=================== Serialize Netlist ===================\n";
