@@ -388,8 +388,8 @@ bool MicroPart::checkAndCollectIOValues(const PartitioningGraph &g, const mlir::
 void MicroPart::print() const {
   bool isRegularPart = opType == CGToucanOPName::LUT;
 
-  llvm::dbgs() << "============ Part print ===========\n";
-  llvm::dbgs() << "Part line no " << lineno + 1 << "\n";
+  llvm::dbgs() << "============ MPart print ===========\n";
+  llvm::dbgs() << "MPart at part " << partId << ", line no " << lineno + 1 << "\n";
 
   if (isRegularPart) {
     size_t level_id = 0;

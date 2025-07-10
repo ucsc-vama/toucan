@@ -51,7 +51,7 @@ namespace toucan {
   // MicroPart data structure
   class MicroPart {
     public:
-    uint32_t lineno;
+    uint32_t lineno, partId;
 
     mlir::DenseSet<uint32_t> nodes;
     // NodeId to ops ** in this part **

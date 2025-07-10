@@ -133,6 +133,7 @@ LogicalResult MicroPartitioner::arrangeSpecialOps(PartitioningGraph &g) {
               MicroPart newPart;
               newPart.buildSpecialPart(vtxOpName, thisPartOps);
               newPart.lineno = UINT32_MAX;
+              newPart.partId = static_cast<uint32_t>(partId);
               partLevels[levelId].push_back(newPart);
               thisPartOps.clear();
             }
@@ -359,6 +360,7 @@ mlir::LogicalResult MicroPartitioner::loadMicroParts() {
       auto &newPart = partLevels.back().back();
       newPart.buildRegularLUTPart(newPartNodesLevel);
       newPart.lineno = lineno;
+      newPart.partId = static_cast<uint32_t>(partId);
     } else {
       llvm::errs() << "Cannot parse line\n" << line;
       return failure();
