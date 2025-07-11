@@ -148,6 +148,21 @@ LogicalResult RepCutPartitioner::_partition(mlir::MLIRContext *context, DesignGr
     auto ret = collectAndDumpGraphVectorDeclInfoToFile(regionId, regionGraphs[regionId], graphVectorDeclInfoPath);
     if (failed(ret)) return ret;
 
+
+    // No need call repcut
+    auto targetNumParts = regionPartitionNumbers[regionId];
+    if (targetNumParts == 1) {
+      auto &partOutput = regionPartitions[regionId];
+      partOutput.clear();
+      partOutput.emplace_back();
+      partOutput.back().reserve(boost::num_vertices(regionGraphs[regionId]));
+      for (auto vtx: boost::make_iterator_range((boost::vertices(regionGraphs[regionId])))) {
+        partOutput[0].push_back(vtx);
+      }
+
+      return success();
+    }
+
     ret = workerFunc(
       regionGraphs[regionId], 
       regionWorkDirectory[regionId], 
