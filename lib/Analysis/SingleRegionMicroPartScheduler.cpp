@@ -290,7 +290,7 @@ void SingleRegionMicroPartScheduler::sortRegReadOps(const PartitioningGraph &gra
     auto regReadOp = cast<toucan::RegReadOp>(graph[eachRegRead].op);
     auto regVal = regReadOp.getReg();
     assert(codeGenInfo.toucanRegToId.contains(regVal) && "Every register should appear in this map!");
-    assert(!vtxIdToOrder.contains(eachRegRead && "Cannot read from one register multiple times!"));
+    assert(!vtxIdToOrder.contains(eachRegRead) && "Cannot read from one register multiple times!");
     vtxIdToOrder[eachRegRead] = codeGenInfo.toucanRegToId.at(regVal);
   }
 
