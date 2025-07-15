@@ -283,6 +283,27 @@ void CodeGenHelper::populateLUT() {
   //   assert(elem <= 0xF);
   // }
 
+
+  // Uncomment following to print out lut pos
+  // Example:
+  // Pos for op nop: 0
+  // Pos for op and: 546
+  // Pos for op or: 802
+  // Pos for op xor: 1058
+  // Pos for op rep1b: 16
+  // Pos for op add: 34
+  // Pos for op mux: 1570
+  // Pos for op dshl: 2082
+  // Pos for op dshr: 3106
+  // Pos for op xorr: 18
+  // Pos for op shl1: 2338
+  // Pos for op shl2: 2594
+  // Pos for op shl3: 2850
+  // Pos for op cmp_eq: 1314
+  // Pos for op sub: 290
+  // Pos for op shr1: 0
+  // Pos for op shr2: 0
+  // Pos for op shr3: 0
   // for (size_t enumId = 0; enumId <= toucan::getMaxEnumValForLUTOpName(); enumId++) {
   //   llvm::dbgs() << "Pos for op " << stringifyLUTOpName(static_cast<LUTOpName>(enumId)) << ": " << lutPos[enumId] << "\n";
   // }
