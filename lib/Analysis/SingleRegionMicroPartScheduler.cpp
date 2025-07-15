@@ -892,7 +892,11 @@ static mlir::DenseMap<uint32_t, uint32_t> buildDummyVtxIndexInVec(const MicroPar
       // auto oldNodeId = mPartitioner.originalVectorElementsMap.at(vecId)[i];
 
       assert(!ret.contains(newNodeId));
-      ret[newNodeId] = static_cast<uint32_t>(i);
+
+      // Note: In CIRCT, vector elements are sorted in descending order (Last element placed at first)
+      // In real backend it should be reversed to ascending order
+      uint32_t elemIndexInSMem = vecNumElements - 1 - i;
+      ret[newNodeId] = elemIndexInSMem;
     }
   }
 
