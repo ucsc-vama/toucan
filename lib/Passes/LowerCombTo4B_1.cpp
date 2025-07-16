@@ -26,6 +26,7 @@
 #include "toucan/ToucanAttributes.h"
 #include "toucan/ToucanDialect.h"
 #include "toucan/ToucanTypes.h"
+#include "toucan/ToucanVecOpLimits.h"
 
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
@@ -39,6 +40,7 @@
 #include "llvm/Support/Format.h"
 
 #include <algorithm>
+#include <cassert>
 #include <cstddef>
 #include <memory>
 #include <atomic>
@@ -57,6 +59,7 @@ using namespace llvm;
 
 #define DEBUG_TYPE "LowerCombTo4B_1Pass"
 
+#define ICMP_EQ_LENGTH_USE_VEC 1
 
 static std::atomic<uint64_t> numLongRepInModule;
 static std::atomic<uint64_t> numShortRepInModule;
@@ -530,18 +533,61 @@ struct LowerCombICmpOp: OpRewritePattern<comb::ICmpOp> {
       auto lhsPadding = padding_with_0_and_align_4b(op, rewriter, lhsValue);
       auto rhsPadding = padding_with_0_and_align_4b(op, rewriter, rhsValue);
 
-      auto lhsValues = split_value_4B(op.getOperation(), lhsPadding, rewriter);
-      auto rhsValues = split_value_4B(op.getOperation(), rhsPadding, rewriter);
+      auto allLhsValues = split_value_4B(op.getOperation(), lhsPadding, rewriter);
+      auto allRhsValues = split_value_4B(op.getOperation(), rhsPadding, rewriter);
 
-      auto lhsVecDeclOp = rewriter.create<toucan::DefVectorOp>(op.getLoc(), lhsValues);
-      auto rhsVecDeclOp = rewriter.create<toucan::DefVectorOp>(op.getLoc(), rhsValues);
+      mlir::SmallVector<mlir::Value> resultVals, lhsValues, rhsValues;
 
-      auto lhsVecHandle = lhsVecDeclOp.getHandle();
-      auto rhsVecHandle = rhsVecDeclOp.getHandle();
+      int remainingSections = static_cast<int>(allLhsValues.size());
+      while (remainingSections > 0) {
+        int sectionsInThisIteration = std::min(remainingSections, TOUCAN_VEC_OP_MAX_SECTIONS);
+        remainingSections -= sectionsInThisIteration;
 
-      auto vecCmpEqOp = rewriter.create<toucan::VectorLogicOp>(op.getLoc(), toucan::VecLogicOpName::VecLogic_Eq, lhsVecHandle, rhsVecHandle);
+        if (sectionsInThisIteration <= ICMP_EQ_LENGTH_USE_VEC) {
+          // Too small to use vec op
+          assert(allLhsValues.size() == static_cast<size_t>(sectionsInThisIteration));
+          for (int i = 0; i < sectionsInThisIteration; i++) {
+            auto cmpLutOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Cmp_Eq, allLhsValues[i], allRhsValues[i]);
+            resultVals.push_back(cmpLutOp.getResult());
+          }
+        } else {
+          // Use vec op
+          lhsValues.clear();
+          rhsValues.clear();
 
-      return vecCmpEqOp.getResult();
+          assert(sectionsInThisIteration <= static_cast<int>(allLhsValues.size()));
+
+          lhsValues.append(allLhsValues.begin(), allLhsValues.begin() + sectionsInThisIteration);
+          rhsValues.append(allRhsValues.begin(), allRhsValues.begin() + sectionsInThisIteration);
+
+          allLhsValues.erase(allLhsValues.begin(), allLhsValues.begin() + sectionsInThisIteration);
+          allRhsValues.erase(allRhsValues.begin(), allRhsValues.begin() + sectionsInThisIteration);
+
+          auto lhsVecDeclOp = rewriter.create<toucan::DefVectorOp>(op.getLoc(), lhsValues);
+          auto rhsVecDeclOp = rewriter.create<toucan::DefVectorOp>(op.getLoc(), rhsValues);
+
+          auto lhsVecHandle = lhsVecDeclOp.getHandle();
+          auto rhsVecHandle = rhsVecDeclOp.getHandle();
+
+          auto vecCmpEqOp = rewriter.create<toucan::VectorLogicOp>(op.getLoc(), toucan::VecLogicOpName::VecLogic_Eq, lhsVecHandle, rhsVecHandle);
+
+          resultVals.push_back(vecCmpEqOp.getResult());
+        }
+
+      }
+
+      assert(resultVals.size() != 0);
+
+      if (resultVals.size() == 1) {
+        return resultVals[0];
+      } else {
+        // Bitwise and of all them
+        auto result = generate_reduce_tree(rewriter, op.getLoc(), resultVals, [&](RewriterBase &rewriter, Location loc, Value lhs, Value rhs) {
+          auto andOp = rewriter.create<comb::AndOp>(loc, ValueRange({lhs, rhs}), false);
+          return andOp.getResult();
+        });
+        return result;
+      }
     }
   }
 
