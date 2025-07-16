@@ -610,6 +610,11 @@ struct LowerCombICmpOp: OpRewritePattern<comb::ICmpOp> {
       auto lhsValues = split_value_4B(op.getOperation(), lhs, rewriter);
       auto rhsValues = split_value_4B(op.getOperation(), rhs, rewriter);
 
+      if (lhsValues.size() > TOUCAN_VEC_OP_MAX_SECTIONS) {
+        llvm::errs() << "LT operation is too wide, not supported yet!\n";
+        llvm_unreachable("Comparison for int wider than 128 is not supported. Check icmpEqCore for reference implementation");
+      }
+
       auto lhsVecDeclOp = rewriter.create<toucan::DefVectorOp>(op.getLoc(), lhsValues);
       auto rhsVecDeclOp = rewriter.create<toucan::DefVectorOp>(op.getLoc(), rhsValues);
 
@@ -648,6 +653,11 @@ struct LowerCombICmpOp: OpRewritePattern<comb::ICmpOp> {
 
       auto lhsValues = split_value_4B(op.getOperation(), lhs, rewriter);
       auto rhsValues = split_value_4B(op.getOperation(), rhs, rewriter);
+
+      if (lhsValues.size() > TOUCAN_VEC_OP_MAX_SECTIONS) {
+        llvm::errs() << "LE operation is too wide, not supported yet!\n";
+        llvm_unreachable("Comparison for int wider than 128 is not supported. Check icmpEqCore for reference implementation");
+      }
 
       auto lhsVecDeclOp = rewriter.create<toucan::DefVectorOp>(op.getLoc(), lhsValues);
       auto rhsVecDeclOp = rewriter.create<toucan::DefVectorOp>(op.getLoc(), rhsValues);
