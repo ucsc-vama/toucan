@@ -238,6 +238,10 @@ LogicalResult VectorArithOp::verify() {
     return emitError() << "Vector arith should have identical input vectors";
   }
 
+  if (v1Width != 4) {
+    return emitError() << "Vector arith only accepts vector with element width of 4";
+  }
+
   if ((v1Width * v1Length) > TOUCAN_VEC_OP_MAX_WIDTH) {
     return emitError("Vector width is too large.");
   }
@@ -260,7 +264,11 @@ LogicalResult VectorLogicOp::verify() {
     return emitError() << "Vector arith should have identical input vectors";
   }
 
-  if (v1Width > TOUCAN_VEC_OP_MAX_WIDTH) {
+  if (v1Width != 4) {
+    return emitError() << "Vector arith only accepts vector with element width of 4";
+  }
+
+  if ((v1Width * v1Length) > TOUCAN_VEC_OP_MAX_WIDTH) {
     return emitError("Vector width is too large.");
   }
 
