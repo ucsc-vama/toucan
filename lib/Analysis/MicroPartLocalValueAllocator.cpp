@@ -46,6 +46,91 @@ using namespace circt;
 
 
 
+void MicroPartLocalValueAllocator::allocateLocalValuesWithoutReclaim() {
+
+  assert(valToLifeTime.size() != 0);
+
+  mlir::DenseSet<mlir::Value> unPinnedVals;
+  unPinnedVals.reserve(valToLifeTime.size());
+
+
+  uint32_t nextAvailableValId = 0;
+  for (const auto &[eachVal, valId]: valToValId) {
+    nextAvailableValId = std::max(nextAvailableValId, valId);
+  }
+
+  for (auto [eachVal, lifeTime]: valToLifeTime) {
+
+    bool isPinnedVal = pinnedInputVals.contains(eachVal) || pinnedOutputVals.contains(eachVal) || constVals.contains(eachVal);
+    assert(isPinnedVal == valToValId.contains(eachVal));
+    if (!isPinnedVal) {
+      unPinnedVals.insert(eachVal);
+    }
+
+    // group vals by life time
+    assert(lifeTime.start <= totalLevels);
+    assert(lifeTime.end <= totalLevels);
+    if (isa<toucan::VectorReadOp>(eachVal.getDefiningOp())
+      || isa<toucan::StaticVectorSegmentReadOp>(eachVal.getDefiningOp())) {
+      // Result of VecRead & StaticVectorSegmentRead might not be used due to replication by RepCut
+      // So here we allow lifeTime.start == lifeTime.end
+      assert(lifeTime.start <= lifeTime.end);
+    } else {
+      // Otherwise it must be used
+      assert(lifeTime.start < lifeTime.end);
+    }
+
+    if (!vecSegmentsToVecArith.contains(eachVal)) {
+      if (!valToValId.contains(eachVal)) {
+        // allocate, but dont recycle
+        if (vecValToLength.contains(eachVal)) {
+          // a vector
+          auto vecLength = vecValToLength.at(eachVal);
+          uint32_t vecValIdStart = nextAvailableValId;
+          valToValId[eachVal] = vecValIdStart;
+
+          nextAvailableValId += vecLength;
+        } else {
+          // regular val
+          valToValId[eachVal] = nextAvailableValId;
+          nextAvailableValId++;
+        }
+      }
+    }
+
+    activeValuesAtLast.insert(eachVal);
+  }
+
+
+
+  // Assign ID for segment values
+  for (const auto &[eachVecVal, segmentVals]: vecArithResultToSegments) {
+    assert(valToValId.contains(eachVecVal) && "Result vector of VecArith should be already allocated!");
+    auto vecValId = valToValId[eachVecVal];
+    auto vecLength = vecValToLength[eachVecVal];
+
+    for (const auto &segmentVal: segmentVals) {
+      assert(valToLifeTime.contains(segmentVal));
+      if (valToValId.contains(segmentVal)) {
+        dbgs() << "Value that should not appear! defined by:\n";
+        segmentVal.getDefiningOp()->print(dbgs());
+        dbgs() << "\n";
+      }
+      assert(!valToValId.contains(segmentVal));
+      auto segReadOp = cast<toucan::StaticVectorSegmentReadOp>(segmentVal.getDefiningOp());
+      assert(segReadOp.getHandle() == eachVecVal);
+
+      auto segmentId = segReadOp.getSegmentId().getZExtValue();
+      assert(segmentId < vecLength);
+
+      valToValId[segmentVal] = vecValId + segmentId;
+    }
+  }
+
+  numTotalValSize = nextAvailableValId;
+}
+
+
 void MicroPartLocalValueAllocator::allocateLocalValues() {
 
   assert(valToLifeTime.size() != 0);
@@ -81,6 +166,8 @@ void MicroPartLocalValueAllocator::allocateLocalValues() {
 
     lifeTimeStartToVal[lifeTime.start].push_back(eachVal);
     lifeTimeEndToVal[lifeTime.end].push_back(eachVal);
+
+    activeValuesAtLast.insert(eachVal);
   }
 
 
@@ -144,9 +231,7 @@ void MicroPartLocalValueAllocator::allocateLocalValues() {
   for (size_t levelId = 0; levelId < totalLevels; levelId++) {
     auto &valsToAllocate = lifeTimeStartToVal[levelId];
     auto &valsToRelease = lifeTimeEndToVal[levelId];
-for (auto [val, valId]: valToValId) {
-assert(!isa<toucan::StaticVectorSegmentReadOp>(val.getDefiningOp()));
-}
+
     // sort in descending order of val life time ends
     auto getValueLength = [](const mlir::Value &val) -> uint64_t {
       if (auto vecVal = dyn_cast<mlir::TypedValue<toucan::VecType>>(val)) {
@@ -300,6 +385,7 @@ assert(!isa<toucan::StaticVectorSegmentReadOp>(val.getDefiningOp()));
 
     // Release val ids that no longer used
     for (auto eachVal: valsToRelease) {
+      activeValuesAtLast.erase(eachVal);
       // Don't allocate space for segment values. They should be part of the vector.
       if (vecSegmentsToVecArith.contains(eachVal)) continue;
 
@@ -322,9 +408,6 @@ assert(!isa<toucan::StaticVectorSegmentReadOp>(val.getDefiningOp()));
     }
   }
 
-for (auto [val, valId]: valToValId) {
-assert(!isa<toucan::StaticVectorSegmentReadOp>(val.getDefiningOp()));
-}
   // Assign ID for segment values
   for (const auto &[eachVecVal, segmentVals]: vecArithResultToSegments) {
     assert(valToValId.contains(eachVecVal) && "Result vector of VecArith should be already allocated!");

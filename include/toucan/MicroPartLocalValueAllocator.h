@@ -51,6 +51,10 @@ namespace toucan {
     // still, val 0 is always 0
     mlir::SmallVector<uint8_t> compactConstValPool;
 
+    mlir::DenseSet<mlir::Value> activeValuesAtLast;
+
+    void allocateLocalValuesWithoutReclaim();
+
     void allocateLocalValues();
     
 

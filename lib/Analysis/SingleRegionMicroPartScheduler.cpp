@@ -33,6 +33,8 @@
 #include "toucan/ToucanUtils.h"
 #include "toucan/PartitioningGraph.h"
 
+#include "toucan/ToucanConfigs.h"
+
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
@@ -1836,7 +1838,12 @@ void SingleRegionMicroPartScheduler::schedule(mlir::MLIRContext *context, const 
       MicroPartLocalValueAllocator valAllocator;
       valAllocator.collectValueLifetime(graph, currentMicroPartitioner);
       valAllocator.populateInitialPinnedVals(graph, constValToRawValue, currentMicroPartitioner);
+
+      #ifdef VAL_ALLOCATOR_DONT_RECLAIM
+      valAllocator.allocateLocalValuesWithoutReclaim();
+      #else
       valAllocator.allocateLocalValues();
+      #endif
       // save const value pool
       std::swap(partInfo.constValuePool, valAllocator.compactConstValPool);
       partInfo.numConstsInValuePool = partInfo.constValuePool.size();
