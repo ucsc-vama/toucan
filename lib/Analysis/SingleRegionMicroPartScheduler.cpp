@@ -1603,31 +1603,39 @@ static void scheduleSpecialMicroPart(const PartitioningGraph &graph, CGMicroPart
 }
 
 void SingleRegionMicroPartScheduler::fillSignalDebugInfoForSinglePart(const MicroPartLocalValueAllocator &valAllocator, uint32_t partId) {
-  // std::lock_guard<std::mutex> lock_guard(debugSymbolLock);
+  std::lock_guard<std::mutex> lock_guard(debugSymbolLock);
 
-  // // collect signal info, only in valuePool
-  // for (const auto &[val, valId]: valAllocator.valToValId) {
-  //   auto valDefiningOp = val.getDefiningOp();
-  //   auto namehint = getSVNameHintAttr(valDefiningOp);
+  // collect signal info, only in valuePool
+  for (const auto &val: valAllocator.activeValuesAtLast) {
+    auto valId = valAllocator.valToValId.at(val);
 
-  //   if (namehint) {
-  //     auto name_str = namehint.value().getValue();
+    auto valDefiningOp = val.getDefiningOp();
+    auto namehint = getSVNameHintAttr(valDefiningOp);
 
-  //     if (!codeGenInfo.signalDebugInfo.contains(name_str)) {
-  //       codeGenInfo.signalDebugInfo.try_emplace(name_str);
-  //     }
-  //     codeGenInfo.signalDebugInfo[name_str].push_back({partId, valId});
-  //   }
+    if (namehint) {
+      auto name_str = namehint.value().getValue();
+      uint32_t fragmentId = 0;
+      auto fragment_id = getSignalFragmentIDAttr(valDefiningOp);
+      if (fragment_id) {
+        auto fragment_id_int = fragment_id.value().getInt();
+        fragmentId = fragment_id_int;
+      }
 
-  //   auto fragment_id = getSignalFragmentIDAttr(valDefiningOp);
-  //   if (fragment_id) {
-  //     auto fragment_id_int = fragment_id.value().getInt();
-  //     assert(fragment_id_int < UINT32_MAX);
+      if (!codeGenInfo.signalDebugInfo.contains(name_str)) {
+        codeGenInfo.signalDebugInfo.try_emplace(name_str);
+      }
 
-  //     // assert(!valToFragmentId.contains(val));
-  //     // valToFragmentId[val] = fragment_id_int;
-  //   }
-  // }
+      uint32_t expectedSectionCount = fragmentId + 1;
+
+      // fill placeholder for non existing value
+      while (codeGenInfo.signalDebugInfo[name_str].size() < expectedSectionCount) {
+        codeGenInfo.signalDebugInfo[name_str].push_back({UINT32_MAX, UINT32_MAX, UINT32_MAX});
+      }
+
+      auto valBitWidth = hw::getBitWidth(val.getType());
+      codeGenInfo.signalDebugInfo[name_str][fragmentId] = {partId, valId, valBitWidth};
+    }
+  }
 
   // TODO: complete dump for regular signals
   // Consider: Is it necessary? most signals are hidden in warp shuffle, saving limited number of signals may not be helpful for debugging

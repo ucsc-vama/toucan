@@ -448,7 +448,7 @@ namespace toucan {
     // name -> (fragment 0, 1, 2, ...)
     mlir::DenseMap<mlir::StringRef, mlir::SmallVector<uint32_t>> regDebugInfo;
     // name -> ((part, valId), (part, valId), ..)
-    mlir::DenseMap<mlir::StringRef, mlir::SmallVector<std::tuple<uint32_t, uint32_t>>> signalDebugInfo;
+    mlir::DenseMap<mlir::StringRef, mlir::SmallVector<std::tuple<uint32_t, uint32_t, uint32_t>>> signalDebugInfo;
     // name -> vector of all mem ids with same namehint. Start from fragment 0 to n
     mlir::DenseMap<mlir::StringRef, mlir::SmallVector<uint32_t>> memDebugInfo;
 

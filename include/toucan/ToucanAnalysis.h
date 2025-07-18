@@ -36,6 +36,7 @@
 
 #include <boost/graph/adjacency_list.hpp>
 
+#include <string>
 #include <unordered_map>
 #include <filesystem>
 #include <vector>
@@ -162,8 +163,7 @@ namespace toucan {
 
     void scheduleMicroParts(const PartitioningGraph &graph, CGPartitionMetaInfo &partInfo, const std::vector<std::vector<MicroPart>> &partLevels);
 
-    // std::mutex debugSymbolLock;
-    // std::unordered_map<mlir::Value, uint32_t> valToFragmentId;
+    std::mutex debugSymbolLock;
 
     void fillSignalDebugInfoForSinglePart(const MicroPartLocalValueAllocator &valAllocator, uint32_t partId);
     void fillDebugInfo();

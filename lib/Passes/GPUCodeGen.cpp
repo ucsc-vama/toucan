@@ -430,8 +430,6 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     std::vector<std::tuple<uint32_t, uint32_t, uint32_t>> eachMemDbgInfo;
     std::vector<std::tuple<uint32_t, uint32_t, uint32_t>> eachSignalDbgInfo;
 
-    dbgs() << "CG regs " << codeGenInfo.regDebugInfo.size() << "\n";
-
     for (auto [regNameRef, ids]: codeGenInfo.regDebugInfo) {
       eachRegDbgInfo.clear();
       for (auto regId: ids) {
@@ -451,14 +449,24 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     }
     for (auto [sigNameRef, sigLocs]: codeGenInfo.signalDebugInfo) {
       eachSignalDbgInfo.clear();
+      assert(sigLocs.size() != 0);
+
+      bool signalIsComplete = true;
 
       for (auto sigLoc: sigLocs) {
         auto partId = std::get<0>(sigLoc);
         auto sigId = std::get<1>(sigLoc);
-        auto sigBitWidth = codeGenInfo.partitionInfo[partId].valuePool[sigId].bitWidth;
+        auto sigBitWidth = std::get<2>(sigLoc);
         eachSignalDbgInfo.push_back(std::make_tuple(partId, sigId, sigBitWidth));
+
+        if (partId == UINT32_MAX) {
+          signalIsComplete = false;
+        }
       }
-      debugInfo.signalDebugInfo[sigNameRef.str()] = eachSignalDbgInfo;
+
+      if (signalIsComplete) {
+        debugInfo.signalDebugInfo[sigNameRef.str()] = eachSignalDbgInfo;
+      }
     }
   }
 
@@ -619,10 +627,16 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
       assert(designInfo.printMsgs[v].empty());
       designInfo.printMsgs[v] = k;
     }
+    llvm::outs() << "Design has " << designInfo.printMsgs.size() << " unique print messages\n";
 
     // // Fill debug info
     populateDebugInfo(scheduler.codeGenInfo);
     assert(scheduler.codeGenInfo.ioSignals.size() != 0);
+
+    llvm::outs() << "Symbol file has " 
+      << debugInfo.regDebugInfo.size() << " register debug info, " 
+      << debugInfo.memDebugInfo.size() << " memory debug info, " 
+      << debugInfo.signalDebugInfo.size() << " signal debug info\n";
 
 
     llvm::outs() << "=================== Serialize Netlist ===================\n";
