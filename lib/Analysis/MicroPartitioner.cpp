@@ -18,6 +18,8 @@
 #include <fstream>
 #include <string>
 
+#include "toucan/ToucanConfigs.h"
+
 using namespace toucan;
 using namespace mlir;
 using namespace llvm;
@@ -212,6 +214,8 @@ mlir::LogicalResult MicroPartitioner::callExternalPartitioner() {
     llvm_unreachable("Graph vector info file doesn't exists! This should not happen");
   }
 
+  std::string mPartMaxSizeString = std::to_string(MICRO_PARTITIONER_MAX_PART_SIZE);
+
   llvm::StringRef args[] = {
     microPartitionerBin,
     "--graph",
@@ -221,7 +225,9 @@ mlir::LogicalResult MicroPartitioner::callExternalPartitioner() {
     "--output",
     outputFile,
     "--vecmap",
-    outputVectorMapFile
+    outputVectorMapFile,
+    "--max-part-size",
+    mPartMaxSizeString
   };
 
   std::optional<llvm::StringRef> redirects[] = {
