@@ -132,11 +132,11 @@ LogicalResult MicroPartitioner::arrangeSpecialOps(PartitioningGraph &g) {
             thisPartOps.push_back(specialOps[i]);
 
             if (thisPartOps.size() == 32 || i+1 == specialOps.size()) {
-              MicroPart newPart;
+              partLevels[levelId].emplace_back();
+              MicroPart &newPart = partLevels[levelId].back();
               newPart.buildSpecialPart(vtxOpName, thisPartOps);
               newPart.lineno = UINT32_MAX;
               newPart.partId = static_cast<uint32_t>(partId);
-              partLevels[levelId].push_back(newPart);
               thisPartOps.clear();
             }
           }
@@ -290,6 +290,7 @@ mlir::LogicalResult MicroPartitioner::loadMicroParts() {
   std::string line;
   uint32_t lineno = 0;
   int levelId = -1;
+  assert(partLevels.empty());
   partLevels.clear();
   excludeNodeLevels.clear();
 
@@ -311,6 +312,8 @@ mlir::LogicalResult MicroPartitioner::loadMicroParts() {
       if (levelId != static_cast<int>(partLevels.size())) return failure();
 
       partLevels.emplace_back();
+      // avoid frequent reallocation.
+      partLevels.back().reserve(512);
       excludeNodeLevels.emplace_back();
     } else if (split_line[0] == "e") {
       // Exclude nodes

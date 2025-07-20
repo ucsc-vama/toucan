@@ -588,7 +588,7 @@ namespace toucan {
       vecSegments.push_back(segVal);
     }
 
-    // TODO: should I reverse this vector?
+    // reverse segments, as vector segments are stored from 0 to highest section, while values are from MSB to LSB
     std::reverse(vecSegments.begin(), vecSegments.end());
 
     assert(!vecSegments.empty());

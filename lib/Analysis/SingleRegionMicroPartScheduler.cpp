@@ -1775,23 +1775,11 @@ void SingleRegionMicroPartScheduler::fillDebugInfo() {
   //   }
   // }
 
-  // // sort by fragment_id
-  // for (auto &elem: codeGenInfo.signalDebugInfo) {
-  //   auto &v = elem.getSecond();
-  //   std::sort(v.begin(), v.end(), [&](const std::tuple<uint32_t, uint32_t>& a, const std::tuple<uint32_t, uint32_t> &b) {
-  //     auto a_partId = std::get<0>(a);
-  //     auto b_partId = std::get<0>(b);
-
-  //     auto a_valId = std::get<1>(a);
-  //     auto b_valId = std::get<1>(b);
-
-  //     auto a_fragmentId = codeGenInfo.partitionInfo[a_partId].valuePool[a_valId].fragment_id;
-  //     auto b_fragmentId = codeGenInfo.partitionInfo[b_partId].valuePool[b_valId].fragment_id;
-  //     // fragment Id should not duplicate
-  //     assert(a_fragmentId != b_fragmentId);
-  //     return a_fragmentId > b_fragmentId;
-  //   });
-  // }
+  // reverse signal fragments. (MSB first)
+  for (auto &elem: codeGenInfo.signalDebugInfo) {
+    auto &v = elem.getSecond();
+    std::reverse(v.begin(), v.end());
+  }
 
   // Don't verify fragment id correctness
   // For regular signals, some fragments can be missing due to optimizations
