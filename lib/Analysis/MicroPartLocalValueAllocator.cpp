@@ -58,6 +58,7 @@ void MicroPartLocalValueAllocator::allocateLocalValuesWithoutReclaim() {
   for (const auto &[eachVal, valId]: valToValId) {
     nextAvailableValId = std::max(nextAvailableValId, valId);
   }
+  nextAvailableValId += 1;
 
   for (auto [eachVal, lifeTime]: valToLifeTime) {
 
