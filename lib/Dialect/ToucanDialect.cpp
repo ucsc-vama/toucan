@@ -116,6 +116,7 @@ size_t LUTOp::getLegalOperandCount(toucan::LUTOpName opName) {
     case LUTOpName::LUT_Shr3:
     case LUTOpName::LUT_Cmp_Eq:
     case LUTOpName::LUT_Cmp_Ult:
+    case LUTOpName::LUT_Cmp_Slt4b:
     case LUTOpName::LUT_Add:
     case LUTOpName::LUT_Sub:
       return 2;
@@ -305,6 +306,7 @@ size_t LUTOp::getResultWidth2(toucan::LUTOpName opName, ValueRange inputs) {
 
     case LUTOpName::LUT_Cmp_Eq: 
     case LUTOpName::LUT_Cmp_Ult:
+    case LUTOpName::LUT_Cmp_Slt4b:
     return 1;
 
     case LUTOpName::LUT_Sub:
@@ -440,6 +442,7 @@ LogicalResult LUTOp::canonicalize(LUTOp op, PatternRewriter &rewriter) {
     case LUTOpName::LUT_Nop:
     case LUTOpName::LUT_Cmp_Eq:
     case LUTOpName::LUT_Cmp_Ult:
+    case LUTOpName::LUT_Cmp_Slt4b:
     case LUTOpName::LUT_Sub:
     break;
   }

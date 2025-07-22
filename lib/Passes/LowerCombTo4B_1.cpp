@@ -599,11 +599,18 @@ struct LowerCombICmpOp: OpRewritePattern<comb::ICmpOp> {
     if (inputBitWidth <= 4) {
       // only 1 element. In this case, simply use LUT
       if (!isULT) {
-        auto subLutOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Sub, lhs, rhs);
 
-        auto extractMSBOp = rewriter.create<comb::ExtractOp>(op.getLoc(), subLutOp.getResult(), 3, 1);
+        if (inputBitWidth == 4) {
+          auto sltOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Cmp_Slt4b, lhs, rhs);
 
-        return extractMSBOp.getResult();
+          return sltOp.getResult();
+        } else {
+          auto subLutOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Sub, lhs, rhs);
+
+          auto extractMSBOp = rewriter.create<comb::ExtractOp>(op.getLoc(), subLutOp.getResult(), 3, 1);
+
+          return extractMSBOp.getResult();
+        }
       } else {
         auto ultOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Cmp_Ult, lhs, rhs);
 

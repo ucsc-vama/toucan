@@ -170,6 +170,30 @@ void CodeGenHelper::populateLUT_Cmp_Ult() {
   lutContent.insert(lutContent.end(), lut.begin(), lut.end());
 }
 
+void CodeGenHelper::populateLUT_Cmp_Slt4b() {
+  // add op: op1, op2
+  SmallVector<uint8_t> lut;
+
+  for (uint8_t j = 0; j <= 0xF; j++) {
+    for (uint8_t k = 0; k <= 0xF; k++) {
+      // sign ext
+      int8_t js = j;
+      int8_t ks = k;
+      if ((js & 0b1000) != 0) {
+        js |= 0xF0;
+      }
+      if ((ks & 0b1000) != 0) {
+        ks |= 0xF0;
+      }
+      uint8_t result = js < ks;
+      lut.push_back(result);
+    }
+  }
+
+  lutPos[static_cast<uint8_t>(LUTOpName::LUT_Cmp_Slt4b)] = lutContent.size();
+  lutContent.insert(lutContent.end(), lut.begin(), lut.end());
+}
+
 void CodeGenHelper::populateLUT_Add() {
   // add op: op1, op2
   SmallVector<uint8_t> lut;
@@ -271,6 +295,7 @@ void CodeGenHelper::populateLUT() {
   populateLUT_Xor();
   populateLUT_Cmp_Eq();
   populateLUT_Cmp_Ult();
+  populateLUT_Cmp_Slt4b();
 
   // 3 inputs
   populateLUT_Mux();
@@ -306,8 +331,9 @@ void CodeGenHelper::populateLUT() {
   // Pos for op shr2: 0
   // Pos for op shr3: 0
   // Pos for op cmp_ult: 1570
-  // LUT size 4386B
-  // for (size_t enumId = 0; enumId <= toucan::getMaxEnumValForLUTOpName(); enumId++) {
-  //   llvm::dbgs() << "Pos for op " << stringifyLUTOpName(static_cast<LUTOpName>(enumId)) << ": " << lutPos[enumId] << "\n";
-  // }
+  // Pos for op cmp_slt4b: 1826
+  // LUT size 4642B
+  for (size_t enumId = 0; enumId <= toucan::getMaxEnumValForLUTOpName(); enumId++) {
+    llvm::dbgs() << "Pos for op " << stringifyLUTOpName(static_cast<LUTOpName>(enumId)) << ": " << lutPos[enumId] << "\n";
+  }
 }
