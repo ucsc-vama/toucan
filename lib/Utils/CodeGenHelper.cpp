@@ -156,19 +156,19 @@ void CodeGenHelper::populateLUT_Cmp_Eq() {
   lutContent.insert(lutContent.end(), lut.begin(), lut.end());
 }
 
-// void CodeGenHelper::populateLUT_Cmp_Lt() {
-//   SmallVector<uint8_t> lut;
+void CodeGenHelper::populateLUT_Cmp_Ult() {
+  SmallVector<uint8_t> lut;
 
-//   for (uint8_t i = 0; i <= 0xF; i++) {
-//     for (uint8_t j = 0; j <= 0xF; j++) {
-//       uint8_t result = i < j;
-//       lut.push_back(result);
-//     }
-//   }
+  for (uint8_t i = 0; i <= 0xF; i++) {
+    for (uint8_t j = 0; j <= 0xF; j++) {
+      uint8_t result = i < j;
+      lut.push_back(result);
+    }
+  }
 
-//   lutPos[static_cast<uint8_t>(LUTOpName::LUT_Cmp_Lt)] = lutContent.size();
-//   lutContent.insert(lutContent.end(), lut.begin(), lut.end());
-// }
+  lutPos[static_cast<uint8_t>(LUTOpName::LUT_Cmp_Ult)] = lutContent.size();
+  lutContent.insert(lutContent.end(), lut.begin(), lut.end());
+}
 
 void CodeGenHelper::populateLUT_Add() {
   // add op: op1, op2
@@ -270,6 +270,7 @@ void CodeGenHelper::populateLUT() {
   populateLUT_Or();
   populateLUT_Xor();
   populateLUT_Cmp_Eq();
+  populateLUT_Cmp_Ult();
 
   // 3 inputs
   populateLUT_Mux();
@@ -292,18 +293,20 @@ void CodeGenHelper::populateLUT() {
   // Pos for op xor: 1058
   // Pos for op rep1b: 16
   // Pos for op add: 34
-  // Pos for op mux: 1570
-  // Pos for op dshl: 2082
-  // Pos for op dshr: 3106
+  // Pos for op mux: 1826
+  // Pos for op dshl: 2338
+  // Pos for op dshr: 3362
   // Pos for op xorr: 18
-  // Pos for op shl1: 2338
-  // Pos for op shl2: 2594
-  // Pos for op shl3: 2850
+  // Pos for op shl1: 2594
+  // Pos for op shl2: 2850
+  // Pos for op shl3: 3106
   // Pos for op cmp_eq: 1314
   // Pos for op sub: 290
   // Pos for op shr1: 0
   // Pos for op shr2: 0
   // Pos for op shr3: 0
+  // Pos for op cmp_ult: 1570
+  // LUT size 4386B
   // for (size_t enumId = 0; enumId <= toucan::getMaxEnumValForLUTOpName(); enumId++) {
   //   llvm::dbgs() << "Pos for op " << stringifyLUTOpName(static_cast<LUTOpName>(enumId)) << ": " << lutPos[enumId] << "\n";
   // }

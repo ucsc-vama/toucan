@@ -26,6 +26,7 @@ let cppNamespace = "toucan" in {
         I32EnumAttrCase<"LUT_Shr1",   15, "shr1">,
         I32EnumAttrCase<"LUT_Shr2",   16, "shr2">,
         I32EnumAttrCase<"LUT_Shr3",   17, "shr3">,
+        I32EnumAttrCase<"LUT_Cmp_Ult", 18, "cmp_ult">,
     ]> ;
 
     def VecLogicOpNameAttr: I32EnumAttr<"VecLogicOpName", "vector logic operations", [

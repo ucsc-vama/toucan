@@ -63,7 +63,7 @@ namespace toucan {
     // void populateLUT_Shr2();
     // void populateLUT_Shr3();
     void populateLUT_Cmp_Eq();
-    // void populateLUT_Cmp_Lt();
+    void populateLUT_Cmp_Ult();
 
     // 3 inputs
     void populateLUT_Mux();

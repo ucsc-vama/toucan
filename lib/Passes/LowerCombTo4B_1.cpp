@@ -591,18 +591,24 @@ struct LowerCombICmpOp: OpRewritePattern<comb::ICmpOp> {
     }
   }
 
-  Value icmpLTCore(comb::ICmpOp &op, PatternRewriter &rewriter, Value lhs, Value rhs) const {
+  Value icmpLTCore(comb::ICmpOp &op, PatternRewriter &rewriter, Value lhs, Value rhs, bool isULT) const {
     // This is actually a SLT impl
     assert(hw::getBitWidth(lhs.getType()) == hw::getBitWidth(rhs.getType()));
     auto inputBitWidth = hw::getBitWidth(lhs.getType());
 
     if (inputBitWidth <= 4) {
       // only 1 element. In this case, simply use LUT
-      auto subLutOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Sub, lhs, rhs);
+      if (!isULT) {
+        auto subLutOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Sub, lhs, rhs);
 
-      auto extractMSBOp = rewriter.create<comb::ExtractOp>(op.getLoc(), subLutOp.getResult(), 3, 1);
+        auto extractMSBOp = rewriter.create<comb::ExtractOp>(op.getLoc(), subLutOp.getResult(), 3, 1);
 
-      return extractMSBOp.getResult();
+        return extractMSBOp.getResult();
+      } else {
+        auto ultOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Cmp_Ult, lhs, rhs);
+
+        return ultOp.getResult();
+      }
     } else {
       // multiple elements. Use VecLogicOp
       assert(inputBitWidth % 4 == 0);
@@ -691,12 +697,12 @@ struct LowerCombICmpOp: OpRewritePattern<comb::ICmpOp> {
     assert(inputValueWidth == hw::getBitWidth(rhsValue.getType()));
 
     if (inputValueWidth <= 4) {
-      return icmpLTCore(op, rewriter, lhsValue, rhsValue);
+      return icmpLTCore(op, rewriter, lhsValue, rhsValue, true);
     } else {
       auto paddingLhsValue = paddingValueWithZeroForIcmp(op, rewriter, lhsValue);
       auto paddingRhsValue = paddingValueWithZeroForIcmp(op, rewriter, rhsValue);
 
-      return icmpLTCore(op, rewriter, paddingLhsValue, paddingRhsValue);
+      return icmpLTCore(op, rewriter, paddingLhsValue, paddingRhsValue, true);
     }
   }
 
@@ -728,12 +734,12 @@ struct LowerCombICmpOp: OpRewritePattern<comb::ICmpOp> {
       auto sExtLhsValue = signExt_4b(rewriter, op.getLoc(), lhsValue);
       auto sExtRhsValue = signExt_4b(rewriter, op.getLoc(), rhsValue);
 
-      return icmpLTCore(op, rewriter, sExtLhsValue, sExtRhsValue);
+      return icmpLTCore(op, rewriter, sExtLhsValue, sExtRhsValue, false);
     } else {
       auto sExtLhsValue = signExtValueToNext4b(rewriter, op.getLoc(), lhsValue);
       auto sExtRhsValue = signExtValueToNext4b(rewriter, op.getLoc(), rhsValue);
 
-      return icmpLTCore(op, rewriter, sExtLhsValue, sExtRhsValue);
+      return icmpLTCore(op, rewriter, sExtLhsValue, sExtRhsValue, false);
     }
   }
 
