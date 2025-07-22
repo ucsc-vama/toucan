@@ -333,7 +333,7 @@ void CodeGenHelper::populateLUT() {
   // Pos for op cmp_ult: 1570
   // Pos for op cmp_slt4b: 1826
   // LUT size 4642B
-  for (size_t enumId = 0; enumId <= toucan::getMaxEnumValForLUTOpName(); enumId++) {
-    llvm::dbgs() << "Pos for op " << stringifyLUTOpName(static_cast<LUTOpName>(enumId)) << ": " << lutPos[enumId] << "\n";
-  }
+  // for (size_t enumId = 0; enumId <= toucan::getMaxEnumValForLUTOpName(); enumId++) {
+  //   llvm::dbgs() << "Pos for op " << stringifyLUTOpName(static_cast<LUTOpName>(enumId)) << ": " << lutPos[enumId] << "\n";
+  // }
 }
