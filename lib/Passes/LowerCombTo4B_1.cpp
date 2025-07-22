@@ -633,20 +633,16 @@ struct LowerCombICmpOp: OpRewritePattern<comb::ICmpOp> {
     }
   }
 
-  Value icmpLECore(comb::ICmpOp &op, PatternRewriter &rewriter, Value lhs, Value rhs) const {
+  Value icmpLECore(comb::ICmpOp &op, PatternRewriter &rewriter, Value lhs, Value rhs, bool isULE) const {
     // This is in fact a SLE impl
     assert(hw::getBitWidth(lhs.getType()) == hw::getBitWidth(rhs.getType()));
     auto inputBitWidth = hw::getBitWidth(lhs.getType());
 
     if (inputBitWidth <= 4) {
       // only 1 element. In this case, simply use LUT
-      auto subLutOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Sub, lhs, rhs);
-
-      auto extractMSBOp = rewriter.create<comb::ExtractOp>(op.getLoc(), subLutOp.getResult(), 3, 1);
+      auto isLessThan = icmpLTCore(op, rewriter, lhs, rhs, isULE);
 
       auto cmpEqLutOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Cmp_Eq, lhs, rhs);
-
-      auto isLessThan = extractMSBOp.getResult();
       auto isEqual = cmpEqLutOp.getResult();
 
       auto orOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Or, isLessThan, isEqual);
@@ -714,12 +710,12 @@ struct LowerCombICmpOp: OpRewritePattern<comb::ICmpOp> {
     assert(inputValueWidth == hw::getBitWidth(rhsValue.getType()));
 
     if (inputValueWidth <= 4) {
-      return icmpLECore(op, rewriter, lhsValue, rhsValue);
+      return icmpLECore(op, rewriter, lhsValue, rhsValue, true);
     } else {
       auto paddingLhsValue = paddingValueWithZeroForIcmp(op, rewriter, lhsValue);
       auto paddingRhsValue = paddingValueWithZeroForIcmp(op, rewriter, rhsValue);
 
-      return icmpLECore(op, rewriter, paddingLhsValue, paddingRhsValue);
+      return icmpLECore(op, rewriter, paddingLhsValue, paddingRhsValue, true);
     }
   }
 
@@ -754,12 +750,12 @@ struct LowerCombICmpOp: OpRewritePattern<comb::ICmpOp> {
       auto sExtLhsValue = signExt_4b(rewriter, op.getLoc(), lhsValue);
       auto sExtRhsValue = signExt_4b(rewriter, op.getLoc(), rhsValue);
 
-      return icmpLECore(op, rewriter, sExtLhsValue, sExtRhsValue);
+      return icmpLECore(op, rewriter, sExtLhsValue, sExtRhsValue, false);
     } else {
       auto sExtLhsValue = signExtValueToNext4b(rewriter, op.getLoc(), lhsValue);
       auto sExtRhsValue = signExtValueToNext4b(rewriter, op.getLoc(), rhsValue);
 
-      return icmpLECore(op, rewriter, sExtLhsValue, sExtRhsValue);
+      return icmpLECore(op, rewriter, sExtLhsValue, sExtRhsValue, false);
     }
   }
 
