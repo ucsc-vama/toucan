@@ -257,7 +257,7 @@ void CodeGenHelper::populateLUT_DShr() {
 
 void CodeGenHelper::populateLUT() {
   assert(lutContent.empty());
-  lutPos.resize(toucan::getMaxEnumValForLUTOpName());
+  lutPos.resize(toucan::getMaxEnumValForLUTOpName() + 1);
 
   populateLUT_Nop();
   populateLUT_Rep1b();

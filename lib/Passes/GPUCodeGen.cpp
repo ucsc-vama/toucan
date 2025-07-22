@@ -73,7 +73,7 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
         cmp.isLUTPart = true;
         for (const auto &eachTopOp: mp.topLevel) {
           toucanGPUSim::CGMicroPartLUTTopLevelOp op;
-          op.lutIndex = lutPos[static_cast<uint32_t>(eachTopOp.opName)];
+          op.lutIndex = lutPos.at(static_cast<uint32_t>(eachTopOp.opName));
           op.op0 = eachTopOp.op0;
           op.op1 = eachTopOp.op1;
           op.op2 = eachTopOp.op2;
@@ -84,13 +84,13 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
           cmp.middleLevels.emplace_back();
           for (const auto &eachMiddleOp: eachMiddleLevel) {
             // ensure values does not exceed expectation
-            assert(lutPos[static_cast<uint32_t>(eachMiddleOp.opName)] < (1 << 14));
+            assert(lutPos.at(static_cast<uint32_t>(eachMiddleOp.opName)) < (1 << 14));
             assert(eachMiddleOp.op0 < (1 << 6));
             assert(eachMiddleOp.op1 < (1 << 6));
             assert(eachMiddleOp.op2 < (1 << 6));
 
             toucanGPUSim::CGMicroPartLUTMiddleLevelOp op(
-              lutPos[static_cast<uint32_t>(eachMiddleOp.opName)],
+              lutPos.at(static_cast<uint32_t>(eachMiddleOp.opName)),
               eachMiddleOp.op0,
               eachMiddleOp.op1,
               eachMiddleOp.op2
