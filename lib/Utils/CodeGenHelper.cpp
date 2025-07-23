@@ -318,13 +318,13 @@ void CodeGenHelper::populateLUT() {
   // Pos for op xor: 1058
   // Pos for op rep1b: 16
   // Pos for op add: 34
-  // Pos for op mux: 1826
-  // Pos for op dshl: 2338
-  // Pos for op dshr: 3362
+  // Pos for op mux: 2082
+  // Pos for op dshl: 2594
+  // Pos for op dshr: 3618
   // Pos for op xorr: 18
-  // Pos for op shl1: 2594
-  // Pos for op shl2: 2850
-  // Pos for op shl3: 3106
+  // Pos for op shl1: 2850
+  // Pos for op shl2: 3106
+  // Pos for op shl3: 3362
   // Pos for op cmp_eq: 1314
   // Pos for op sub: 290
   // Pos for op shr1: 0
