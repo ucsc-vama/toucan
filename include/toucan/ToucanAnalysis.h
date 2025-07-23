@@ -31,6 +31,7 @@
 #include "toucan/PartitioningGraph.h"
 #include "toucan/MicroPartLocalValueAllocator.h"
 #include "toucan/ToucanCodeGenInfo.h"
+#include "toucan/ToucanConfigs.h"
 
 #include "toucan/MicroPartitioner.h"
 
@@ -273,9 +274,17 @@ namespace toucan {
     float targetIb = 0.015;
     uint32_t rePartitionMaxIterations = 10;
 
+    #ifdef REPCUT_WEIGHT_BALANCE_SMEM_USAGE
     const uint32_t PARTITION_MAX_WEIGHT = 590000;
     const uint32_t PARTITION_PREFERRED_WEIGHT = 500000;
     const float REPARTITION_SIZE_TARGET_RATIO = 1.3;
+    #endif
+
+    #ifdef REPCUT_WEIGHT_BALANCE_SIM_SPEED
+    const uint32_t PARTITION_MAX_WEIGHT = 590000;
+    const uint32_t PARTITION_PREFERRED_WEIGHT = 500000;
+    const float REPARTITION_SIZE_TARGET_RATIO = 1.3;
+    #endif
 
     mlir::SmallVector<uint32_t> regionPartitionNumbers;
 
