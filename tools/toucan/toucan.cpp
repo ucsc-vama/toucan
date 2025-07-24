@@ -63,10 +63,10 @@ static cl::opt<bool> verbose("v", cl::desc("verbose"), cl::init(false), cl::cat(
 static cl::opt<bool> gpuCodeGen("gpu", cl::desc("Generate GPU code"), cl::init(false), cl::cat(mainCategory));
 // static cl::opt<bool> cpuCodeGen("cpu", cl::desc("Generate CPU code (single thread)"), cl::init(false), cl::cat(mainCategory));
 static cl::opt<bool> dumpOutputMLIR("dump", cl::desc("Dump output.mlir"), cl::init(false), cl::cat(mainCategory));
-// static cl::opt<uint32_t> targetGPUSMs("gpuSMs", cl::desc("Target GPU SM count. This argument affects number of partitions in each region."), cl::init(6), cl::cat(mainCategory));
+static cl::opt<uint32_t> targetGPUSMs("gpuSMs", cl::desc("Target GPU SM count. This argument affects number of partitions if partSize is not explicitely given."), cl::init(142), cl::cat(mainCategory));
 // static cl::opt<uint32_t> partitionNumRegions("numRegions", cl::desc("Partitioning region count."), cl::init(4), cl::cat(mainCategory));
 static cl::opt<float> partitionIbFactor("ibFactor", cl::desc("Partitioning target imbalance factor (1.0 > ibFactor > 0.0)."), cl::init(0.015), cl::cat(mainCategory));
-
+static cl::opt<float> partitionSizeRatio("partSize", cl::desc("Force partition size ration between 0.1 and 1.0. Values outside of this range would allow toucan decide part size automatically"), cl::init(0.0), cl::cat(mainCategory));
 
 void checkArgs() {
     // if (!cpuCodeGen && !gpuCodeGen) {
@@ -169,6 +169,8 @@ static LogicalResult compileAndEmit(
         gpuCodeGenOptions.temporaryDirectory = outputDir.string();
         // gpuCodeGenOptions.numRegions = partitionNumRegions;
         gpuCodeGenOptions.ibFactor = partitionIbFactor;
+        gpuCodeGenOptions.partSizeRatio = partitionSizeRatio;
+        gpuCodeGenOptions.targetSMs = targetGPUSMs;
 
         pm.addPass(toucan::createGPUCodeGenPass(gpuCodeGenOptions));
     }

@@ -496,7 +496,7 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     // p.breakDirectIOConnection();
 
     // Detect number of partitions in each region by heuristic.
-    p.setPartitionTarget();
+    p.setPartitionTarget(partSizeRatio, targetSMs);
 
 
     assert(ibFactor > 0.0f);
@@ -588,6 +588,26 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     assert(p.regionGraphs.size() == 1 && "SingleRegionMicroPartScheduler only supports 1 region");
     auto partNodeList = p.regionPartitions[0];
     assert(partNodeList.size() == p.regionPartitionNumbers[0]);
+
+    // for (int partId = 0; partId < partNodeList.size(); partId++) {
+    //   const auto &partNodes = partNodeList[partId];
+    //   mlir::DenseMap<int, int> opCounts;
+    //   for (const auto &vtx: partNodes) {
+    //     auto vtxOpName = static_cast<int>(p.regionGraphs[0][vtx].toucanOpName);
+    //     if (opCounts.contains(vtxOpName)) {
+    //       opCounts[vtxOpName] += 1;
+    //     } else {
+    //       opCounts[vtxOpName] = 1;
+    //     }
+    //   }
+
+    //   int totalOps = partNodes.size();
+    //   llvm::dbgs() << "Part " << partId << " has:\n";
+    //   for (int i = 0; i < getMaxEnumValForCGToucanOPName(); i++) {
+    //     if (opCounts[i] == 0) continue;
+    //     llvm::dbgs() << "  " << stringifyCGToucanOPName(static_cast<CGToucanOPName>(i)) << ": " << opCounts[i] << ", " << int(float(opCounts[i] * 100) / totalOps) << "%\n";
+    //   }
+    // }
 
     llvm::outs() << "================== Schedule operations ==================\n";
     scheduler.schedule(&getContext(), rGraph, partNodeList);

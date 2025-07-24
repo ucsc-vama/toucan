@@ -21,9 +21,9 @@ std::string toucan::stringifyCGToucanOPName(CGToucanOPName val) {
     case CGToucanOPName::VecArith: return "VecArith";
     case CGToucanOPName::VecStaticRead: return "VecStaticRead";
 
-    case CGToucanOPName::ShouldNotAppear:
-    case CGToucanOPName::Dummy_DefReg:
-    case CGToucanOPName::Dummy_DefMem:
+    case CGToucanOPName::ShouldNotAppear: return "ShouldNotAppear";
+    case CGToucanOPName::Dummy_DefReg: return "DefReg";
+    case CGToucanOPName::Dummy_DefMem: return "DefMem";
       // Should not appear
       break;
     }

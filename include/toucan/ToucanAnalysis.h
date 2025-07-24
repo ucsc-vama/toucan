@@ -272,17 +272,17 @@ namespace toucan {
   class RepCutPartitioner: public MultiRegionPartitioner {
     public:
     float targetIb = 0.015;
-    uint32_t rePartitionMaxIterations = 10;
+    uint32_t rePartitionMaxIterations = 20;
 
     #ifdef REPCUT_WEIGHT_BALANCE_SMEM_USAGE
-    const uint32_t PARTITION_MAX_WEIGHT = 590000;
-    const uint32_t PARTITION_PREFERRED_WEIGHT = 500000;
+    const uint32_t PARTITION_MAX_WEIGHT = 840000;
+    const uint32_t PARTITION_PREFERRED_WEIGHT = 700000;
     const float REPARTITION_SIZE_TARGET_RATIO = 1.3;
     #endif
 
     #ifdef REPCUT_WEIGHT_BALANCE_SIM_SPEED
-    const uint32_t PARTITION_MAX_WEIGHT = 590000;
-    const uint32_t PARTITION_PREFERRED_WEIGHT = 500000;
+    uint32_t PARTITION_MAX_WEIGHT = 1700000;
+    uint32_t PARTITION_PREFERRED_WEIGHT = 1450000;
     const float REPARTITION_SIZE_TARGET_RATIO = 1.3;
     #endif
 
@@ -301,7 +301,7 @@ namespace toucan {
 
     mlir::LogicalResult partitionAndSchedule(mlir::MLIRContext *context, DesignGraph &graph);
 
-    void setPartitionTarget();
+    void setPartitionTarget(float partSizeRatio, int targetGPUSMCount);
 
     // private:
     std::filesystem::path outputDirectory;

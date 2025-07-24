@@ -14,6 +14,7 @@
 #include "toucan/ToucanAttributes.h"
 #include "toucan/ToucanOps.h"
 #include "toucan/ToucanUtils.h"
+#include "toucan/ToucanConfigs.h"
 
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
@@ -72,7 +73,11 @@ static uint64_t getRegionWeight(const PartitioningGraph &graph) {
   return totalWeight;
 }
 
-void RepCutPartitioner::setPartitionTarget() {
+static uint64_t getRegionNodeCount(const PartitioningGraph &graph) {
+  return boost::num_vertices(graph);
+}
+
+void RepCutPartitioner::setPartitionTarget(float partSizeRatio, int targetGPUSMCount) {
   auto numRegions_expected = cutPoints.size() + 1;
   auto numRegions = regionGraphs.size();
   assert(numRegions > 0);
@@ -83,6 +88,33 @@ void RepCutPartitioner::setPartitionTarget() {
   for (size_t regionId = 0; regionId < numRegions; regionId++) {
     auto &regionGraph = regionGraphs[regionId];
     auto eachRegionWeight = getRegionWeight(regionGraph);
+    auto eachRegionNodeCount = getRegionNodeCount(regionGraph);
+
+
+    if (partSizeRatio < 0.1 || partSizeRatio > 1.0) {
+      // Need decide part ratio
+      partSizeRatio = REPCUT_PART_SIZE_RATIO_START;
+
+      while (partSizeRatio < REPCUT_PART_SIZE_RATIO_MAX) {
+
+        int part_max_weight = PARTITION_MAX_WEIGHT * partSizeRatio;
+        int part_preferred_weight = PARTITION_PREFERRED_WEIGHT * partSizeRatio;
+        auto preferredPartCount = (eachRegionWeight / part_preferred_weight) + 1;
+
+        if (preferredPartCount <= (REPCUT_AUTO_PART_CNT_GPU_SM_MARGIN * targetGPUSMCount)) {
+          // ok we can take this
+          PARTITION_MAX_WEIGHT = part_max_weight;
+          PARTITION_PREFERRED_WEIGHT = part_preferred_weight;
+          llvm::outs() << "Choose " << partSizeRatio << " as part size ratio\n";
+          break;
+        }
+
+        partSizeRatio += REPCUT_PART_SIZE_RATIO_STEP;
+      }
+    } else {
+      llvm::outs() << "User override: part size ratio is " << partSizeRatio << "\n";
+    }
+
     auto preferredPartCount = (eachRegionWeight / PARTITION_PREFERRED_WEIGHT) + 1;
     llvm::outs() << "Preferred Part count for region " << regionId << " is " << preferredPartCount << "\n";
     regionPartitionNumbers.push_back(preferredPartCount);
