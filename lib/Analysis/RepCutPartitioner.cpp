@@ -73,9 +73,6 @@ static uint64_t getRegionWeight(const PartitioningGraph &graph) {
   return totalWeight;
 }
 
-static uint64_t getRegionNodeCount(const PartitioningGraph &graph) {
-  return boost::num_vertices(graph);
-}
 
 void RepCutPartitioner::setPartitionTarget(float partSizeRatio, int targetGPUSMCount) {
   auto numRegions_expected = cutPoints.size() + 1;
@@ -88,7 +85,6 @@ void RepCutPartitioner::setPartitionTarget(float partSizeRatio, int targetGPUSMC
   for (size_t regionId = 0; regionId < numRegions; regionId++) {
     auto &regionGraph = regionGraphs[regionId];
     auto eachRegionWeight = getRegionWeight(regionGraph);
-    auto eachRegionNodeCount = getRegionNodeCount(regionGraph);
 
 
     if (partSizeRatio < 0.1 || partSizeRatio > 1.0) {
