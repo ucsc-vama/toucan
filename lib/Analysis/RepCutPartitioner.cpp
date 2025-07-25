@@ -101,7 +101,7 @@ void RepCutPartitioner::setPartitionTarget(float partSizeRatio, int targetGPUSMC
           // ok we can take this
           PARTITION_MAX_WEIGHT = part_max_weight;
           PARTITION_PREFERRED_WEIGHT = part_preferred_weight;
-          llvm::outs() << "Choose " << partSizeRatio << " as part size ratio\n";
+          llvm::outs() << "Choose " << std::to_string(partSizeRatio) << " as part size ratio\n";
           break;
         }
 
