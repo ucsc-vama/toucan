@@ -108,6 +108,8 @@ void RepCutPartitioner::setPartitionTarget(float partSizeRatio, int targetGPUSMC
         partSizeRatio += REPCUT_PART_SIZE_RATIO_STEP;
       }
     } else {
+      PARTITION_MAX_WEIGHT = PARTITION_MAX_WEIGHT * partSizeRatio;
+      PARTITION_PREFERRED_WEIGHT = PARTITION_PREFERRED_WEIGHT * partSizeRatio;
       llvm::outs() << "User override: part size ratio is " << partSizeRatio << "\n";
     }
 
@@ -885,8 +887,9 @@ mlir::LogicalResult RepCutPartitioner::rePartition(mlir::MLIRContext *context, u
 
   mlir::SmallVector<mlir::SmallVector<uint32_t>> partitions;
   mlir::SmallVector<uint32_t> partsNeedRepartition;
+  uint32_t partsNeedRepartitionWeights = 0;
 
-
+  assert(PARTITION_MAX_WEIGHT > PARTITION_PREFERRED_WEIGHT);
   for (uint32_t oldPartId = 0; oldPartId < partOutput.size(); oldPartId++) {
     const auto &eachPart = partOutput[oldPartId];
     auto partWeight = getPartWeight(eachPart, graph);
@@ -894,15 +897,16 @@ mlir::LogicalResult RepCutPartitioner::rePartition(mlir::MLIRContext *context, u
       // a leagel sized partition
       partitions.push_back(eachPart);
     } else {
+      partsNeedRepartitionWeights += partWeight;
       partsNeedRepartition.push_back(oldPartId);
     }
   }
-
   if (partsNeedRepartition.empty()) return success();
 
   
   uint32_t numOldParts = partsNeedRepartition.size();
   auto targetNumNewParts = std::max(static_cast<uint32_t>(numOldParts * REPARTITION_SIZE_TARGET_RATIO), numOldParts + 1);
+  targetNumNewParts = std::max(targetNumNewParts, partsNeedRepartitionWeights / PARTITION_PREFERRED_WEIGHT);
   mlir::SmallVector<uint32_t> allNodesInNeedRepartition;
   
   {
