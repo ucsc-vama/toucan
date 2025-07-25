@@ -667,6 +667,12 @@ void SingleRegionMicroPartScheduler::scheduleRegWrites(const PartitioningGraph &
     regWriteOps.push_back(opMeta);
   }
 
+  if (regWriteOps.empty()) {
+    // In rare case this part writes nothing
+    partInfo.regWriteOps.clear();
+    return;
+  }
+
   // Check if regWrites in smem location are continuous 
   mlir::SmallVector<uint32_t> memLocations;
   memLocations.reserve(regWriteOps.size());
