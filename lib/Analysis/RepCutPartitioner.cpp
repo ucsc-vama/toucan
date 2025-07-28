@@ -87,7 +87,7 @@ void RepCutPartitioner::setPartitionTarget(float partSizeRatio, int targetGPUSMC
     auto eachRegionWeight = getRegionWeight(regionGraph);
 
 
-    if (partSizeRatio < 0.1 || partSizeRatio > 1.0) {
+    if (partSizeRatio < 0.05 || partSizeRatio > 1.0) {
       // Need decide part ratio
       partSizeRatio = REPCUT_PART_SIZE_RATIO_START;
 
