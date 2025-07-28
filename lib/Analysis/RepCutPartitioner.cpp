@@ -211,6 +211,8 @@ LogicalResult RepCutPartitioner::_partition(mlir::MLIRContext *context, DesignGr
     uint32_t rePartIterationCount = 0;
     bool converged = false;
     uint32_t rawPartitionCount = regionPartitions[regionId].size();
+    uint32_t previousRePartitionInputNumParts = 0;
+    keepRepartitionMayUseless = false;
     while ((rePartIterationCount <= rePartitionMaxIterations) && (!converged)) {
       msgOss.str("");
       msgOss.clear();
@@ -224,7 +226,8 @@ LogicalResult RepCutPartitioner::_partition(mlir::MLIRContext *context, DesignGr
         regionId, regionGraphs[regionId], 
         regionWorkDirectory[regionId], 
         regionPartitions[regionId],
-        rePartIterationCount);
+        rePartIterationCount,
+      previousRePartitionInputNumParts);
       if (failed(rePartitionRet)) return failure();
 
       auto numPartsAfter = regionPartitions[regionId].size();
@@ -235,6 +238,8 @@ LogicalResult RepCutPartitioner::_partition(mlir::MLIRContext *context, DesignGr
         // num parts changed
         regionPartitionNumbers[regionId] = numPartsAfter;
       }
+
+      if (keepRepartitionMayUseless) converged = true;
       
       rePartIterationCount++;
     }
@@ -883,11 +888,11 @@ static PartitioningGraph createNewGraphFromPartition(const PartitioningGraph &gr
   return newGraph;
 }
 
-mlir::LogicalResult RepCutPartitioner::rePartition(mlir::MLIRContext *context, uint32_t regionId, const PartitioningGraph &graph, std::filesystem::path regionWorkDirectory, mlir::SmallVector<mlir::SmallVector<uint32_t>> &partOutput, const uint32_t iterId) {
+mlir::LogicalResult RepCutPartitioner::rePartition(mlir::MLIRContext *context, uint32_t regionId, const PartitioningGraph &graph, std::filesystem::path regionWorkDirectory, mlir::SmallVector<mlir::SmallVector<uint32_t>> &partOutput, const uint32_t iterId, uint32_t &previousRePartitionInputNumParts) {
 
   mlir::SmallVector<mlir::SmallVector<uint32_t>> partitions;
   mlir::SmallVector<uint32_t> partsNeedRepartition;
-  uint32_t partsNeedRepartitionWeights = 0;
+  // uint32_t partsNeedRepartitionWeights = 0;
 
   assert(PARTITION_MAX_WEIGHT > PARTITION_PREFERRED_WEIGHT);
   for (uint32_t oldPartId = 0; oldPartId < partOutput.size(); oldPartId++) {
@@ -897,7 +902,7 @@ mlir::LogicalResult RepCutPartitioner::rePartition(mlir::MLIRContext *context, u
       // a leagel sized partition
       partitions.push_back(eachPart);
     } else {
-      partsNeedRepartitionWeights += partWeight;
+      // partsNeedRepartitionWeights += partWeight;
       partsNeedRepartition.push_back(oldPartId);
     }
   }
@@ -905,8 +910,15 @@ mlir::LogicalResult RepCutPartitioner::rePartition(mlir::MLIRContext *context, u
 
   
   uint32_t numOldParts = partsNeedRepartition.size();
+
+  if (previousRePartitionInputNumParts <= numOldParts) {
+    // Previous repartition fail to reduce partition count!
+    llvm::outs() << "Previous repartition fail to reduce partition count. Stop repartition!\n";
+    keepRepartitionMayUseless = true;
+    return success();
+  }
+  previousRePartitionInputNumParts = numOldParts;
   auto targetNumNewParts = std::max(static_cast<uint32_t>(numOldParts * REPARTITION_SIZE_TARGET_RATIO), numOldParts + 1);
-  targetNumNewParts = std::max(targetNumNewParts, partsNeedRepartitionWeights / PARTITION_PREFERRED_WEIGHT);
   mlir::SmallVector<uint32_t> allNodesInNeedRepartition;
   
   {

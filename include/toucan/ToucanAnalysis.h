@@ -327,7 +327,8 @@ namespace toucan {
 
     mlir::LogicalResult workerFunc(const PartitioningGraph &graph, std::filesystem::path workDirectory, mlir::SmallVector<mlir::SmallVector<uint32_t>> &partOutput, uint32_t nParts, int maxThreads);
 
-    mlir::LogicalResult rePartition(mlir::MLIRContext *context, uint32_t regionId, const PartitioningGraph &graph, std::filesystem::path regionWorkDirectory, mlir::SmallVector<mlir::SmallVector<uint32_t>> &partOutput, const uint32_t iterId);
+    bool keepRepartitionMayUseless;
+    mlir::LogicalResult rePartition(mlir::MLIRContext *context, uint32_t regionId, const PartitioningGraph &graph, std::filesystem::path regionWorkDirectory, mlir::SmallVector<mlir::SmallVector<uint32_t>> &partOutput, const uint32_t iterId, uint32_t &previousRePartitionInputNumParts);
 
     int decideRepCutNumThreads(int maxThreads, int numTargetPartitions);
   };
