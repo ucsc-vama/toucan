@@ -255,6 +255,14 @@ LogicalResult RepCutPartitioner::_partition(mlir::MLIRContext *context, DesignGr
       return failure();
     }
 
+    // sort
+    llvm::outs() << "Sort partitions by weight\n";
+    std::sort(regionPartitions[regionId].begin(), regionPartitions[regionId].end(), [&](const auto &a, const auto &b) {
+      auto a_weight = getPartWeight(a, regionGraphs[regionId]);
+      auto b_weight = getPartWeight(b, regionGraphs[regionId]);
+      return a_weight > b_weight;
+    });
+
     return ret;
   });
 
@@ -657,7 +665,7 @@ LogicalResult RepCutPartitioner::collectAndDumpGraphVectorDeclInfoToFile(const u
 }
 
 int RepCutPartitioner::decideRepCutNumThreads(int maxThreads, int numTargetPartitions) {
-  return std::min(maxThreads, static_cast<int>(numTargetPartitions / 4) + 1);
+  return std::min(maxThreads, static_cast<int>(numTargetPartitions / 8) + 1);
 }
 
 LogicalResult RepCutPartitioner::callRepCutAndWait(uint32_t nParts, float target_ib, const std::string &graphFile, const std::filesystem::path &workingDirectory, int maxThreads) {

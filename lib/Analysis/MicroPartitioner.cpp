@@ -16,6 +16,7 @@
 #include <boost/algorithm/string.hpp>
 #include <cstddef>
 #include <fstream>
+#include <sstream>
 #include <string>
 
 #include "toucan/ToucanConfigs.h"
@@ -199,6 +200,16 @@ mlir::LogicalResult MicroPartitioner::partition() {
 
   ret = loadVectorNopMap();
   if (failed(ret)) return ret;
+
+  uint32_t totalNumParts = 0;
+  for (const auto &level: partLevels) {
+    totalNumParts += level.size();
+  }
+
+  std::ostringstream oss;
+  oss << "Part " << partId << " has " << totalNumParts << " micro parts, " << partLevels.size() << " micro part levels\n";
+
+  llvm::outs() << oss.str();
 
   return mlir::success();
 };

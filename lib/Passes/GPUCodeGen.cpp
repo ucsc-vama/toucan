@@ -545,9 +545,9 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
       assert(mps.size() == numParts);
 
       auto partitionAndScheduleStatus = mlir::failableParallelForEachN(&getContext(), 0, numParts, [&](size_t partId) {
-        std::ostringstream oss;
-        oss << "Running micro partitioner for region " << regionId << " part " << partId << "\n";
-        llvm::outs() << oss.str();
+        // std::ostringstream oss;
+        // oss << "Running micro partitioner for region " << regionId << " part " << partId << "\n";
+        // llvm::outs() << oss.str();
 
         assert(mps.size() > partId);
         auto &mp = mps[partId];
