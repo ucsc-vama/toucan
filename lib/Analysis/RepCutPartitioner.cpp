@@ -216,7 +216,7 @@ LogicalResult RepCutPartitioner::_partition(mlir::MLIRContext *context, DesignGr
     while ((rePartIterationCount <= rePartitionMaxIterations) && (!converged)) {
       msgOss.str("");
       msgOss.clear();
-      msgOss << "Repartition iteration " << rePartIterationCount << "\n";
+      msgOss << "> Repartition iteration " << rePartIterationCount << "\n";
       llvm::outs() << msgOss.str();
 
       auto numPartsBefore = regionPartitions[regionId].size();
@@ -919,9 +919,9 @@ mlir::LogicalResult RepCutPartitioner::rePartition(mlir::MLIRContext *context, u
   
   uint32_t numOldParts = partsNeedRepartition.size();
 
-  if (previousRePartitionInputNumParts <= numOldParts) {
-    // Previous repartition fail to reduce partition count!
-    llvm::outs() << "Previous repartition fail to reduce partition count. Stop repartition!\n";
+  llvm::outs() << "previous repart input num parts " << previousRePartitionInputNumParts << ", numoldparts " << numOldParts << "\n";
+  if (previousRePartitionInputNumParts != 0 && previousRePartitionInputNumParts <= numOldParts) {
+    llvm::outs() << "Previous repartition fail to reduce imbalanced partition count. Stop repartition!\n";
     keepRepartitionMayUseless = true;
     return success();
   }
