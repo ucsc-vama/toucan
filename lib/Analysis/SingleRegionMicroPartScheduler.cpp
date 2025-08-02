@@ -1676,16 +1676,29 @@ void SingleRegionMicroPartScheduler::fillDebugInfo() {
       codeGenInfo.regDebugInfo[namehint].push_back(regId);
     }
   }
+  // TODO: A temporary fix that removes fragment collision
+  mlir::SmallVector<mlir::StringRef> toRemove;
   // sort by fragment id
   for (auto &elem: codeGenInfo.regDebugInfo) {
+    auto &k = elem.getFirst();
     auto &v = elem.getSecond();
     std::sort(v.begin(), v.end(), [&](const uint32_t a, const uint32_t b) {
       auto a_fragmentId = codeGenInfo.regPool[a].fragment_id;
       auto b_fragmentId = codeGenInfo.regPool[b].fragment_id;
       // fragment Id should not duplicate
-      assert(a_fragmentId != b_fragmentId);
+      // if (a_fragmentId == b_fragmentId) {
+      //   llvm::dbgs() << "Reg a " << a << ", fragment id " << a_fragmentId << ", b " << b << ", fragment id " << b_fragmentId << "\n";
+      // }
+      if (a_fragmentId == b_fragmentId) {
+        toRemove.push_back(k);
+      }
+      // assert(a_fragmentId != b_fragmentId);
       return a_fragmentId > b_fragmentId;
     });
+  }
+
+  for (auto k: toRemove) {
+    codeGenInfo.regDebugInfo.erase(k);
   }
   // Note: Some register might be removed for optimization purpose, thus the debug info might not be complete.
   // // Verify fragment id correctness
