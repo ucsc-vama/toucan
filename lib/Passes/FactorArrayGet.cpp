@@ -14,6 +14,7 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/Operation.h"
+#include "mlir/IR/Value.h"
 #include "mlir/IR/ValueRange.h"
 #include "mlir/IR/Visitors.h"
 #include "mlir/Rewrite/FrozenRewritePatternSet.h"
@@ -57,9 +58,10 @@ using namespace llvm;
 #define DEBUG_TYPE "FactorArrayGetMuxPass"
 
 static std::atomic<uint64_t> arrayMuxLoweredInModules;
+static std::atomic<uint64_t> arrayConcatLoweredInModules;
 
-struct LowerArrayGetWithMux: OpRewritePattern<hw::ArrayGetOp> {
-  using OpRewritePattern<hw::ArrayGetOp>::OpRewritePattern;
+struct LowerArrayMux: OpRewritePattern<comb::MuxOp> {
+  using OpRewritePattern<comb::MuxOp>::OpRewritePattern;
 
   static bool arrayIsDirectlyDefined(Operation *arrayDefiningOp) {
     if (isa<hw::ArrayCreateOp>(arrayDefiningOp) || isa<hw::AggregateConstantOp>(arrayDefiningOp)) {
@@ -69,41 +71,51 @@ struct LowerArrayGetWithMux: OpRewritePattern<hw::ArrayGetOp> {
     return false;
   }
 
-  LogicalResult matchAndRewrite(hw::ArrayGetOp op, PatternRewriter &rewriter) const final {
-    auto arrayVal = op.getInput();
-    auto arrayDefiningOp = arrayVal.getDefiningOp();
+  void getVecElmVals(PatternRewriter &rewriter, mlir::Operation *valOp, mlir::SmallVector<mlir::Value> &elms) const {
+    elms.clear();
+    if (auto op = dyn_cast<hw::ArrayCreateOp>(valOp)) {
+      elms = op.getInputs();
+    } else {
+      assert(isa<hw::AggregateConstantOp>(valOp));
 
-    if (arrayIsDirectlyDefined(arrayDefiningOp)) {
-      // Do nothing for direct array access
+      for (auto eachConst: cast<hw::AggregateConstantOp>(valOp).getFields().getValue()) {
+        auto constIntAttr = eachConst.cast<mlir::IntegerAttr>();
+        auto constOp = rewriter.create<hw::ConstantOp>(valOp->getLoc(), constIntAttr);
+        elms.push_back(constOp.getResult());
+      }
+    }
+  }
+
+  LogicalResult matchAndRewrite(comb::MuxOp muxOp, PatternRewriter &rewriter) const final {
+    auto tValOp = muxOp.getTrueValue().getDefiningOp();
+    auto fValOp = muxOp.getFalseValue().getDefiningOp();
+
+    if (tValOp == nullptr || fValOp == nullptr) {
       return failure();
     }
 
-    // else, the array value is a result of op other than hw::array_create and hw::aggreagate_const
-    // Currently I only seen mux
-    if (auto muxOp = dyn_cast<comb::MuxOp>(arrayDefiningOp)) {
-      auto tVal = muxOp.getTrueValue();
-      auto fVal = muxOp.getFalseValue();
-      auto muxCond = muxOp.getCond();
+    auto muxCond = muxOp.getCond();
 
-      if (!(arrayIsDirectlyDefined(tVal.getDefiningOp()) && arrayIsDirectlyDefined(fVal.getDefiningOp()))) {
-        return failure();
+    if (arrayIsDirectlyDefined(tValOp) && arrayIsDirectlyDefined(fValOp)) {
+      // do something
+
+      mlir::SmallVector<mlir::Value> resultVecElms, tVecElms, fVecElms;
+
+      getVecElmVals(rewriter, tValOp, tVecElms);
+      getVecElmVals(rewriter, fValOp, fVecElms);
+
+      assert(tVecElms.size() == fVecElms.size());
+      assert(tVecElms.size() != 0);
+
+      for (size_t i = 0; i < tVecElms.size(); i++) {
+        auto elemMuxOp = rewriter.create<comb::MuxOp>(muxOp->getLoc(), muxCond, tVecElms[i], fVecElms[i]);
+        resultVecElms.push_back(elemMuxOp.getResult());
       }
 
-      auto arrayIndex = op.getIndex();
+      auto defVecOp = rewriter.create<hw::ArrayCreateOp>(muxOp.getLoc(), resultVecElms);
+      muxOp->replaceAllUsesWith(defVecOp);
 
-      auto arrayGetOp_tVal = rewriter.create<hw::ArrayGetOp>(op.getLoc(), tVal, arrayIndex);
-      auto arrayGetOp_fVal = rewriter.create<hw::ArrayGetOp>(op.getLoc(), fVal, arrayIndex);
-      auto arrayGetVal_tVal = arrayGetOp_tVal.getResult();
-      auto arrayGetVal_fVal = arrayGetOp_fVal.getResult();
-
-      auto resultMuxOp = rewriter.create<comb::MuxOp>(op.getLoc(), muxCond, arrayGetVal_tVal, arrayGetVal_fVal);
-
-      rewriter.replaceOp(op, resultMuxOp);
-      arrayMuxLoweredInModules++;
       return success();
-    } else {
-      op.emitError() << "Unknown operation with hw.array as output type: " << op->getName();
-      assert(false);
     }
 
     return failure();
@@ -111,6 +123,55 @@ struct LowerArrayGetWithMux: OpRewritePattern<hw::ArrayGetOp> {
 };
 
 
+struct ExpandVectorConcat: OpRewritePattern<hw::ArrayConcatOp> {
+  using OpRewritePattern<hw::ArrayConcatOp>::OpRewritePattern;
+
+  LogicalResult getArrayElementsFromConcat(hw::ArrayConcatOp op, PatternRewriter &rewriter, mlir::SmallVector<mlir::Value> &newVecElems) const {
+    for (const auto &eachArrayVal: op.getInputs()) {
+      assert(isa<hw::ArrayType>(eachArrayVal.getType()));
+
+      auto valDefiningOp = eachArrayVal.getDefiningOp();
+
+      if (auto arrayCreateOp = dyn_cast<hw::ArrayCreateOp>(valDefiningOp)) {
+        for (auto eachVal: arrayCreateOp.getInputs()) {
+          newVecElems.push_back(eachVal);
+        }
+      } else if (auto constArrayOp = dyn_cast<hw::AggregateConstantOp>(valDefiningOp)) {
+        // const vec
+        for (auto eachConst: constArrayOp.getFields().getValue()) {
+          auto constIntAttr = eachConst.cast<mlir::IntegerAttr>();
+          auto constOp = rewriter.create<hw::ConstantOp>(op->getLoc(), constIntAttr);
+          newVecElems.push_back(constOp.getResult());
+        }
+      } else if (auto valDefiningConcatOp = dyn_cast<hw::ArrayConcatOp>(valDefiningOp)) {
+        auto ret = getArrayElementsFromConcat(valDefiningConcatOp, rewriter, newVecElems);
+        if (failed(ret)) return ret;
+      } else {
+        return failure();
+        // valDefiningOp->print(llvm::errs());
+        // llvm::errs() << "\n";
+        // llvm_unreachable("Unsupported val producing a vector value");
+      }
+    }
+
+    return success();
+  }
+
+  LogicalResult matchAndRewrite(hw::ArrayConcatOp op, PatternRewriter &rewriter) const final {
+    mlir::SmallVector<mlir::Value> newVecElems;
+    auto ret = getArrayElementsFromConcat(op, rewriter, newVecElems);
+    if (failed(ret)) return ret;
+
+    auto newArrayDefOp = rewriter.create<hw::ArrayCreateOp>(op->getLoc(), newVecElems);
+
+    op->replaceAllUsesWith(newArrayDefOp);
+    op.erase();
+
+    arrayConcatLoweredInModules++;
+
+    return success();
+  }
+};
 
 
 struct FactorArrayGetMuxPass : toucan::impl::FactorArrayGetMuxBase<FactorArrayGetMuxPass> {
@@ -120,7 +181,8 @@ struct FactorArrayGetMuxPass : toucan::impl::FactorArrayGetMuxBase<FactorArrayGe
 
   LogicalResult initialize(MLIRContext *context) override {
     RewritePatternSet owningPatterns(context);
-    owningPatterns.add<LowerArrayGetWithMux>(context);
+    owningPatterns.add<LowerArrayMux>(context);
+    owningPatterns.add<ExpandVectorConcat>(context);
     patterns = std::make_shared<FrozenRewritePatternSet>(std::move(owningPatterns));
     return success();
   }
@@ -136,6 +198,7 @@ struct FactorArrayGetMuxPass : toucan::impl::FactorArrayGetMuxBase<FactorArrayGe
     auto mod = getOperation();
 
     arrayMuxLoweredInModules = 0;
+    arrayConcatLoweredInModules = 0;
 
     SmallVector<hw::HWModuleOp> modulesToProcess;
     for(auto & inner: mod.getOps()) {
@@ -151,6 +214,7 @@ struct FactorArrayGetMuxPass : toucan::impl::FactorArrayGetMuxBase<FactorArrayGe
     if (failed(result)) return signalPassFailure();
 
     arrayMuxLowered = arrayMuxLoweredInModules;
+    arrayConcatLowered = arrayConcatLoweredInModules;
   }
 
 };
