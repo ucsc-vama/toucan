@@ -25,11 +25,21 @@ def ExpandSVMacro: Pass<"expand-sv-macro", "circt::ModuleOp"> {
 }
 
 def FactorArrayGetMux: Pass<"factor-array-get-mux", "circt::ModuleOp"> {
-  let summary = "Remove Mux before array_get";
+  let summary = "Remove Mux before array_get, also expand array_concat";
   let description = summary;
   let constructor = "toucan::createFactorArrayGetMuxPass()";
   let statistics = [
-    Statistic<"arrayMuxLowered", "ArrayMuxLowered", "Number of muxes that take hw.array as inputs. They are removed at the cost of extra ArrayGetOp">
+    Statistic<"arrayMuxLowered", "ArrayMuxLowered", "Number of muxes that take hw.array as inputs. They are removed at the cost of extra ArrayGetOp">,
+    Statistic<"arrayConcatLowered", "ArrayConcatLowered", "Number of hw::array_concat removed">,
+  ];
+}
+
+def FactorHWWire: Pass<"factor-hw-wire", "circt::ModuleOp"> {
+  let summary = "Remove hw::wire";
+  let description = summary;
+  let constructor = "toucan::createFactorHWWirePass()";
+  let statistics = [
+    Statistic<"wireOpRemoved", "WireOpRemoved", "Number of hw::wire removed">
   ];
 }
 
