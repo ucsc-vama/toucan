@@ -281,7 +281,7 @@ namespace toucan {
     #endif
 
     #ifdef REPCUT_WEIGHT_BALANCE_SIM_SPEED
-    uint32_t PARTITION_MAX_WEIGHT = 1700000;
+    uint32_t PARTITION_MAX_WEIGHT = 1650000;
     uint32_t PARTITION_PREFERRED_WEIGHT = 1450000;
     const float REPARTITION_SIZE_TARGET_RATIO = 1.3;
     #endif
