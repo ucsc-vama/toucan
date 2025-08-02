@@ -630,6 +630,14 @@ void MicroPartLocalValueAllocator::collectValueLifetime(const PartitioningGraph 
     auto regWriteOp = cast<toucan::RegWriteOp>(graph[eachVtx].op);
     auto inputVal = regWriteOp.getData();
 
+    if (!valToLifeTime.contains(inputVal)) {
+      llvm::dbgs() << "Reg write input val is missing in valLifeTime!\nRegWrite Op:\n";
+      regWriteOp.print(llvm::dbgs());
+      llvm::dbgs() << "\nSource Op:\n";
+      inputVal.print(llvm::dbgs());
+      llvm::dbgs() << "\n";
+    }
+
     assert(valToLifeTime.contains(inputVal));
     valToLifeTime[inputVal].end = totalLevels;
   }
