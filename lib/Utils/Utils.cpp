@@ -305,7 +305,12 @@ namespace toucan {
     auto indexBits = hw::getBitWidth(index.getType());
 
     assert(indexBits < 20);
-    assert(static_cast<size_t>(1L << indexBits) >= values.size());
+    if (!(static_cast<size_t>(1L << indexBits) >= values.size())) {
+      op->emitWarning("Valid index bits is not enough to indexing entire vector");
+
+      size_t maxIndexElems = 1 << indexBits;
+      inputs.resize(maxIndexElems);
+    }
 
 
     for (int64_t level = 0; level < indexBits; level++) {
