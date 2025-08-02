@@ -632,7 +632,10 @@ struct FactorConcatExtractPass : toucan::impl::FactorConcatExtractBase<FactorCon
       // Flatten
       // Don't applyFullConversion, as some case requires multiple iteration
       auto ret = applyPatternsAndFoldGreedily(mod, *patterns);
-      if (failed(ret)) signalPassFailure();
+      if (failed(ret)) {
+        llvm::errs() << "Fail to remove all comb::concat and comb::extract. This is likely due to some IRs not correctly removed/converted. Keep going to let it crash.\n";
+      }
+      return;
     } else {
       // Unflatten
       auto result = mlir::failableParallelForEach(&getContext(), modulesToProcess.begin(), modulesToProcess.end(), [&](auto submodule) {
