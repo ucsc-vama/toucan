@@ -58,42 +58,54 @@ struct RemoveConstRegs : toucan::impl::RemoveConstRegsBase<RemoveConstRegs> {
     mlir::DenseSet<Operation*> toRemove, toRemove_regDecl;
 
     uint64_t constRegCnt = 0;
+    uint64_t constRegInThisIteration = 0;
+    int iteration = 0;
 
-    getOperation()->walk([&](toucan::RegWriteOp op){
-      if (toRemove.contains(op)) return;
+    do {
+      constRegInThisIteration = 0;
+      getOperation()->walk([&](toucan::RegWriteOp op){
+        if (toRemove.contains(op)) return;
 
-      auto regDataVal = op.getData();
-      
-      if (auto constantOp = dyn_cast<ConstantOp>(regDataVal.getDefiningOp())) {
-        constRegCnt++;
+        auto regDataVal = op.getData();
+        
+        if (auto constantOp = dyn_cast<ConstantOp>(regDataVal.getDefiningOp())) {
+          constRegInThisIteration++;
 
-        auto constVal = constantOp.getResult();
-        auto regVal = op.getReg();
+          auto constVal = constantOp.getResult();
+          auto regVal = op.getReg();
 
-        toRemove.insert(op);
-        toRemove_regDecl.insert(regVal.getDefiningOp());
+          toRemove.insert(op);
+          toRemove_regDecl.insert(regVal.getDefiningOp());
 
-        for (auto user: regVal.getUsers()) {
-          if (auto regReadOp = dyn_cast<RegReadOp>(user)) {
-            toRemove.insert(regReadOp);
-            auto regReadResult = regReadOp.getResult();
-            regReadResult.replaceAllUsesWith(constVal);
+          for (auto user: regVal.getUsers()) {
+            if (auto regReadOp = dyn_cast<RegReadOp>(user)) {
+              toRemove.insert(regReadOp);
+              auto regReadResult = regReadOp.getResult();
+              regReadResult.replaceAllUsesWith(constVal);
+            }
           }
         }
+      });
+
+      for (auto op: toRemove) {
+        op->erase();
+      }
+      for (auto op: toRemove_regDecl) {
+        op->erase();
       }
 
+      LLVM_DEBUG(llvm::dbgs() << "Iteration " << iteration << " removed " << constRegInThisIteration << " const registers\n");
 
-    });
-
-    for (auto op: toRemove) {
-      op->erase();
-    }
-    for (auto op: toRemove_regDecl) {
-      op->erase();
-    }
+      toRemove.clear();
+      toRemove_regDecl.clear();
+      constRegCnt += constRegInThisIteration;
+      iteration++;
+    } while (constRegInThisIteration != 0);
 
     LLVM_DEBUG(llvm::dbgs() << "Remove " << constRegCnt << " const registers\n");
   }
+
+  
 
 };
 
