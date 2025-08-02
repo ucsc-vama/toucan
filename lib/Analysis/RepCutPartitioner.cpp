@@ -101,12 +101,13 @@ void RepCutPartitioner::setPartitionTarget(float partSizeRatio, int targetGPUSMC
           // ok we can take this
           PARTITION_MAX_WEIGHT = part_max_weight;
           PARTITION_PREFERRED_WEIGHT = part_preferred_weight;
-          llvm::outs() << "Choose " << std::to_string(partSizeRatio) << " as part size ratio\n";
           break;
         }
 
         partSizeRatio += REPCUT_PART_SIZE_RATIO_STEP;
       }
+
+      llvm::outs() << "Choose " << std::to_string(partSizeRatio) << " as part size ratio\n";
     } else {
       PARTITION_MAX_WEIGHT = PARTITION_MAX_WEIGHT * partSizeRatio;
       PARTITION_PREFERRED_WEIGHT = PARTITION_PREFERRED_WEIGHT * partSizeRatio;
@@ -920,7 +921,7 @@ mlir::LogicalResult RepCutPartitioner::rePartition(mlir::MLIRContext *context, u
   uint32_t numOldParts = partsNeedRepartition.size();
 
   llvm::outs() << "previous repart input num parts " << previousRePartitionInputNumParts << ", numoldparts " << numOldParts << "\n";
-  if (previousRePartitionInputNumParts != 0 && previousRePartitionInputNumParts <= numOldParts) {
+  if (previousRePartitionInputNumParts != 0 && previousRePartitionInputNumParts < numOldParts) {
     llvm::outs() << "Previous repartition fail to reduce imbalanced partition count. Stop repartition!\n";
     keepRepartitionMayUseless = true;
     return success();
