@@ -27,6 +27,7 @@
 #include "toucan/ToucanAttributes.h"
 #include "toucan/ToucanDialect.h"
 #include "toucan/ToucanTypes.h"
+#include "toucan/ToucanVecOpLimits.h"
 
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
@@ -73,6 +74,7 @@ struct AddSubCore {
   Value addSubCore(AddOrSub addOrSub, Operation *op, PatternRewriter &rewriter, Value lhsValue, Value rhsValue, std::optional<StringAttr> namehint) const {
     auto inputValWidth = hw::getBitWidth(lhsValue.getType());
     assert(hw::getBitWidth(rhsValue.getType()) == inputValWidth);
+    assert(inputValWidth <= TOUCAN_VEC_OP_MAX_WIDTH);
 
     if (inputValWidth <= 4) {
       // small add. Simply use an add LUT
@@ -158,13 +160,60 @@ struct LowerCombAddOp: OpRewritePattern<comb::AddOp>, AddSubCore {
     auto lhs = inputs[0];
     auto rhs = inputs[1];
     assert(hw::getBitWidth(lhs.getType()) == hw::getBitWidth(rhs.getType()));
+    auto inputValWidth = hw::getBitWidth(lhs.getType());
 
-    auto optionalNameHint = getSVNameHintAttr(op);;
-    auto addResult = addSubCore(AddOrSub::Add, op.getOperation(), rewriter, lhs, rhs, optionalNameHint);
+    if (inputValWidth <= TOUCAN_VEC_OP_MAX_WIDTH) {
+      auto optionalNameHint = getSVNameHintAttr(op);;
+      auto addResult = addSubCore(AddOrSub::Add, op.getOperation(), rewriter, lhs, rhs, optionalNameHint);
 
-    assert(hw::getBitWidth(addResult.getType()) == hw::getBitWidth(lhs.getType()));
+      assert(hw::getBitWidth(addResult.getType()) == hw::getBitWidth(lhs.getType()));
 
-    rewriter.replaceOp(op, addResult);
+      rewriter.replaceOp(op, addResult);
+    } else {
+      // TODO: Need more testing
+      int maxSectionInEachSlice = TOUCAN_VEC_OP_MAX_SECTIONS - 1;
+      // use multiple add, highest section is used as carry bit
+      int maxBitsInEachSlice = maxSectionInEachSlice * 4;
+
+      auto constZero4BVal = rewriter.create<hw::ConstantOp>(op->getLoc(), rewriter.getI4Type(), 0).getResult();
+      mlir::SmallVector<mlir::Value> resultSections;
+      mlir::Value carryVal = constZero4BVal;
+
+      for (int remainingBits = inputValWidth; remainingBits > 0; remainingBits -= maxBitsInEachSlice) {
+        int bitsInThisSlice = std::min(maxBitsInEachSlice, remainingBits);
+        int startingBitPos = inputValWidth - remainingBits;
+
+        assert(startingBitPos >= 0);
+        auto newlhs = rewriter.create<comb::ExtractOp>(op.getLoc(), lhs, startingBitPos, bitsInThisSlice).getResult();
+        auto newrhs = rewriter.create<comb::ExtractOp>(op.getLoc(), rhs, startingBitPos, bitsInThisSlice).getResult();
+
+        auto newPaddingLhs = rewriter.create<comb::ConcatOp>(op->getLoc(), constZero4BVal, newlhs).getResult();
+        auto newPaddingRhs = rewriter.create<comb::ConcatOp>(op->getLoc(), constZero4BVal, newrhs).getResult();
+
+        auto addResult = addSubCore(AddOrSub::Add, op.getOperation(), rewriter, newPaddingLhs, newPaddingRhs, nullptr);
+        if (carryVal != constZero4BVal) {
+          auto padding = rewriter.create<hw::ConstantOp>(op->getLoc(), rewriter.getIntegerType(bitsInThisSlice), 0).getResult();
+          auto fullBitCarry = rewriter.create<comb::ConcatOp>(op->getLoc(), padding, carryVal).getResult();
+          addResult = addSubCore(AddOrSub::Add, op.getOperation(), rewriter, addResult, fullBitCarry, nullptr);
+        }
+
+        auto resultSectionVal = rewriter.create<comb::ExtractOp>(op->getLoc(), addResult, 0, bitsInThisSlice).getResult();
+        carryVal = rewriter.create<comb::ExtractOp>(op->getLoc(), addResult, bitsInThisSlice, 4).getResult();
+        assert(hw::getBitWidth(resultSectionVal.getType()) == bitsInThisSlice);
+
+        resultSections.push_back(resultSectionVal);
+      }
+
+      std::reverse(resultSections.begin(), resultSections.end());
+
+      auto optionalNameHint = getSVNameHintAttr(op);;
+      auto addResult = rewriter.create<comb::ConcatOp>(op->getLoc(), resultSections).getResult();
+      attachNameHintAndFragmentId(rewriter, addResult, optionalNameHint);
+
+      assert(hw::getBitWidth(addResult.getType()) == hw::getBitWidth(lhs.getType()));
+
+      rewriter.replaceOp(op, addResult);
+    }
 
     return success();
   }
@@ -179,6 +228,7 @@ struct LowerCombSubOp: OpRewritePattern<comb::SubOp>, AddSubCore {
     auto lhs = op.getLhs();
     auto rhs = op.getRhs();
     assert(hw::getBitWidth(lhs.getType()) == hw::getBitWidth(rhs.getType()));
+    assert(hw::getBitWidth(rhs.getType()) < TOUCAN_VEC_OP_MAX_WIDTH);
 
     auto optionalNameHint = getSVNameHintAttr(op);;
     auto subResult = addSubCore(AddOrSub::Sub, op.getOperation(), rewriter, lhs, rhs, optionalNameHint);

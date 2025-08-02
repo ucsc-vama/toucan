@@ -519,6 +519,7 @@ struct LowerCombICmpOp: OpRewritePattern<comb::ICmpOp> {
   }
 
 
+  // This procedure allows wide comparison
   Value icmpEqCore(comb::ICmpOp &op, PatternRewriter &rewriter, Value lhsValue, Value rhsValue) const {
     assert(hw::getBitWidth(lhsValue.getType()) == hw::getBitWidth(rhsValue.getType()));
     auto inputBitWidth = hw::getBitWidth(lhsValue.getType());
@@ -592,9 +593,13 @@ struct LowerCombICmpOp: OpRewritePattern<comb::ICmpOp> {
   }
 
   Value icmpLTCore(comb::ICmpOp &op, PatternRewriter &rewriter, Value lhs, Value rhs, bool isULT) const {
-    // This is actually a SLT impl
     assert(hw::getBitWidth(lhs.getType()) == hw::getBitWidth(rhs.getType()));
     auto inputBitWidth = hw::getBitWidth(lhs.getType());
+    assert(inputBitWidth <= TOUCAN_VEC_OP_MAX_WIDTH);
+    if (!isULT) {
+      // signed. leave 1 bit
+      assert(inputBitWidth != TOUCAN_VEC_OP_MAX_WIDTH);
+    }
 
     if (inputBitWidth <= 4) {
       // only 1 element. In this case, simply use LUT
@@ -641,9 +646,14 @@ struct LowerCombICmpOp: OpRewritePattern<comb::ICmpOp> {
   }
 
   Value icmpLECore(comb::ICmpOp &op, PatternRewriter &rewriter, Value lhs, Value rhs, bool isULE) const {
-    // This is in fact a SLE impl
     assert(hw::getBitWidth(lhs.getType()) == hw::getBitWidth(rhs.getType()));
     auto inputBitWidth = hw::getBitWidth(lhs.getType());
+
+    assert(inputBitWidth <= TOUCAN_VEC_OP_MAX_WIDTH);
+    if (!isULE) {
+      // signed. leave 1 bit
+      assert(inputBitWidth != TOUCAN_VEC_OP_MAX_WIDTH);
+    }
 
     if (inputBitWidth <= 4) {
       // only 1 element. In this case, simply use LUT
@@ -831,6 +841,8 @@ struct LowerCombMulOp: OpRewritePattern<comb::MulOp> {
     auto rhsValue = inputs[1];
 
     assert(hw::getBitWidth(lhsValue.getType()) == hw::getBitWidth(rhsValue.getType()));
+    assert(hw::getBitWidth(lhsValue.getType()) <= TOUCAN_VEC_OP_MAX_WIDTH);
+
     auto inputBitWidth = hw::getBitWidth(lhsValue.getType());
     if (static_cast<size_t>(inputBitWidth) > maxMulWidth) {
       // Mul wider than this value may be too costly. 
