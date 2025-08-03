@@ -99,6 +99,7 @@ struct FactorHWMiscPass : toucan::impl::FactorHWMiscBase<FactorHWMiscPass> {
     ConversionTarget conversionTarget(*context);
     
     owningPatterns.add<LowerHWWire>(context);
+    owningPatterns.add<LowerHWHierPath>(context);
 
     conversionTarget.addLegalDialect<toucan::ToucanDialect>();
     conversionTarget.addLegalDialect<hw::HWDialect>();
