@@ -121,7 +121,7 @@ static LogicalResult compileAndEmit(
         // By this time clock should be removed by DCE. AsClock is not supported
         pm.addPass(toucan::createEnsureNoClockOpPass());
 
-        pm.addPass(toucan::createFactorHWWirePass());
+        pm.addPass(toucan::createFactorHWMiscPass());
 
         // Lower HW vector
         pm.addPass(toucan::createFactorArrayGetMuxPass());

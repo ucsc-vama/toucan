@@ -36,7 +36,7 @@
 #include <memory>
 
 
-#define GEN_PASS_DEF_FACTORHWWIRE
+#define GEN_PASS_DEF_FACTORHWMISC
 #include "toucan/ToucanPassCommon.h"
 
 #include "toucan/ToucanOps.h"
@@ -47,11 +47,12 @@ using namespace circt;
 using namespace mlir;
 using namespace llvm;
 
-#define DEBUG_TYPE "FactorHWWirePass"
+#define DEBUG_TYPE "FactorHWMiscPass"
 
 
 
 std::atomic<uint64_t> wireOpRemovedInModule;
+std::atomic<uint64_t> hierpathOpRemovedInModule;
 
 struct LowerHWWire: OpRewritePattern<hw::WireOp> {
   using OpRewritePattern<hw::WireOp>::OpRewritePattern;
@@ -73,15 +74,26 @@ struct LowerHWWire: OpRewritePattern<hw::WireOp> {
   }
 };
 
+struct LowerHWHierPath: OpRewritePattern<hw::HierPathOp> {
+  using OpRewritePattern<hw::HierPathOp>::OpRewritePattern;
 
-struct FactorHWWirePass : toucan::impl::FactorHWWireBase<FactorHWWirePass> {
-  using FactorHWWireBase<FactorHWWirePass>::FactorHWWireBase;
+  LogicalResult matchAndRewrite(hw::HierPathOp op, PatternRewriter &rewriter) const final {
+    op.erase();
+    wireOpRemovedInModule++;
+    return success();
+  }
+};
+
+
+struct FactorHWMiscPass : toucan::impl::FactorHWMiscBase<FactorHWMiscPass> {
+  using FactorHWMiscBase<FactorHWMiscPass>::FactorHWMiscBase;
 
   std::shared_ptr<FrozenRewritePatternSet> patterns;
   std::shared_ptr<ConversionTarget> target;
 
   LogicalResult initialize(MLIRContext *context) override {
     wireOpRemovedInModule = 0;
+    hierpathOpRemovedInModule = 0;
 
     RewritePatternSet owningPatterns(context);
     ConversionTarget conversionTarget(*context);
@@ -132,10 +144,11 @@ struct FactorHWWirePass : toucan::impl::FactorHWWireBase<FactorHWWirePass> {
 
 
     wireOpRemoved = wireOpRemovedInModule;
+    hierpathOpRemoved = hierpathOpRemovedInModule;
   }
 
 };
 
-std::unique_ptr<mlir::Pass> toucan::createFactorHWWirePass() {
-  return std::make_unique<FactorHWWirePass>();
+std::unique_ptr<mlir::Pass> toucan::createFactorHWMiscPass() {
+  return std::make_unique<FactorHWMiscPass>();
 }

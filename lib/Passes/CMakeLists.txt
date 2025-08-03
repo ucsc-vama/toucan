@@ -4,7 +4,7 @@ add_circt_dialect_library(
 
   RemoveSVnOM.cpp
   ExpandSVMacro.cpp
-  FactorHWWire.cpp
+  FactorHWMisc.cpp
   FactorArrayGet.cpp
   SplitFirMemRWPorts.cpp
   ExpandMemoryDelay.cpp

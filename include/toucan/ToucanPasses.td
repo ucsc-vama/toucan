@@ -34,12 +34,13 @@ def FactorArrayGetMux: Pass<"factor-array-get-mux", "circt::ModuleOp"> {
   ];
 }
 
-def FactorHWWire: Pass<"factor-hw-wire", "circt::ModuleOp"> {
-  let summary = "Remove hw::wire";
+def FactorHWMisc: Pass<"factor-hw-misc", "circt::ModuleOp"> {
+  let summary = "Remove hw::wire, hw::hierpath";
   let description = summary;
-  let constructor = "toucan::createFactorHWWirePass()";
+  let constructor = "toucan::createFactorHWMiscPass()";
   let statistics = [
-    Statistic<"wireOpRemoved", "WireOpRemoved", "Number of hw::wire removed">
+    Statistic<"wireOpRemoved", "WireOpRemoved", "Number of hw::wire removed">,
+    Statistic<"hierpathOpRemoved", "HierPathOpRemoved", "Number of hw::hierpath removed">
   ];
 }
 
