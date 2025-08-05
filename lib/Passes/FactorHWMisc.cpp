@@ -108,7 +108,7 @@ struct FactorHWMiscPass : toucan::impl::FactorHWMiscBase<FactorHWMiscPass> {
 
     // After lowering, following ops should no longer appear
     conversionTarget.addIllegalOp<hw::WireOp>();
-
+    conversionTarget.addIllegalOp<hw::HierPathOp>();
 
     patterns = std::make_shared<FrozenRewritePatternSet>(std::move(owningPatterns));
     target = std::make_shared<ConversionTarget>(std::move(

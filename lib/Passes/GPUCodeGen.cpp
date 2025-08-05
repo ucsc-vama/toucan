@@ -321,6 +321,30 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
 
       // sort for performance
       assert(partInfo.exec_mParts.size() < UINT16_MAX);
+      auto getPartSize = [](const toucanGPUSim::CGMicroPartInfo &p) {
+        if (p.isLUTPart) {
+          int ret = 0;
+          ret += p.topLevel.size();
+          for (const auto &eachLevel: p.middleLevels) {
+            ret += eachLevel.size();
+          }
+          ret += p.lastLevel.size();
+
+          return ret;
+        }
+
+        int numOps = 0;
+        if (p.memRead.size() != 0) numOps = p.memRead.size();
+        else if (p.vecRead.size() != 0) numOps = p.vecRead.size();
+        else numOps = p.vecArithAndLogic.size();
+        assert(numOps != 0);
+        return numOps;
+      };
+      std::sort(partInfo.exec_mParts.back().begin(), partInfo.exec_mParts.back().end(), [getPartSize](const auto &a, const auto &b) {
+        auto weight_a = getPartSize(a);
+        auto weight_b = getPartSize(b);
+        return weight_a > weight_b;
+      });
       auto getPartWeight = [](const toucanGPUSim::CGMicroPartInfo &p) {
         if (p.isLUTPart) return p.middleLevels.size();
         size_t numOps = 0;
@@ -330,7 +354,7 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
         assert(numOps != 0);
         return UINT16_MAX + numOps;
       };
-      std::sort(partInfo.exec_mParts.back().begin(), partInfo.exec_mParts.back().end(), [getPartWeight](const auto &a, const auto &b) {
+      std::stable_sort(partInfo.exec_mParts.back().begin(), partInfo.exec_mParts.back().end(), [getPartWeight](const auto &a, const auto &b) {
         auto weight_a = getPartWeight(a);
         auto weight_b = getPartWeight(b);
         return weight_a > weight_b;
