@@ -4,6 +4,35 @@
 using namespace toucan;
 using namespace llvm;
 
+std::string toucan::stringifyCGToucanOPName(CGToucanOPName val) {
+  switch (val) {
+    case CGToucanOPName::ConstDecl: return "ConstDecl";
+    case CGToucanOPName::MPart_Regular: return "MPart_Regular";
+    case CGToucanOPName::MPart_Special: return "MPart_Special";
+    case CGToucanOPName::LUT : return "LUT";
+    case CGToucanOPName::VecRead : return "VecRead";
+    case CGToucanOPName::VecDecl : return "VecDecl";
+    case CGToucanOPName::Print : return "Print";
+    case CGToucanOPName::Stop : return "Stop";
+    case CGToucanOPName::RegRead : return "RegRead";
+    case CGToucanOPName::RegWrite : return "RegWrite";
+    case CGToucanOPName::MemRead : return "MemRead";
+    case CGToucanOPName::MemWrite : return "MemWrite";
+    case CGToucanOPName::ExchangeRead : return "ExgRead";
+    case CGToucanOPName::ExchangeWrite : return "ExgWrite";
+    case CGToucanOPName::VecLogic: return "VecLogic";
+    case CGToucanOPName::VecArith: return "VecArith";
+    case CGToucanOPName::VecStaticRead: return "VecStaticRead";
+
+    case CGToucanOPName::ShouldNotAppear: return "ShouldNotAppear";
+    case CGToucanOPName::Dummy_DefReg: return "DefReg";
+    case CGToucanOPName::Dummy_DefMem: return "DefMem";
+      // Should not appear
+      break;
+    }
+  llvm_unreachable("Every op name should be stringified!");
+}
+
 void toucan::PartitioningGraph::mergeVerticies(uint32_t dst, const mlir::SmallVector<uint32_t> &toMerge, bool increseOpCount) {
   // update edge
 
