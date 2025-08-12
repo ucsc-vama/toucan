@@ -29,7 +29,6 @@
 #include <cstdint>
 
 #include <boost/graph/topological_sort.hpp>
-#include <boost/graph/copy.hpp>
 #include <cstring>
 #include <iterator>
 #include <array>
@@ -134,7 +133,8 @@ void MultiRegionPartitioner::doNotCutGraph(DesignGraph &graph) {
   assert(cutPoints.empty());
   regionGraphs.clear();
   regionGraphs.emplace_back();
-  boost::copy_graph(graph.g, regionGraphs[0]);
+
+  regionGraphs[0].copy_from(graph.g);
 
   uint32_t numVtxes = boost::num_vertices(graph.g);
 
@@ -479,6 +479,7 @@ void MultiRegionPartitioner::cutGraph(DesignGraph &graph) {
             vp.toucanOpName = CGToucanOPName::ExchangeWrite;
 
             auto exchangeWriteVtxId = boost::add_vertex(vp, regionGraphs[srcRegion]);
+            // TODO: bug fix
             assert(srcNewId < boost::num_vertices(regionGraphs[srcRegion]));
             boost::add_edge(srcNewId, exchangeWriteVtxId, regionGraphs[srcRegion]);
 
@@ -536,6 +537,8 @@ void MultiRegionPartitioner::cutGraph(DesignGraph &graph) {
                 // llvm::dbgs() << "Add edge from " << exchangeReadVtxId << " to " << vecReadResultUserNewId << "\n";
                 auto numRegionVertices = boost::num_vertices(regionGraphs[vecReadResultUserRegion]);
                 assert(vecReadResultUserRegion > srcRegion);
+
+                // TODO: this assertion is not correct
                 assert(exchangeReadVtxId < numRegionVertices);
                 assert(vecReadResultUserNewId < numRegionVertices);
                 boost::add_edge(exchangeReadVtxId, vecReadResultUserNewId, regionGraphs[vecReadResultUserRegion]);

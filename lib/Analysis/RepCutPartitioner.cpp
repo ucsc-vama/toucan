@@ -22,6 +22,7 @@
 #include "llvm/Support/Program.h"
 #include "llvm/Support/raw_ostream.h"
 #include <cassert>
+#include <cstddef>
 #include <cstdint>
 #include <fstream>
 #include <string>
@@ -634,6 +635,7 @@ LogicalResult RepCutPartitioner::collectAndDumpGraphVectorDeclInfoToFile(const u
           }
         } else {
           // any better way?
+          assert(inputNodeOp != nullptr);
           auto resultVal = inputNodeOp->getUses().begin()->get();
 
           if (vecInputValToOpId.contains(resultVal)) {

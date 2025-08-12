@@ -9,7 +9,7 @@ add_circt_dialect_library(
   MultiRegionPartitioner.cpp
   # NaivePartitioner.cpp
   RepCutPartitioner.cpp
-  GraphUtils.cpp
+  PartitioningGraph.cpp
   ToucanAnalysis.cpp
   # LocalValueAllocator.cpp
   MicroPart.cpp

@@ -223,7 +223,7 @@ DesignGraph::DesignGraph(Operation *op, AnalysisManager &am) {
           // Merge readers
           auto topVtxId = vecReaders.back();
           vecReaders.pop_back();
-          mergeVerticies(topVtxId, vecReaders, rawGraph, true);
+          rawGraph.mergeVerticies(topVtxId, vecReaders, true);
           vtxToRemove.insert(vecReaders.begin(), vecReaders.end());
         }
 
@@ -251,7 +251,7 @@ DesignGraph::DesignGraph(Operation *op, AnalysisManager &am) {
         // Merge them with vector producing op, which is a VectorArithOp
         // Don't increase op count, as VecStaticRead is not a real op
         auto vecDeclNodeId = rawOpToId[vecHandle.getDefiningOp()];
-        mergeVerticies(vecDeclNodeId, vecReaders, rawGraph, false);
+        rawGraph.mergeVerticies(vecDeclNodeId, vecReaders, false);
         vtxToRemove.insert(vecReaders.begin(), vecReaders.end());
 
         vecHandled_VecStaticRead.insert(vecHandle);
@@ -272,7 +272,7 @@ DesignGraph::DesignGraph(Operation *op, AnalysisManager &am) {
         // A memory with multiple writer. Merge.
         auto topVtxId = memWriters.back();
         memWriters.pop_back();
-        mergeVerticies(topVtxId, memWriters, rawGraph, true);
+        rawGraph.mergeVerticies(topVtxId, memWriters, true);
         vtxToRemove.insert(memWriters.begin(), memWriters.end());
       }
     } 

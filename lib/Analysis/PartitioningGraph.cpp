@@ -4,8 +4,7 @@
 using namespace toucan;
 using namespace llvm;
 
-void toucan::mergeVerticies(uint32_t dst, const mlir::SmallVector<uint32_t> &toMerge, PartitioningGraph &g, bool increseOpCount) {
-  // Merge!
+void toucan::PartitioningGraph::mergeVerticies(uint32_t dst, const mlir::SmallVector<uint32_t> &toMerge, bool increseOpCount) {
   // update edge
 
   // avoid duplicated edges
@@ -13,6 +12,7 @@ void toucan::mergeVerticies(uint32_t dst, const mlir::SmallVector<uint32_t> &toM
   mlir::DenseSet<uint32_t> outVtxes;
 
   uint32_t mergedOpCount = 0;
+  auto &&g = *this;
 
   // Note: it's possible if parallel edge exists
   // For example, a vector using multiple slots of same value
@@ -84,9 +84,11 @@ struct cycle_detector : public boost::dfs_visitor<> {
     }
 };
 
-bool toucan::partitioningGraphHasCycle(const PartitioningGraph &graph) {
+bool toucan::PartitioningGraph::hasCycle() const {
   bool has_cycle = false;
   cycle_detector vis(has_cycle);
+
+  auto &&graph = *this;
   boost::depth_first_search(graph, visitor(vis));
 
   return has_cycle;

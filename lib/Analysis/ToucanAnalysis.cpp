@@ -1,4 +1,5 @@
 #include "toucan/ToucanAnalysis.h"
+#include "toucan/PartitioningGraph.h"
 #include "llvm/Support/ErrorHandling.h"
 
 using namespace toucan;
@@ -6,6 +7,8 @@ using namespace toucan;
 std::string toucan::stringifyCGToucanOPName(CGToucanOPName val) {
   switch (val) {
     case CGToucanOPName::ConstDecl: return "ConstDecl";
+    case CGToucanOPName::MPart_Regular: return "MPart_Regular";
+    case CGToucanOPName::MPart_Special: return "MPart_Special";
     case CGToucanOPName::LUT : return "LUT";
     case CGToucanOPName::VecRead : return "VecRead";
     case CGToucanOPName::VecDecl : return "VecDecl";
