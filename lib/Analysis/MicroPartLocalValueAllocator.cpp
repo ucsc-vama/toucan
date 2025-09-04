@@ -145,12 +145,16 @@ void MicroPartLocalValueAllocator::allocateLocalValues() {
 
   // Ignore pre-allocated const and io vals
   for (auto [eachVal, lifeTime]: valToLifeTime) {
-
+    bool isSegmentVal = isa<toucan::StaticVectorSegmentReadOp>(eachVal.getDefiningOp());
     bool isPinnedVal = pinnedInputVals.contains(eachVal) || pinnedOutputVals.contains(eachVal) || constVals.contains(eachVal);
-    assert(isPinnedVal == valToValId.contains(eachVal));
-    if (!isPinnedVal) {
-      unPinnedVals.insert(eachVal);
+
+    if (!isSegmentVal) {
+      assert(isPinnedVal == valToValId.contains(eachVal));
+      if (!isPinnedVal) {
+        unPinnedVals.insert(eachVal);
+      }
     }
+
 
     // group vals by life time
     assert(lifeTime.start <= totalLevels);
@@ -161,8 +165,9 @@ void MicroPartLocalValueAllocator::allocateLocalValues() {
       // So here we allow lifeTime.start == lifeTime.end
       assert(lifeTime.start <= lifeTime.end);
     } else {
-      // Otherwise it must be used
-      assert(lifeTime.start < lifeTime.end);
+      // start == end: value not used
+      // Now it's OK to have value not used, since micro part could be duplicated then partitioning, original user of certain output value may no longer in current repcut partition
+      assert(lifeTime.start <= lifeTime.end);
     }
 
     lifeTimeStartToVal[lifeTime.start].push_back(eachVal);
@@ -190,9 +195,13 @@ void MicroPartLocalValueAllocator::allocateLocalValues() {
   for (auto [eachVal, eachValId]: valToValId) {
     assert(!isa<toucan::DefConstVectorOp>(eachVal.getDefiningOp()));
     if (isa<toucan::ConstantOp>(eachVal.getDefiningOp())) continue;
+    if (isa<toucan::StaticVectorSegmentReadOp>(eachVal.getDefiningOp())) continue;
     // pinned vals
     assert(valToLifeTime.contains(eachVal));
     auto valLifeTime = valToLifeTime.at(eachVal);
+
+    bool isVecVal = isa<mlir::TypedValue<toucan::VecType>>(eachVal);
+    size_t valByteCount = (isVecVal) ? vecValToLength[eachVal] : 1;
 
     assert(!pinnedOutputValIdToNextOccupy.contains(eachValId));
 
@@ -200,33 +209,66 @@ void MicroPartLocalValueAllocator::allocateLocalValues() {
     if (pinnedOutputVals.contains(eachVal)) {
       // last level output vals
       pinnedOutputValIdToNextOccupy[eachValId] = valLifeTime.start;
+
+      if (isVecVal) {
+        // a vec val
+        for (size_t i = 0; i < valByteCount; i++) {
+          pinnedOutputValIdToNextOccupy[eachValId + i] = valLifeTime.start;
+        }
+
+      } else {
+        // if is not a segment val
+        if (!vecArithAndSegmentValues.contains(eachVal)) {
+          pinnedOutputValIdToNextOccupy[eachValId] = valLifeTime.start;
+        }
+      }
     } else {
-      // must be an input val or const
+      // must be an input val (like reg read) or const
       assert(valLifeTime.start == 0);
     }
-    nextAvailableValId = std::max(nextAvailableValId, static_cast<size_t>(eachValId));
+
+    nextAvailableValId += valByteCount;
+    // nextAvailableValId = std::max(nextAvailableValId, static_cast<size_t>(eachValId));
   }
   assert(numOutputVals == pinnedOutputVals.size());
-  assert(pinnedOutputValIdToNextOccupy.size() == numOutputVals);
+  assert(pinnedOutputValIdToNextOccupy.size() >= numOutputVals);
   nextAvailableValId++;
 
   // pinned vals may be used later, as long as its value is released
-  for (auto [_, valId]: valToValId) {
+  for (auto [eachVal, valId]: valToValId) {
     if (valId >= numConsts) {
-      assert(!availableValIds.contains(valId));
-      availableValIds.insert(valId);
-      assert(valId < nextAvailableValId);
+      if (isa<mlir::TypedValue<toucan::VecType>>(eachVal)) {
+        // a vec val
+        assert(vecValToLength.contains(eachVal));
+        auto vecLength = vecValToLength[eachVal];
+
+        for (size_t i = 0; i < vecLength; i++) {
+          assert(!availableValIds.contains(valId + i));
+          availableValIds.insert(valId + i);
+          assert(valId + i < nextAvailableValId);
+        }
+      } else {
+        // if is not a segment val
+        if (!vecArithAndSegmentValues.contains(eachVal)) {
+          assert(!availableValIds.contains(valId));
+          availableValIds.insert(valId);
+          assert(valId < nextAvailableValId);
+        }
+      }
     }
   }
 
   // Since now pinnedInputVals are read before level 0, they should also allocate space before level 0
   // preallocate for pinnedInputVals (remove from available list)
   for (auto & eachVal: pinnedInputVals) {
-    assert(!vecArithAndSegmentValues.contains(eachVal));
+    assert(!isa<toucan::StaticVectorSegmentReadOp>(eachVal.getDefiningOp()));
     auto pinnedValIds = valToValId.at(eachVal);
-    assert(availableValIds.contains(pinnedValIds));
-    availableValIds.erase(pinnedValIds);
-    assert(!vecValToLength.contains(eachVal));
+    size_t byteCount = (vecValToLength.contains(eachVal)) ? vecValToLength[eachVal] : 1;
+    for (size_t i = 0; i < byteCount; i++) {
+      auto valId = pinnedValIds + i;
+      assert(availableValIds.contains(valId));
+      availableValIds.erase(valId);
+    }
   }
 
   for (size_t levelId = 0; levelId < totalLevels; levelId++) {
@@ -375,11 +417,25 @@ void MicroPartLocalValueAllocator::allocateLocalValues() {
       } else {
         // Pinned val.
         if (pinnedInputVals.contains(eachVal)) continue;
-        assert(!vecArithAndSegmentValues.contains(eachVal));
-        auto pinnedValIds = valToValId.at(eachVal);
-        assert(availableValIds.contains(pinnedValIds));
-        availableValIds.erase(pinnedValIds);
-        assert(!vecValToLength.contains(eachVal));
+        // assert(!vecArithAndSegmentValues.contains(eachVal));
+        if (isa<mlir::TypedValue<toucan::VecType>>(eachVal)) {
+          // a vec val
+          assert(vecValToLength.contains(eachVal));
+          auto vecLength = vecValToLength[eachVal];
+
+          for (size_t i = 0; i < vecLength; i++) {
+            auto pinnedValIds = valToValId.at(eachVal) + i;
+            assert(availableValIds.contains(pinnedValIds));
+            availableValIds.erase(pinnedValIds);
+          }
+        } else {
+          // if is not a segment val
+          if (!vecArithAndSegmentValues.contains(eachVal)) {
+            auto pinnedValIds = valToValId.at(eachVal);
+            assert(availableValIds.contains(pinnedValIds));
+            availableValIds.erase(pinnedValIds);
+          }
+        }
       }
     }
 
@@ -437,8 +493,7 @@ void MicroPartLocalValueAllocator::allocateLocalValues() {
 }
 
 
-void MicroPartLocalValueAllocator::populateInitialPinnedVals(const PartitioningGraph &graph, const mlir::DenseMap<mlir::Value, uint32_t> constValToRawValue, const MicroPartitioner &mpartitioner) {
-
+void MicroPartLocalValueAllocator::populateInitialPinnedVals(RepCutPartitionCodeGenData &partData, const mlir::DenseMap<mlir::Value, uint32_t> constValToRawValue) {
 
   // In each value pool, populate all possible const values (4 bits, 0 to 15)
   compactConstValPool.clear();
@@ -461,42 +516,63 @@ void MicroPartLocalValueAllocator::populateInitialPinnedVals(const PartitioningG
 
   uint32_t nextValId = numConsts;
 
+  assert(partData.allRegWrites.empty() || partData.allExgWriteVals.empty());
 
   // allocate for reg write. They should be placed at the begining to ensure performance
-  for (const auto eachVtx: mpartitioner.allRegWrites) {
-    assert(graph[eachVtx].toucanOpName == CGToucanOPName::RegWrite);
-    assert(graph[eachVtx].op != nullptr);
-    auto regWriteOp = cast<toucan::RegWriteOp>(graph[eachVtx].op);
+  for (auto &regWriteOp: partData.allRegWrites) {
     auto outputVal = regWriteOp.getData();
+    assert(!pinnedOutputVals.contains(outputVal));
 
-    if (!pinnedOutputVals.contains(outputVal)) {
-      pinnedOutputVals.insert(outputVal);
-      // insert this val
-      auto realValId = nextValId;
-      numOutputVals++;
-      // Vector val cannot be directly used as partition output val
-      assert(!vecValToLength.contains(outputVal));
-      assert(!valToValId.contains(outputVal));
-      valToValId[outputVal] = realValId;
+    pinnedOutputVals.insert(outputVal);
+    // insert this val
+    auto realValId = nextValId;
+    numOutputVals++;
+    // Vector val cannot be directly used as partition output val
+    assert(!vecValToLength.contains(outputVal));
+    assert(!valToValId.contains(outputVal));
+    valToValId[outputVal] = realValId;
 
-      nextValId++;
-    } else {
-      llvm_unreachable("Should this happen?");
+    nextValId++;
+  }
+  // allocate for exchange write. They should be placed at the begining to ensure performance
+  for (auto &outputVal: partData.allExgWriteVals) {
+    assert(!isa<toucan::StaticVectorSegmentReadOp>(outputVal.getDefiningOp()));
+    assert(!pinnedOutputVals.contains(outputVal));
+
+    size_t byteCount = 1;
+    bool isVec = false;
+    if (auto vecVal = dyn_cast<mlir::TypedValue<toucan::VecType>>(outputVal)) {
+      isVec = true;
+      byteCount = vecVal.getType().getLength();
     }
+
+    pinnedOutputVals.insert(outputVal);
+    // insert this val
+    auto realValId = nextValId;
+    numOutputVals++;
+
+    // assert(!vecValToLength.contains(outputVal));
+    if (isVec) {
+      // exchange vals can be a vector
+      assert(vecValToLength.contains(outputVal));
+      assert(vecValToLength[outputVal] == byteCount);
+    }
+    valToValId[outputVal] = realValId;
+
+    nextValId += byteCount;
   }
 
   assert(numOutputVals == pinnedOutputVals.size());
 
 
+  assert(partData.allRegReads.empty() || partData.allExgReadVals.empty());
   // allocate reg reads
-  for (const auto eachVtx: mpartitioner.allRegReads) {
-    assert(graph[eachVtx].toucanOpName == CGToucanOPName::RegRead);
-    assert(graph[eachVtx].op != nullptr);
-    auto regReadOp = cast<toucan::RegReadOp>(graph[eachVtx].op);
+  for (auto &regReadOp: partData.allRegReads) {
     auto inputVal = regReadOp.getResult();
 
     assert(!vecValToLength.contains(inputVal));
     assert(!pinnedOutputVals.contains(inputVal));
+    assert(!pinnedInputVals.contains(inputVal));
     assert(!constVals.contains(inputVal));
     pinnedInputVals.insert(inputVal);
     auto realValId = nextValId;
@@ -506,18 +582,65 @@ void MicroPartLocalValueAllocator::populateInitialPinnedVals(const PartitioningG
     valToValId[inputVal] = realValId;
     nextValId++;
   }
+  // allocate exchange reads
+  for (auto &inputVal: partData.allExgReadVals) {
+    assert(!pinnedOutputVals.contains(inputVal));
+    assert(!pinnedInputVals.contains(inputVal));
+    assert(!constVals.contains(inputVal));
 
-  for (auto [val, valId]: valToValId) {
-    // pinned values should not be result of StaticVectorSegmentReadOp
-    assert(!isa<toucan::StaticVectorSegmentReadOp>(val.getDefiningOp()));
+    mlir::SmallVector<mlir::Value> segmentVals;
+
+    size_t byteCount = 1;
+    bool isVec = false;
+    if (auto vecVal = dyn_cast<mlir::TypedValue<toucan::VecType>>(inputVal)) {
+      isVec = true;
+      byteCount = vecVal.getType().getLength();
+
+      for (auto eachUser: vecVal.getUsers()) {
+        if (auto segmentReadOp = dyn_cast<toucan::StaticVectorSegmentReadOp>(eachUser)) {
+          auto segmentVal = segmentReadOp.getResult();
+          segmentVals.push_back(segmentVal);
+        }
+      }
+    }
+
+    if (isVec) {
+      // exchange vals can be a vector
+      assert(vecValToLength.contains(inputVal));
+      assert(vecValToLength[inputVal] == byteCount);
+    } else {
+      assert(!vecValToLength.contains(inputVal));
+    }
+
+    pinnedInputVals.insert(inputVal);
+    auto realValId = nextValId;
+    numInputVals++;
+
+    assert(!valToValId.contains(inputVal));
+    valToValId[inputVal] = realValId;
+    nextValId += byteCount;
+
+
+    // Is this necessary?
+    // // map segment values as well
+    // for (auto eachSegmentVal: segmentVals) {
+    //   auto segOp = cast<toucan::StaticVectorSegmentReadOp>(eachSegmentVal.getDefiningOp());
+
+    //   auto segId = segOp.getSegmentId().getZExtValue();
+    //   assert(segId < byteCount);
+
+    //   valToValId[eachSegmentVal] = realValId + segId;
+    // }
+
   }
+
   assert(numInputVals == pinnedInputVals.size());
 }
 
 
 
 
-void MicroPartLocalValueAllocator::collectValueLifetime(const PartitioningGraph &graph, const MicroPartitioner &mpartitioner) {
+void MicroPartLocalValueAllocator::collectValueLifetime(RepCutPartitionCodeGenData &partData) {
 
   auto checkValueExistance = [&](mlir::Value val) {
     if (!valToLifeTime.contains(val)) {
@@ -528,34 +651,73 @@ void MicroPartLocalValueAllocator::collectValueLifetime(const PartitioningGraph 
     }
   };
   // 1. For every reg read, result val life starts at 0
-  for (auto eachVtx: mpartitioner.allRegReads) {
-    auto regReadOp = cast<toucan::RegReadOp>(graph[eachVtx].op);
+  for (auto &regReadOp: partData.allRegReads) {
     auto resultVal = regReadOp.getResult();
 
     assert(!valToLifeTime.contains(resultVal));
     valToLifeTime[resultVal] = {0, 0};
   }
+  for (auto &exgReadVal: partData.allExgReadVals) {
+    assert(!valToLifeTime.contains(exgReadVal));
+    valToLifeTime[exgReadVal] = {0, 0};
+
+    // Save vector size
+    if (isa<mlir::TypedValue<toucan::VecType>>(exgReadVal)) {
+      auto vecLength = cast<mlir::TypedValue<toucan::VecType>>(exgReadVal).getType().getLength();
+      if (vecValToLength.contains(exgReadVal)) {
+        assert(vecValToLength[exgReadVal] == vecLength);
+      } else {
+        vecValToLength[exgReadVal] = vecLength;
+      }
+    }
+
+    if (auto vecArithOp = dyn_cast<toucan::VectorArithOp>(exgReadVal.getDefiningOp())) {
+      mlir::SmallVector<mlir::Value> segmentVals;
+      for (auto eachUser: exgReadVal.getUsers()) {
+        if (auto segmentReadOp = dyn_cast<toucan::StaticVectorSegmentReadOp>(eachUser)) {
+          auto segmentVal = segmentReadOp.getResult();
+          segmentVals.push_back(segmentVal);
+        }
+      }
+
+      if (segmentVals.size() != 0) {
+        auto vecVal = vecArithOp.getResult();
+
+        for (auto eachSegmentVal: segmentVals) {
+          assert(!vecSegmentsToVecArith.contains(eachSegmentVal));
+          vecSegmentsToVecArith[eachSegmentVal] = vecVal;
+
+          assert(!vecArithAndSegmentValues.contains(eachSegmentVal));
+          vecArithAndSegmentValues.insert(eachSegmentVal);
+
+          // also save its life time
+          assert(!valToLifeTime.contains(eachSegmentVal));
+          valToLifeTime[eachSegmentVal] = {0, 0};
+        }
+
+        assert(!vecArithAndSegmentValues.contains(vecVal));
+        vecArithAndSegmentValues.insert(vecVal);
+
+        assert(!vecArithResultToSegments.contains(vecVal));
+        vecArithResultToSegments[vecVal] = segmentVals;
+      }
+    }
+  }
 
   
-  for (uint32_t levelId = 0; levelId < mpartitioner.partLevels.size(); levelId++) {
-    for (const auto &eachMPart: mpartitioner.partLevels[levelId]) {
-      for (const auto &eachInVal: eachMPart.inputValues) {
+  for (uint32_t levelId = 0; levelId < partData.mpartLevels.size(); levelId++) {
+    for (const auto &mPart: partData.mpartLevels[levelId]) {
+      for (const auto &eachInVal: mPart->inputValues) {
         // update val end time accordingly
         if (!isa<toucan::DefConstVectorOp>(eachInVal.getDefiningOp())) {
           // ignore const vec. They are placed in constVecPool and always alive
-          if (!valToLifeTime.contains(eachInVal)) {
-            llvm::dbgs() << "Level " << levelId << ": value not found in life time pool. Defining op:\n";
-            eachInVal.getDefiningOp()->print(llvm::dbgs());
-
-            llvm::dbgs() << "\n";
-          }
           assert(valToLifeTime.contains(eachInVal));
           auto oldValEndTime = valToLifeTime[eachInVal].end;
           assert(oldValEndTime <= levelId);
           valToLifeTime[eachInVal].end = levelId;
         }
       }
-      for (const auto &eachOutVal: eachMPart.outputValueSet) {
+      for (const auto &eachOutVal: mPart->outputValueSet) {
         // update val start time accordingly
         // Cannot write to a const vec
         assert(!isa<toucan::DefConstVectorOp>(eachOutVal.getDefiningOp()));
@@ -623,44 +785,22 @@ void MicroPartLocalValueAllocator::collectValueLifetime(const PartitioningGraph 
     }
   }
 
-  totalLevels = mpartitioner.partLevels.size();
+  totalLevels = partData.mpartLevels.size();
 
   // regwrite, memwrite, stop, print survive to last level (totalLevels)
-  for (auto eachVtx: mpartitioner.allRegWrites) {
-    auto regWriteOp = cast<toucan::RegWriteOp>(graph[eachVtx].op);
+  for (auto &regWriteOp: partData.allRegWrites) {
     auto inputVal = regWriteOp.getData();
-
-    if (!valToLifeTime.contains(inputVal)) {
-      llvm::dbgs() << "Reg write input val is missing in valLifeTime!\nRegWrite Op:\n";
-      regWriteOp.print(llvm::dbgs());
-      llvm::dbgs() << "\nSource Op:\n";
-      inputVal.print(llvm::dbgs());
-      llvm::dbgs() << "\n";
-    }
 
     assert(valToLifeTime.contains(inputVal));
     valToLifeTime[inputVal].end = totalLevels;
   }
 
-  // mem write could be merged nodes
-  // collect all of them
-  mlir::SmallVector<toucan::MemWriteOp> mwOps;
-  for (auto eachVtx: mpartitioner.allMemWrites) {
-    auto opCount = graph[eachVtx].opCount;
-    uint32_t realOpCount = 0;
-    auto oneMWOp = cast<toucan::MemWriteOp>(graph[eachVtx].op);
-    auto memVal = oneMWOp.getMem();
-
-    for (auto eachUserOp: memVal.getUsers()) {
-      if (auto mwOp = dyn_cast<toucan::MemWriteOp>(eachUserOp)) {
-        realOpCount += 1;
-        mwOps.push_back(mwOp);
-      }
-    }
-    assert(realOpCount == opCount);
+  for (auto &exgWriteVal: partData.allExgWriteVals) {
+    assert(valToLifeTime.contains(exgWriteVal));
+    valToLifeTime[exgWriteVal].end = totalLevels;
   }
   
-  for (auto mwOp: mwOps) {
+  for (auto &mwOp: partData.allMemWrites) {
     auto addrVecVal = mwOp.getAddrVec();
     auto enVal = mwOp.getEn();
     auto dataVal = mwOp.getData();
@@ -680,8 +820,7 @@ void MicroPartLocalValueAllocator::collectValueLifetime(const PartitioningGraph 
   }
 
   // stop
-  for (auto eachVtx: mpartitioner.allStops) {
-    auto stopOp = cast<toucan::StopOp>(graph[eachVtx].op);
+  for (auto &stopOp: partData.allStops) {
     auto inputVal = stopOp.getEn();
 
     if (!isa<toucan::ConstantOp>(inputVal.getDefiningOp())) {
@@ -693,8 +832,7 @@ void MicroPartLocalValueAllocator::collectValueLifetime(const PartitioningGraph 
   }
 
   // print
-  for (auto eachVtx: mpartitioner.allPrints) {
-    auto printOp = cast<toucan::PrintOp>(graph[eachVtx].op);
+  for (auto &printOp: partData.allPrints) {
     auto inputVal = printOp.getEn();
 
     if (!isa<toucan::ConstantOp>(inputVal.getDefiningOp())) {

@@ -153,7 +153,7 @@ namespace toucan {
     uint32_t fragment_id;
 
     mlir::Operation *op;
-    uint32_t vtxId;
+    // uint32_t vtxId;
 
     void setResult(uint32_t result) {
       switch (opName) {
@@ -246,7 +246,7 @@ namespace toucan {
     uint32_t fragment_id;
     bool isPadding;
     bool isIO;
-    mlir::Value val;
+    mlir::TypedValue<toucan::RegType> val;
   };
 
   struct CGMemMetaInfo {
@@ -262,12 +262,14 @@ namespace toucan {
 
   struct CGExchangeValueMetaInfo {
     bool isPadding;
-    // write id (new)
-    uint32_t writerId;
-    uint32_t writerRegionId;
+    // // write id (new)
+    // uint32_t writerId;
+    // uint32_t writerRegionId;
     mlir::Value val;
+    uint32_t byteCountOfVal;
+    uint32_t byteIdx;
     // region, vtxId (new)
-    mlir::SmallVector<std::tuple<uint32_t, uint32_t>> readerIds;
+    // mlir::SmallVector<std::tuple<uint32_t, uint32_t>> readerIds;
   };
 
   struct CGLayerValueStatistics {
@@ -421,6 +423,7 @@ namespace toucan {
     // mlir::SmallVector<mlir::SmallVector<CGOpMetaInfo>> opPool;
 
     mlir::SmallVector<CGOpMetaInfo> regReadOps, regWriteOps, memWriteOps, stopOps, printOps;
+    mlir::SmallVector<CGOpMetaInfo> exchangeReadOps, exchangeWriteOps;
     std::vector<std::vector<CGMicroPartInfo>> microPartOps;
 
     // data structure for scheduling purpose
@@ -437,6 +440,8 @@ namespace toucan {
     mlir::SmallVector<CGMemMetaInfo> memPool;
     // Exchange values
     mlir::SmallVector<CGExchangeValueMetaInfo> exchangePool;
+    // This pool keeps values. A value could possibly be vector
+    mlir::SmallVector<mlir::Value> exchangeValPool;
 
     mlir::SmallVector<mlir::SmallVector<uint32_t>> regionPartitionIds;
 
@@ -455,8 +460,9 @@ namespace toucan {
     // For developing purpose
     mlir::DenseMap<mlir::TypedValue<toucan::RegType>, uint32_t> toucanRegToId;
     mlir::DenseMap<mlir::TypedValue<toucan::MemType>, uint32_t> toucanMemToId;
+    mlir::DenseMap<mlir::Value, uint32_t> toucanExgValToId;
 
-    mlir::SmallVector<CGPartitionMetaInfo, 4> partitionInfo;
+    std::vector<CGPartitionMetaInfo> partitionInfo;
 
     mlir::DenseSet<mlir::StringRef> ioSignals;
   };

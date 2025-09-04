@@ -1,6 +1,8 @@
 #include "toucan/MicroPartitioner.h"
 
 #include "mlir/IR/Diagnostics.h"
+#include "mlir/IR/MLIRContext.h"
+#include "mlir/IR/Threading.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Support/LLVM.h"
@@ -16,6 +18,7 @@
 #include <boost/algorithm/string.hpp>
 #include <cstddef>
 #include <fstream>
+#include <memory>
 #include <sstream>
 #include <string>
 
@@ -26,11 +29,14 @@ using namespace mlir;
 using namespace llvm;
 
 
+void MicroPartitioner::mergeSpecialMParts(const size_t maxOpsPerMPart) {
+  llvm_unreachable("Under construction");
+}
 
 
-LogicalResult MicroPartitioner::arrangeSpecialOps(PartitioningGraph &g) {
+LogicalResult MicroPartitioner::arrangeSpecialOps(const PartitioningGraph &g, const size_t maxOpsPerMPart) {
 
-
+  assert(maxOpsPerMPart <= 32);
   assert(partLevels.size() == excludeNodeLevels.size());
 
   auto numLevels = partLevels.size();
@@ -127,17 +133,17 @@ LogicalResult MicroPartitioner::arrangeSpecialOps(PartitioningGraph &g) {
             }
           }
 
-          // for every 32
+          // for every maxOpsPerMPart
           mlir::SmallVector<mlir::Operation*> thisPartOps;
           for (size_t i = 0; i < specialOps.size(); i++) {
             thisPartOps.push_back(specialOps[i]);
 
-            if (thisPartOps.size() == 32 || i+1 == specialOps.size()) {
-              partLevels[levelId].emplace_back();
-              MicroPart &newPart = partLevels[levelId].back();
-              newPart.buildSpecialPart(vtxOpName, thisPartOps);
-              newPart.lineno = UINT32_MAX;
-              newPart.partId = static_cast<uint32_t>(partId);
+            if (thisPartOps.size() == maxOpsPerMPart || i+1 == specialOps.size()) {
+              auto newPart = std::make_shared<MicroPart>();
+              partLevels.back().emplace_back(newPart);
+              newPart->buildSpecialPart(vtxOpName, thisPartOps);
+              newPart->lineno = UINT32_MAX;
+              newPart->partId = static_cast<uint32_t>(partId);
               thisPartOps.clear();
             }
           }
@@ -207,7 +213,7 @@ mlir::LogicalResult MicroPartitioner::partition() {
   }
 
   std::ostringstream oss;
-  oss << "Part " << partId << " has " << totalNumParts << " micro parts, " << partLevels.size() << " micro part levels\n";
+  oss << "Has " << totalNumParts << " micro parts, " << partLevels.size() << " micro part levels\n";
 
   llvm::outs() << oss.str();
 
@@ -351,7 +357,6 @@ mlir::LogicalResult MicroPartitioner::loadMicroParts() {
     } else if (split_line[0] == "n") {
       // Normal partition
       assert(levelId + 1 == static_cast<int>(partLevels.size()));
-      partLevels.back().emplace_back();
 
       newPartNodesLevel.clear();
       for (size_t i = 1; i < split_line.size(); i++) {
@@ -377,10 +382,11 @@ mlir::LogicalResult MicroPartitioner::loadMicroParts() {
         }
       }
 
-      auto &newPart = partLevels.back().back();
-      newPart.buildRegularLUTPart(newPartNodesLevel);
-      newPart.lineno = lineno;
-      newPart.partId = static_cast<uint32_t>(partId);
+      auto newPart = std::make_shared<MicroPart>();
+      partLevels[levelId].push_back(newPart);
+      newPart->buildRegularLUTPart(newPartNodesLevel);
+      newPart->lineno = lineno;
+      newPart->partId = static_cast<uint32_t>(partId);
     } else {
       llvm::errs() << "Cannot parse line\n" << line;
       return failure();
@@ -441,7 +447,7 @@ mlir::LogicalResult MicroPartitioner::loadVectorNopMap() {
   return success();
 }
 
-void MicroPartitioner::collectPartIOValues(const PartitioningGraph &g) {
+void MicroPartitioner::collectPartIOValues(mlir::MLIRContext *context, const PartitioningGraph &g) {
   // 1. find map from new node id to original vecDecl Id
 
   for (const auto &[vecDeclId, vecNewNodes]: outputVectorNopMap) {
@@ -465,16 +471,26 @@ void MicroPartitioner::collectPartIOValues(const PartitioningGraph &g) {
 
   // 2. collect for all parts
   // uint32_t levelId = 0;
+  // consider parallel
   for (auto &eachPartLevel: partLevels) {
-    for (auto &eachPart: eachPartLevel) {
-      auto partGood = eachPart.checkAndCollectIOValues(g, allNodes, newNodeIdToDepNodeId, newNodeIdToOriginalVecDeclId, outputVectorNopMap);
+    size_t numMPartThisLevel = eachPartLevel.size();
+
+    auto allPartGood = mlir::failableParallelForEachN(context, 0, numMPartThisLevel, [&](size_t partIndexInThisLevel) {
+      auto eachPart = eachPartLevel[partIndexInThisLevel];
+
+      auto partGood = eachPart->checkAndCollectIOValues(g, allNodes, newNodeIdToDepNodeId, newNodeIdToOriginalVecDeclId, outputVectorNopMap);
 
       if (!partGood) {
         llvm::errs() << "Error when checking micro parts\n";
-        llvm_unreachable("Not suppose to happen");
+        return failure();
       }
+      return success();
+    });
+
+    if (failed(allPartGood)) {
+      // fail!!
+      llvm_unreachable("Should not happen");
     }
-    // levelId++;
   }
 }
 

@@ -249,6 +249,7 @@ static LogicalResult toucanMain(MLIRContext &context) {
 int main(int argc, char ** argv) {
     llvm::InitLLVM y(argc, argv);
     mlir::MLIRContext context;
+    // context.disableMultithreading();
     cl::HideUnrelatedOptions(mainCategory);
     toucan::registerPasses();
     mlir::registerCSEPass();

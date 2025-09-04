@@ -149,6 +149,7 @@ static void serializeSimPartitionInfo(std::ostream& out, const SimPartitionInfo&
   serializePrimitive(out, info.valuePoolSize);
   serializeVector(out, info.constVecPool);
   serializeVector(out, info.ops_l0_regRead);
+  serializeVector(out, info.ops_l0_exchangeRead);
 
   serializePrimitive(out, info.exec_mParts.size());
   for (const auto& mParts : info.exec_mParts) {
@@ -161,7 +162,7 @@ static void serializeSimPartitionInfo(std::ostream& out, const SimPartitionInfo&
   serializePrimitive(out, info.op_last_regWrite);
   serializeVector(out, info.ops_last_memWrite);
   serializeVector(out, info.ops_last_print);
-  serializeVector(out, info.ops_last_stop);
+  serializeVector(out, info.ops_last_stop);serializePrimitive(out, info.op_last_exchangeWrite);
 }
 
 static void deserializeSimPartitionInfo(std::istream& in, SimPartitionInfo& info) {
@@ -169,6 +170,7 @@ static void deserializeSimPartitionInfo(std::istream& in, SimPartitionInfo& info
   deserializePrimitive(in, info.valuePoolSize);
   deserializeVector(in, info.constVecPool);
   deserializeVector(in, info.ops_l0_regRead);
+  deserializeVector(in, info.ops_l0_exchangeRead);
 
   size_t exec_mPartsSize;
   deserializePrimitive(in, exec_mPartsSize);
@@ -188,6 +190,7 @@ static void deserializeSimPartitionInfo(std::istream& in, SimPartitionInfo& info
   deserializeVector(in, info.ops_last_memWrite);
   deserializeVector(in, info.ops_last_print);
   deserializeVector(in, info.ops_last_stop);
+  deserializePrimitive(in, info.op_last_exchangeWrite);
 }
 
 
@@ -196,6 +199,7 @@ static void deserializeSimPartitionInfo(std::istream& in, SimPartitionInfo& info
 void serializeSimDesignInfo(std::ostream& out, const SimDesignInfo& info) {
   serializePrimitive(out, info.regPoolSize);
   serializePrimitive(out, info.memPoolSize);
+  serializePrimitive(out, info.exchangePoolSize);
   serializePrimitive(out, info.shouldStop);
 
   serializeVector(out, info.lut);
@@ -222,6 +226,7 @@ void serializeSimDesignInfo(std::ostream& out, const SimDesignInfo& info) {
 void deserializeSimDesignInfo(std::istream& in, SimDesignInfo& info) {
   deserializePrimitive(in, info.regPoolSize);
   deserializePrimitive(in, info.memPoolSize);
+  deserializePrimitive(in, info.exchangePoolSize);
   deserializePrimitive(in, info.shouldStop);
 
   deserializeVector(in, info.lut);
@@ -395,6 +400,7 @@ static bool isCGMicroPartInfoEqual(const CGMicroPartInfo& a, const CGMicroPartIn
 bool isSimDesignInfoIdentical(const SimDesignInfo& a, const SimDesignInfo& b) {
   assert(a.regPoolSize == b.regPoolSize);
   assert(a.memPoolSize == b.memPoolSize);
+  assert(a.exchangePoolSize == b.exchangePoolSize);
   assert(a.shouldStop == b.shouldStop);
 
   assert(isVectorEqual(a.lut, b.lut));
@@ -411,6 +417,7 @@ bool isSimDesignInfoIdentical(const SimDesignInfo& a, const SimDesignInfo& b) {
     assert(partA.valuePoolSize == partB.valuePoolSize);
     assert(isVectorEqual(partA.constVecPool, partB.constVecPool));
     assert(isVectorEqual(partA.ops_l0_regRead, partB.ops_l0_regRead));
+    assert(isVectorEqual(partA.ops_l0_exchangeRead, partB.ops_l0_exchangeRead));
 
     assert(partA.exec_mParts.size() == partB.exec_mParts.size());
     for (size_t j = 0; j < partA.exec_mParts.size(); ++j) {
@@ -424,6 +431,7 @@ bool isSimDesignInfoIdentical(const SimDesignInfo& a, const SimDesignInfo& b) {
     assert(isVectorEqual(partA.ops_last_memWrite, partB.ops_last_memWrite));
     assert(isVectorEqual(partA.ops_last_print, partB.ops_last_print));
     assert(isVectorEqual(partA.ops_last_stop, partB.ops_last_stop));
+    assert(isPODEqual(partA.op_last_exchangeWrite, partB.op_last_exchangeWrite));
   }
 
   assert(a.regionPartitionIds.size() == b.regionPartitionIds.size());

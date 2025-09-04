@@ -15,6 +15,7 @@
 #include "mlir/IR/Threading.h"
 #include "mlir/Support/LogicalResult.h"
 #include "toucan/MicroPartitioner.h"
+#include "toucan/MultiRegionMicroPartScheduler.h"
 #include "toucan/PartitioningGraph.h"
 #include "toucan/ToucanAnalysis.h"
 #include "toucan/ToucanCodeGenInfo.h"
@@ -49,6 +50,8 @@
 #include "toucan/MicroPartitioner.h"
 #include "toucan/CodeGenCommon.h"
 #include "ToucanGPUSim/ToucanGPUGenDataTypes.h"
+
+#include "toucan/PartitioningManager.h"
 
 using namespace toucan;
 using namespace circt;
@@ -261,6 +264,9 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     // copy const vec data
     std::copy(part.constVecPool.begin(), part.constVecPool.end(), std::back_inserter(partInfo.constVecPool));
 
+    assert(part.exchangeReadOps.empty() || part.regReadOps.empty());
+
+    // reg reads
     partInfo.ops_l0_regRead.reserve(part.regReadOps.size());
     for (const auto &opMeta: part.regReadOps) {
       toucanGPUSim::CGRegReadMetaInfo rr;
@@ -269,7 +275,7 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
       partInfo.ops_l0_regRead.push_back(rr);
     }
 
-    // ensure mem locations in ascending order
+    // ensure reg reads mem locations in ascending order
     if (partInfo.ops_l0_regRead.size() > 1) {
       auto rr_reg_last = partInfo.ops_l0_regRead.front().reg;
       auto rr_result_last = partInfo.ops_l0_regRead.front().result;
@@ -284,6 +290,30 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
       }
     }
 
+
+    // exchange reads
+    partInfo.ops_l0_exchangeRead.reserve(part.exchangeReadOps.size());
+    for (const auto &opMeta: part.exchangeReadOps) {
+      toucanGPUSim::CGExchangeReadMetaInfo er;
+      er.exchange = opMeta.exgRead.exchangeVal;
+      er.result = opMeta.exgRead.localVal;
+      partInfo.ops_l0_exchangeRead.push_back(er);
+    }
+
+    // ensure reg reads mem locations in ascending order
+    if (partInfo.ops_l0_exchangeRead.size() > 1) {
+      auto er_exg_last = partInfo.ops_l0_exchangeRead.front().exchange;
+      auto er_local_last = partInfo.ops_l0_exchangeRead.front().result;
+
+      for (size_t i = 1; i < partInfo.ops_l0_exchangeRead.size(); i++) {
+        auto er_exg = partInfo.ops_l0_exchangeRead[i].exchange;
+        auto er_local = partInfo.ops_l0_exchangeRead[i].result;
+        assert(er_exg > er_exg_last);
+        assert(er_local > er_local_last);
+        er_exg_last = er_exg;
+        er_local_last = er_local;
+      }
+    }
 
     // Micro parts
     for (const auto &eachMPLevel: part.microPartOps) {
@@ -429,10 +459,12 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     }
     // special handling for regWrites
 
-    llvm::outs() << "Partition " << partId << " reg writes: from data(shared mem) " << rw_bulk_start_dat << " to reg(global mem) " << rw_bulk_start_reg << ", size " << rw_bulk_size << "B\n";
+    if (rw_bulk_size != 0) {
+      llvm::outs() << "Partition " << partId << " reg writes: from data(shared mem) " << rw_bulk_start_dat << " to reg(global mem) " << rw_bulk_start_reg << ", size " << rw_bulk_size << "B\n";
+    }
+
 
     if (rw_bulk_size != 0) {
-      assert(rw_bulk_start_dat + rw_bulk_size - 1 <= UINT16_MAX);
       // Note: This is guarenteed by LocalValueAllocator
       assert(rw_bulk_start_dat == 16 && "Local data should starts from shared memory addr 16");
       assert(rw_bulk_start_reg % 16 == 0 && "Register should be aligned to 16B");
@@ -444,6 +476,52 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
       info.count = rw_bulk_size;
 
       partInfo.op_last_regWrite = info;
+    }
+
+
+    // exchange write
+    uint32_t ew_bulk_size = 0;
+    uint32_t ew_bulk_start_dat = 0;
+    uint32_t ew_bulk_start_exg = 0;
+    for (const auto &opMeta: part.exchangeWriteOps) {
+      assert(opMeta.exgWrite.localVal <= UINT16_MAX);
+
+      if (ew_bulk_size == 0) {
+        ew_bulk_start_dat = opMeta.exgWrite.localVal;
+        ew_bulk_start_exg = opMeta.exgWrite.exchangeVal;
+        ew_bulk_size = 1;
+      } else {
+        if (opMeta.exgWrite.localVal == ew_bulk_start_dat + ew_bulk_size && opMeta.exgWrite.exchangeVal == ew_bulk_start_exg + ew_bulk_size) {
+          // bulk
+          ew_bulk_size += 1;
+        } else {
+          // a new bulk. This should not happen
+          assert(false && "Each partition should only write to a contiguous range of exchange values");
+        }
+      }
+    }
+    // add extra padding
+    if (ew_bulk_size != 0) {
+      ew_bulk_size += getExtraAlignmentSpace(ew_bulk_size, 16);
+    }
+
+    if (ew_bulk_size != 0) {
+      llvm::outs() << "Partition " << partId << " exchange writes: from data(shared mem) " << ew_bulk_start_dat << " to exchange pool (global mem) " << ew_bulk_start_exg << ", size " << ew_bulk_size << "B\n";
+    }
+
+
+    if (ew_bulk_size != 0) {
+      // Note: This is guarenteed by LocalValueAllocator
+      assert(ew_bulk_start_dat == 16 && "Local data should starts from shared memory addr 16");
+      assert(ew_bulk_start_exg % 16 == 0 && "Exchange should be aligned to 16B");
+      assert(ew_bulk_size < UINT16_MAX && "Exchange write count should fit in uint16");
+
+      toucanGPUSim::CGExchangeWriteMetaInfo info;
+      info.exchange = ew_bulk_start_exg;
+      info.dat = ew_bulk_start_dat;
+      info.count = ew_bulk_size;
+
+      partInfo.op_last_exchangeWrite = info;
     }
 
     designInfo.parts.push_back(std::move(partInfo));
@@ -500,141 +578,69 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     markAllAnalysesPreserved();
 
     auto graph = getAnalysis<DesignGraph>();
+    PartitioningManager pm;
+    pm.context = &getContext();
 
-    auto p = RepCutPartitioner(outputDirectory.getValue());
-
-    // Levelize
-    llvm::outs() << "====================Levelize And Cut====================\n";
-
-    // Looks like only 1 region is enough
-    p.doNotCutGraph(graph);
-
-
-    // p.levelizeGraphForCut(graph);
-
-    // // Cut into 2 subgraph
-    // p.findCutPoints(graph);
-    // p.cutGraph(graph);
-
-    // Work done by BreakPinnedValueToOutputConnection pass
-    // p.breakDirectIOConnection();
-
-    // Detect number of partitions in each region by heuristic.
-    p.setPartitionTarget(partSizeRatio, targetSMs);
-
-
-    assert(ibFactor > 0.0f);
-    p.targetIb = ibFactor;
-
-    // auto result = p.partitionAndSchedule(&getContext(), graph);
-    // Just partition.
-    auto result = p._partition(&getContext(), graph);
-
-    if (failed(result)) {
-      return signalPassFailure();
-    }
-    result = p.dumpAllPartitionsToFile();
-    if (failed(result)) {
-      return signalPassFailure();
+    auto init_succeed = pm.init(outputDirectory.getValue(), 2);
+    if (failed(init_succeed)) {
+      signalPassFailure();
+      return;
     }
 
-    // Second level partitioning
-    // For now, don't cut in the middle
-    auto numRegions = p.regionGraphs.size();
-    assert(numRegions == 1);
-
-    std::vector<MicroPartitioner> mps;
-    for (size_t regionId = 0; regionId < numRegions; regionId++) {
-      auto &regionRepCutPartitions = p.regionPartitions[regionId];
-      auto &originalVectorElementsMap = p.originalVectorElementsMapForEachRegion[regionId];
-      
-      auto numParts = p.regionPartitions[regionId].size();
-      mps.reserve(numParts);
-
-      auto thisRegionWorkDirectory = p.regionWorkDirectory[regionId];
-
-      for (size_t partId = 0; partId < numParts; partId++) {
-        auto thisRepCutPartition = regionRepCutPartitions[partId];
-        mps.emplace_back(MicroPartitioner(thisRepCutPartition, thisRegionWorkDirectory, partId, originalVectorElementsMap));
-      }
-    }
-
-    for (size_t regionId = 0; regionId < numRegions; regionId++) {
-      assert(regionId == 0);
-      auto regionGraph = p.regionGraphs[regionId];
-      auto numParts = p.regionPartitions[regionId].size();
-
-      llvm::outs() << "======= Micro partition and schedule for region " << regionId << " =======\n";
-      llvm::outs() << "Has " << numParts << " RepCut partitions\n";
-      assert(mps.size() == numParts);
-
-      auto partitionAndScheduleStatus = mlir::failableParallelForEachN(&getContext(), 0, numParts, [&](size_t partId) {
-        // std::ostringstream oss;
-        // oss << "Running micro partitioner for region " << regionId << " part " << partId << "\n";
-        // llvm::outs() << oss.str();
-
-        assert(mps.size() > partId);
-        auto &mp = mps[partId];
-
-        auto ret = mp.partition();
-
-        if (failed(ret)) {
-          errs() << "Fail to partition\n";
-          return ret;
-        }
-
-        ret = mp.arrangeSpecialOps(regionGraph);
-        if (failed(ret)) {
-          errs() << "Fail to place special ops\n";
-          return ret;
-        }
-
-        mp.collectPartIOValues(regionGraph);
-
-        return success();
-      });
-
-      if (failed(partitionAndScheduleStatus)) {
+    
+    {
+      auto ret = pm.runStage1MicroPartitioner(graph.g);
+      if (failed(ret)) {
         signalPassFailure();
         return;
       }
+
+      ret = pm.buildMicroPartGraph(graph.g);
+      if (failed(ret)) {
+        signalPassFailure();
+        return;
+      }
+
+      auto cutPoint = pm.findCutPoint();
+
+      pm.cutGraph(cutPoint);
+      pm.breakDirectIOConnection(graph.g);
+
+      pm.updateGraphWeight_r0();
+      pm.updateGraphWeight_r1();
+
+      assert(ibFactor > 0.0f);
+      ret = pm.runStage2RepCutPartitioner(partSizeRatio, targetSMs, ibFactor);
+      if (failed(ret)) {
+        signalPassFailure();
+        return;
+      }
+
+      pm.collectRepCutPartitionCodeGenData();
+
+      // verify exchange index. can be removed
+      assert(pm.exchangeValPool.size() == pm.exchangeValues.size());
+      for (const auto &[val, idx]: pm.exchangeValues) {
+        assert(idx < pm.exchangeValPool.size());
+        assert(pm.exchangeValPool[idx] == val);
+      }
     }
 
+
     // Schedule
-    // Note: For now only use 1 region
-    assert(p.regionPartitions.size() == 1);
-
-    auto scheduler = SingleRegionMicroPartScheduler();
-    scheduler.mpartitioners.swap(mps);
-    scheduler.repcutPartitions = p.regionPartitions[0];
-
-    auto rGraph = p.regionGraphs[0];
-    assert(p.regionGraphs.size() == 1 && "SingleRegionMicroPartScheduler only supports 1 region");
-    auto partNodeList = p.regionPartitions[0];
-    assert(partNodeList.size() == p.regionPartitionNumbers[0]);
-
-    // for (int partId = 0; partId < partNodeList.size(); partId++) {
-    //   const auto &partNodes = partNodeList[partId];
-    //   mlir::DenseMap<int, int> opCounts;
-    //   for (const auto &vtx: partNodes) {
-    //     auto vtxOpName = static_cast<int>(p.regionGraphs[0][vtx].toucanOpName);
-    //     if (opCounts.contains(vtxOpName)) {
-    //       opCounts[vtxOpName] += 1;
-    //     } else {
-    //       opCounts[vtxOpName] = 1;
-    //     }
-    //   }
-
-    //   int totalOps = partNodes.size();
-    //   llvm::dbgs() << "Part " << partId << " has:\n";
-    //   for (int i = 0; i < getMaxEnumValForCGToucanOPName(); i++) {
-    //     if (opCounts[i] == 0) continue;
-    //     llvm::dbgs() << "  " << stringifyCGToucanOPName(static_cast<CGToucanOPName>(i)) << ": " << opCounts[i] << ", " << int(float(opCounts[i] * 100) / totalOps) << "%\n";
-    //   }
-    // }
-
     llvm::outs() << "================== Schedule operations ==================\n";
-    scheduler.schedule(&getContext(), rGraph, partNodeList);
+
+    auto scheduler = MultiRegionMicroPartScheduler();
+    // 2 regions for now
+    scheduler.regionPartData.resize(2);
+    std::swap(scheduler.regionPartData[0], pm.partCodeGenData_r0);
+    std::swap(scheduler.regionPartData[1], pm.partCodeGenData_r1);
+    scheduler.buildDummyVtxIndexInVec(*(pm.mp));
+    scheduler.copyVecTables(*(pm.mp));
+
+    // After this point, pm is not used and can be released.
+    scheduler.schedule(&getContext(), graph.g, pm.exchangeValPool);
+
 
     llvm::outs() << "======================= Code Gen =======================\n";
 
@@ -647,9 +653,17 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     // copy pool size
     designInfo.regPoolSize = scheduler.codeGenInfo.regPool.size();
     designInfo.memPoolSize = scheduler.codeGenInfo.totalMemSize;
+    designInfo.exchangePoolSize = scheduler.codeGenInfo.exchangePool.size();
 
     assert(designInfo.regPoolSize != 0);
-    assert(scheduler.codeGenInfo.regionPartitionIds.size() == 1);
+
+    designInfo.regionPartitionIds.clear();
+    for (const auto &eachRegionPartIds: scheduler.codeGenInfo.regionPartitionIds) {
+      designInfo.regionPartitionIds.emplace_back();
+      for (auto eachId: eachRegionPartIds) {
+        designInfo.regionPartitionIds.back().push_back(eachId);
+      }
+    }
 
     uint32_t partId = 0;
     for (const auto &eachRegionParts: scheduler.codeGenInfo.regionPartitionIds) {

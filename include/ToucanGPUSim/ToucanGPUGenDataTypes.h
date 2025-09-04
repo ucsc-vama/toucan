@@ -12,12 +12,23 @@
 
 namespace toucanGPUSim {
 
+  // const uint16_t MAX_REGREAD_BYTECOUNT = 2;
+
   // Reg read, only appear in first level
   struct CGRegReadMetaInfo {
     uint32_t reg;
     uint16_t result;
   };
 
+  struct CGExchangeReadMetaInfo {
+    uint32_t exchange;
+    uint16_t result;
+  };
+  struct CGExchangeWriteMetaInfo {
+    uint32_t exchange;
+    uint16_t dat;
+    uint16_t count;
+  };
 
   // last level: regWrite, memWrite, stop, print
   struct CGPrintMetaInfo {
@@ -232,6 +243,7 @@ namespace toucanGPUSim {
     std::vector<uint8_t> constVecPool;
 
     std::vector<CGRegReadMetaInfo> ops_l0_regRead;
+    std::vector<CGExchangeReadMetaInfo> ops_l0_exchangeRead;
 
     std::vector<std::vector<CGMicroPartInfo>> exec_mParts;
 
@@ -239,6 +251,8 @@ namespace toucanGPUSim {
     std::vector<CGMemWriteMetaInfo> ops_last_memWrite;
     std::vector<CGPrintMetaInfo> ops_last_print;
     std::vector<CGStopMetaInfo> ops_last_stop;
+
+    CGExchangeWriteMetaInfo op_last_exchangeWrite;
 
   };
   struct SimDesignInfo {
@@ -251,6 +265,7 @@ namespace toucanGPUSim {
 
     uint32_t regPoolSize;
     uint32_t memPoolSize;
+    uint32_t exchangePoolSize;
 
     std::vector<SimPartitionInfo> parts;
 

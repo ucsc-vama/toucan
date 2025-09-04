@@ -8,7 +8,7 @@
 #include "mlir/Pass/AnalysisManager.h"
 #include "mlir/Support/LLVM.h"
 #include "toucan/PartitioningGraph.h"
-#include "toucan/ToucanAnalysis.h"
+#include "toucan/SchedulerBase.h"
 #include "toucan/ToucanAttributes.h"
 #include "toucan/ToucanOps.h"
 #include "toucan/ToucanTypes.h"
@@ -122,9 +122,9 @@ void SchedulerBase::collectPrintString(const PartitioningGraph &graph, mlir::Den
   }
 }
 
-void SchedulerBase::collectPrintString(const DesignGraph &graph, mlir::DenseMap<mlir::StringRef, uint32_t> &printStrings) {
-  collectPrintString(graph.g, printStrings);
-}
+// void SchedulerBase::collectPrintString(const DesignGraph &graph, mlir::DenseMap<mlir::StringRef, uint32_t> &printStrings) {
+//   collectPrintString(graph.g, printStrings);
+// }
 
 void SchedulerBase::populateOpMetaDebugInfo(CGOpMetaInfo &opMeta, mlir::Operation *op) {
   opMeta.namehint = getSVNameHintAttr(op);

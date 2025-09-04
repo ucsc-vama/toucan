@@ -34,6 +34,8 @@
 #include <filesystem>
 #include <vector>
 
+#include "toucan/PartitioningManager.h"
+
 namespace toucan {
   class MicroPartLocalValueAllocator {
     public:
@@ -60,10 +62,10 @@ namespace toucan {
 
     // uint32_t getValId(mlir::Value);
 
-    void collectValueLifetime(const PartitioningGraph &graph, const MicroPartitioner &mpartitioner);
+    void collectValueLifetime(RepCutPartitionCodeGenData &partData);
 
     // Populate const vals and RegWrite/ExchangeWrite. Those values are pinned
-    void populateInitialPinnedVals(const PartitioningGraph &graph, const mlir::DenseMap<mlir::Value, uint32_t> constValToRawValue, const MicroPartitioner &mpartitioner);
+    void populateInitialPinnedVals(RepCutPartitionCodeGenData &partData, const mlir::DenseMap<mlir::Value, uint32_t> constValToRawValue);
 
 
     private:
@@ -76,6 +78,7 @@ namespace toucan {
     mlir::DenseSet<mlir::Value> pinnedInputVals, pinnedOutputVals, constVals;
 
     mlir::DenseMap<mlir::Value, ValueLifeTime> valToLifeTime;
+    // mlir::DenseMap<mlir::Value, uint32_t> vecValToLength;
     mlir::DenseMap<mlir::Value, uint32_t> vecValToLength;
 
     mlir::DenseMap<mlir::Value, mlir::Value> vecSegmentsToVecArith;

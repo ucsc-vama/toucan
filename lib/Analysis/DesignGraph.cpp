@@ -161,6 +161,7 @@ DesignGraph::DesignGraph(Operation *op, AnalysisManager &am) {
     assert(vp.toucanOpName != CGToucanOPName::ShouldNotAppear);
     vp.opCount = getOpCount(&stmt);
     vp.exchangeValId = 0;
+    vp.mp = nullptr;
     auto newVertex = boost::add_vertex(vp, rawGraph);
 
     rawOpToId[&stmt] = newVertex;

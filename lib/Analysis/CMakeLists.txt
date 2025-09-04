@@ -6,7 +6,6 @@ add_circt_dialect_library(
   DesignGraph.cpp
   SchedulerBase.cpp
   # SingleRegionScheduler.cpp
-  MultiRegionPartitioner.cpp
   # NaivePartitioner.cpp
   RepCutPartitioner.cpp
   PartitioningGraph.cpp
@@ -15,7 +14,8 @@ add_circt_dialect_library(
   MicroPart.cpp
   MicroPartitioner.cpp
   MicroPartLocalValueAllocator.cpp
-  SingleRegionMicroPartScheduler.cpp
+  PartitioningManager.cpp
+  MultiRegionMicroPartScheduler.cpp
 
 
   DEPENDS
