@@ -1446,6 +1446,7 @@ void MultiRegionMicroPartScheduler::scheduleRegularMicroPart(const PartitioningG
       }
     }
 
+    part.maxActiveVars = part.topLevel.size();
     assert(opIndex <= 32);
     assert(shuffleValueToId.empty());
     assert(shuffleValueToId_next.size() == part.topLevel.size());
@@ -1690,6 +1691,7 @@ void MultiRegionMicroPartScheduler::scheduleRegularMicroPart(const PartitioningG
       mPart.print();
     }
     assert(opIndex <= 32);
+    part.maxActiveVars = std::max(part.maxActiveVars, static_cast<int>(part.middleLevels.back().size()));
   }
 
 
@@ -1706,6 +1708,7 @@ void MultiRegionMicroPartScheduler::scheduleRegularMicroPart(const PartitioningG
       part.lastLevel.push_back({valShuffleId, sMemIdx});
     }
     assert(part.lastLevel.size() <= 32);
+    part.maxActiveVars = std::max(part.maxActiveVars, static_cast<int>(part.lastLevel.size()));
   }
 
 }
@@ -1966,6 +1969,206 @@ void MultiRegionMicroPartScheduler::scheduleSpecialMicroPart(const PartitioningG
 
     default: llvm_unreachable("Unexpected op type");
   }
+}
+
+void MultiRegionMicroPartScheduler::mergeSmallRegularMParts(std::vector<CGMicroPartInfo> &mPartsThisLevel) {
+  auto mergeMP = [](CGMicroPartInfo &to, CGMicroPartInfo &from) {
+    assert(to.opType == from.opType);
+    assert(to.maxActiveVars > 0);
+    assert(from.maxActiveVars > 0);
+
+    assert(to.maxActiveVars <= 32);
+    assert(from.maxActiveVars <= 32);
+    // Add this limitation to simplify implementation
+    assert(to.middleLevels.size() >= from.middleLevels.size());
+
+    // maps shuffle val old -> new
+    mlir::DenseMap<uint16_t, uint16_t> shuffleValMap, shuffleValMap_next;
+    // std::unordered_map<uint16_t, uint16_t> shuffleValMap, shuffleValMap_next;
+
+    // top level
+    assert(from.topLevel.size() <= static_cast<size_t>(from.maxActiveVars));
+    assert(to.topLevel.size() <= static_cast<size_t>(to.maxActiveVars));
+
+    for (size_t i = 0; i < from.topLevel.size(); i++) {
+      // result val i is now mapped to to.topLevel.size()
+      auto newResultValId = to.topLevel.size();
+      // assert(!shuffleValMap.contains(i+32));
+      shuffleValMap[i + 32] = newResultValId + 32;
+
+      to.topLevel.push_back(from.topLevel[i]);
+      assert(to.topLevel.size() <= 32);
+      assert(i <= 32);
+    }
+    to.maxActiveVars = std::max(to.maxActiveVars, static_cast<int>(to.topLevel.size()));
+
+    auto getMappedShuffleVal = [&shuffleValMap](uint16_t oldId) {
+      if (oldId < 32) return oldId;
+      assert(shuffleValMap.contains(oldId));
+      return shuffleValMap[oldId];
+    };
+
+
+    // copy ops in middle level
+    for (size_t middle_level_id = 0; middle_level_id < from.middleLevels.size(); middle_level_id++) {
+      shuffleValMap_next.clear();
+
+      const auto &thisLevelOps = from.middleLevels[middle_level_id];
+
+      for (size_t i = 0; i < thisLevelOps.size(); i++) {
+        const auto &fromOp = thisLevelOps[i];
+
+        auto newShuffleValId = to.middleLevels[middle_level_id].size();
+
+        CGMicroPartLUTMiddleLevelOp toOp;
+        toOp.opName = fromOp.opName;
+        toOp.op0 = getMappedShuffleVal(fromOp.op0);
+        toOp.op1 = getMappedShuffleVal(fromOp.op1);
+        toOp.op2 = getMappedShuffleVal(fromOp.op2);
+
+        to.middleLevels[middle_level_id].push_back(toOp);
+        assert(to.middleLevels[middle_level_id].size() <= 32);
+
+        shuffleValMap_next[i + 32] = newShuffleValId + 32;
+      }
+
+      to.maxActiveVars = std::max(to.maxActiveVars, static_cast<int>(to.middleLevels[middle_level_id].size()));
+      std::swap(shuffleValMap, shuffleValMap_next);
+    }
+
+
+    // create NOPs for remaining middle levels
+    for (size_t middle_level_id = from.middleLevels.size(); middle_level_id < to.middleLevels.size(); middle_level_id++) {
+      shuffleValMap_next.clear();
+
+      for (const auto &[shuffleValFrom, oldShuffleValId]: shuffleValMap) {
+
+        auto newShuffleValId = to.middleLevels[middle_level_id].size();
+
+        to.middleLevels[middle_level_id].push_back({
+              LUTOpName::LUT_Nop, 
+              0, 0, static_cast<uint8_t>(oldShuffleValId)});
+        assert(to.middleLevels[middle_level_id].size() <= 32);
+
+        shuffleValMap_next[shuffleValFrom] = newShuffleValId + 32;
+      }
+
+      to.maxActiveVars = std::max(to.maxActiveVars, static_cast<int>(to.middleLevels[middle_level_id].size()));
+      std::swap(shuffleValMap, shuffleValMap_next);
+    }
+
+
+    // last level
+    for (size_t i = 0; i < from.lastLevel.size(); i++) {
+      const auto &op = from.lastLevel[i];
+
+      CGMicroPartLUTLastLevelWriteBack newOp;
+
+      newOp.shuffleId = getMappedShuffleVal(op.shuffleId);
+      newOp.result = op.result;
+
+      to.lastLevel.push_back(newOp);
+      assert(to.lastLevel.size() <= 32);
+    }
+    to.maxActiveVars = std::max(to.maxActiveVars, static_cast<int>(to.lastLevel.size()));
+
+    assert(to.maxActiveVars <= 32);
+
+    // clear
+    from.clear();
+  };
+
+
+  size_t mergeCount;
+  size_t iterCount = 0;
+
+  std::vector<uint32_t> mPartIds;
+  mlir::DenseSet<uint32_t> removedMParts;
+
+  while (true) {
+    mergeCount = 0;
+    iterCount++;
+    assert(iterCount < 100 && "This merge usually finish in 2-3 iterations.");
+
+    mPartIds.clear();
+    for (uint32_t i = 0; i < mPartsThisLevel.size(); i++) {
+      if (!removedMParts.contains(i)) {
+        mPartIds.push_back(i);
+        assert(mPartsThisLevel[i].maxActiveVars != -1);
+      } else {
+        assert(mPartsThisLevel[i].maxActiveVars == -1);
+      }
+    }
+
+    if (mPartIds.size() <= 1) break;
+
+    std::sort(mPartIds.begin(), mPartIds.end(), [&mPartsThisLevel](const auto a, const auto b) {
+      return mPartsThisLevel.at(a).middleLevels.size() > mPartsThisLevel.at(b).middleLevels.size();
+    });
+    std::stable_sort(mPartIds.begin(), mPartIds.end(), [&mPartsThisLevel](const auto a, const auto b) {
+      return mPartsThisLevel.at(a).maxActiveVars > mPartsThisLevel.at(b).maxActiveVars;
+    });
+
+    size_t frontPtr = 0;
+    size_t lastPtr = mPartIds.size() - 1;
+
+
+    while (mPartsThisLevel[mPartIds[frontPtr]].maxActiveVars >= 32) {
+      assert(mPartsThisLevel[mPartIds[frontPtr]].maxActiveVars == 32);
+      frontPtr++;
+    }
+
+    while (frontPtr < lastPtr) {
+      // llvm::dbgs() << "front ptr " << frontPtr << ", last ptr " << lastPtr << ", front mp id " << mPartIds[frontPtr] << ", last mp id " << mPartIds[lastPtr] << "\n";
+      assert(mPartIds[frontPtr] != mPartIds[lastPtr]);
+
+      auto frontMpId = mPartIds[frontPtr];
+      auto lastMpId = mPartIds[lastPtr];
+      auto &frontMPart = mPartsThisLevel[frontMpId];
+      auto &lastMPart = mPartsThisLevel[lastMpId];
+
+      assert(!removedMParts.contains(frontMpId));
+      assert(!removedMParts.contains(lastMpId));
+      assert(frontMPart.maxActiveVars > 0);
+      assert(lastMPart.maxActiveVars > 0);
+      if (frontMPart.maxActiveVars + lastMPart.maxActiveVars <= 32) {
+        // ok to merge
+        auto front_mpart_levels = frontMPart.middleLevels.size();
+        auto last_mpart_levels = lastMPart.middleLevels.size();
+
+        if (front_mpart_levels >= last_mpart_levels) {
+          // merge lastMP into frontMP. After this, lastMP become invalid
+          mergeMP(frontMPart, lastMPart);
+          removedMParts.insert(lastMpId);
+          lastPtr--;
+        } else {
+          // merge frontMP into lastMP. After this, frontMP become invalid
+          mergeMP(lastMPart, frontMPart);
+          removedMParts.insert(frontMpId);
+          frontPtr++;
+          // Though lastMP is still valid, skip it and merge in next iteration
+          lastPtr--;
+        }
+
+        mergeCount++;
+      } else {
+        frontPtr++;
+      }
+    }
+
+    // llvm::outs() << "Perform " << mergeCount << " merges at iteration " << iterCount << "\n";
+
+    if (mergeCount == 0) break;
+  }
+
+  std::vector<CGMicroPartInfo> newMParts;
+  for (uint32_t i = 0; i < mPartsThisLevel.size(); i++) {
+    if (!removedMParts.contains(i)) {
+      newMParts.push_back(mPartsThisLevel[i]);
+    }
+  }
+
+  std::swap(newMParts, mPartsThisLevel);
 }
 
 
@@ -2287,6 +2490,7 @@ void MultiRegionMicroPartScheduler::schedule(mlir::MLIRContext *context, const P
 
       for (uint32_t levelId = 0; levelId < partData.mpartLevels.size(); levelId++) {
         partInfo.microPartOps.emplace_back();
+        std::vector<CGMicroPartInfo> regularMPartsThisLevel;
 
         for (const auto &eachMPart: partData.mpartLevels[levelId]) {
           // schedule each mpart
@@ -2298,17 +2502,27 @@ void MultiRegionMicroPartScheduler::schedule(mlir::MLIRContext *context, const P
           if (isNOPPart) {
             assert(isRegularPart);
             scheduleNOPMicroPart(newPart, *eachMPart, partInfo.valueToValId);
+            partInfo.microPartOps.back().emplace_back(newPart);
           } else {
             if (isRegularPart) {
               scheduleRegularMicroPart(rawGraph, newPart, *eachMPart, partInfo.valueToValId);
+              // Save for merge
+              regularMPartsThisLevel.emplace_back(newPart);
             } else {
               scheduleSpecialMicroPart(rawGraph, newPart, *eachMPart, partInfo);
+              partInfo.microPartOps.back().emplace_back(newPart);
             }
           }
 
-          partInfo.microPartOps.back().emplace_back(newPart);
           // add code gen meta
         }
+        // llvm::dbgs() << "Merge at level " << levelId << ", " << regularMPartsThisLevel.size() << " regular mparts\n";
+        mergeSmallRegularMParts(regularMPartsThisLevel);
+        partInfo.microPartOps.back().reserve(partInfo.microPartOps.back().size() + regularMPartsThisLevel.size());
+        for (size_t i = 0; i < regularMPartsThisLevel.size(); i++) {
+          partInfo.microPartOps.back().emplace_back(std::move(regularMPartsThisLevel[i]));
+        }
+        // Expect: design 6.2M
       }
 
 

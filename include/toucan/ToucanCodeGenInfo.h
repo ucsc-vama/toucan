@@ -388,6 +388,7 @@ namespace toucan {
 
   struct CGMicroPartInfo {
     CGToucanOPName opType;
+    int maxActiveVars;
 
     mlir::SmallVector<CGMicroPartLUTTopLevelOp> topLevel;
     mlir::SmallVector<mlir::SmallVector<CGMicroPartLUTMiddleLevelOp>> middleLevels;
@@ -400,6 +401,7 @@ namespace toucan {
     mlir::SmallVector<CGMicroPartMemRead> memRead;
 
     void clear() {
+      maxActiveVars = -1;
       topLevel.clear();
       middleLevels.clear();
       lastLevel.clear();

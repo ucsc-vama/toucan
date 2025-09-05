@@ -1095,6 +1095,7 @@ void PartitioningManager::collectRepCutPartitionCodeGenData() {
           case CGToucanOPName::MPart_Regular: {
             // regular mPart. Just keep it
             assert(mPart != nullptr);
+            assert(mPart->partIsValid);
             info.mpartLevels.back().push_back(mPart);
 
             for (const auto &eachVal: mPart->inputValues) {
@@ -1113,6 +1114,7 @@ void PartitioningManager::collectRepCutPartitionCodeGenData() {
           }
           case CGToucanOPName::MPart_Special: {
             assert(mPart != nullptr);
+            assert(mPart->partIsValid);
             assert(!mPart->isRegularPart());
             assert(mPart->specialOps.size() == 1);
             specialMPartsInThisLevel.push_back(mPart);

@@ -589,6 +589,7 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
 
     
     {
+      // Note: In this step, small parts at same level are not merged. This is done in scheduler
       auto ret = pm.runStage1MicroPartitioner(graph.g);
       if (failed(ret)) {
         signalPassFailure();
@@ -616,6 +617,7 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
         return;
       }
 
+      // create codegen data for scheduler. Also merges special MParts.
       pm.collectRepCutPartitionCodeGenData();
 
       // verify exchange index. can be removed

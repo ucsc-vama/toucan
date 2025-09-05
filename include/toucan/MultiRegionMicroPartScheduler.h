@@ -214,6 +214,8 @@ namespace toucan {
     void scheduleNOPMicroPart(CGMicroPartInfo &part, MicroPart &mPart, const mlir::DenseMap<mlir::Value, uint32_t> &valToValId) const;
     void scheduleMicroParts(const PartitioningGraph &graph, CGPartitionMetaInfo &partInfo, const std::vector<std::vector<MicroPart>> &partLevels);
 
+    static void mergeSmallRegularMParts(std::vector<CGMicroPartInfo> &mPartsThisLevel);
+
     std::mutex debugSymbolLock;
 
     void fillSignalDebugInfoForSinglePart(const MicroPartLocalValueAllocator &valAllocator, uint32_t partId);
