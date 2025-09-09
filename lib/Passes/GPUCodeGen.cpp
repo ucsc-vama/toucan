@@ -666,13 +666,6 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     assert(designInfo.regPoolSize != 0);
 
     designInfo.regionPartitionIds.clear();
-    for (const auto &eachRegionPartIds: scheduler.codeGenInfo.regionPartitionIds) {
-      designInfo.regionPartitionIds.emplace_back();
-      for (auto eachId: eachRegionPartIds) {
-        designInfo.regionPartitionIds.back().push_back(eachId);
-      }
-    }
-
     uint32_t partId = 0;
     for (const auto &eachRegionParts: scheduler.codeGenInfo.regionPartitionIds) {
       designInfo.regionPartitionIds.emplace_back();
@@ -686,6 +679,7 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
         partId++;
       }
     }
+    assert(designInfo.regionPartitionIds.size() == 2);
 
     // Fill print msgs
     designInfo.printMsgs.resize(scheduler.codeGenInfo.printStrings.size());
