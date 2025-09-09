@@ -464,19 +464,23 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     }
 
 
+    toucanGPUSim::CGRegWriteMetaInfo rwInfo;
     if (rw_bulk_size != 0) {
       // Note: This is guarenteed by LocalValueAllocator
       assert(rw_bulk_start_dat == 16 && "Local data should starts from shared memory addr 16");
       assert(rw_bulk_start_reg % 16 == 0 && "Register should be aligned to 16B");
       assert(rw_bulk_size < UINT16_MAX && "Register write count should fit in uint16");
 
-      toucanGPUSim::CGRegWriteMetaInfo info;
-      info.reg = rw_bulk_start_reg;
-      info.dat = rw_bulk_start_dat;
-      info.count = rw_bulk_size;
-
-      partInfo.op_last_regWrite = info;
+      rwInfo.reg = rw_bulk_start_reg;
+      rwInfo.dat = rw_bulk_start_dat;
+      rwInfo.count = rw_bulk_size;
+    } else {
+      rwInfo.reg = 0;
+      rwInfo.dat = 0;
+      rwInfo.count = 0;
     }
+
+    partInfo.op_last_regWrite = rwInfo;
 
 
     // exchange write
@@ -509,20 +513,22 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
       llvm::outs() << "Partition " << partId << " exchange writes: from data(shared mem) " << ew_bulk_start_dat << " to exchange pool (global mem) " << ew_bulk_start_exg << ", size " << ew_bulk_size << "B\n";
     }
 
-
+    toucanGPUSim::CGExchangeWriteMetaInfo ewInfo;
     if (ew_bulk_size != 0) {
       // Note: This is guarenteed by LocalValueAllocator
       assert(ew_bulk_start_dat == 16 && "Local data should starts from shared memory addr 16");
       assert(ew_bulk_start_exg % 16 == 0 && "Exchange should be aligned to 16B");
       assert(ew_bulk_size < UINT16_MAX && "Exchange write count should fit in uint16");
 
-      toucanGPUSim::CGExchangeWriteMetaInfo info;
-      info.exchange = ew_bulk_start_exg;
-      info.dat = ew_bulk_start_dat;
-      info.count = ew_bulk_size;
-
-      partInfo.op_last_exchangeWrite = info;
+      ewInfo.exchange = ew_bulk_start_exg;
+      ewInfo.dat = ew_bulk_start_dat;
+      ewInfo.count = ew_bulk_size;
+    } else {
+      ewInfo.exchange = 0;
+      ewInfo.dat = 0;
+      ewInfo.count = 0;
     }
+    partInfo.op_last_exchangeWrite = ewInfo;
 
     designInfo.parts.push_back(std::move(partInfo));
   }
