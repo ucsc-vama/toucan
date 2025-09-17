@@ -282,7 +282,7 @@ def GPUCodeGen: Pass<"gpu-codegen", "circt::ModuleOp"> {
     Option<"temporaryDirectory", "temporaryDirectory", "std::string", "", "Directory for temp files">,
     Option<"ibFactor", "ibFactor", "float", "0.03", "Partitioner imbalance factor">,
     Option<"partSizeRatio", "partSizeRatio", "float", "0.7", "Partitioner size ratio. between 1~0">,
-    Option<"targetSMs", "targetSMs", "int", "142", "Target GPU SM count">,
+    // Option<"targetSMs", "targetSMs", "int", "142", "Target GPU SM count">,
   ];
 }
 

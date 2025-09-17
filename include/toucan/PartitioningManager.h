@@ -55,6 +55,7 @@ namespace toucan {
   
   class PartitioningManager {
     private:
+    mlir::DenseMap<mlir::Value, mlir::DenseSet<mlir::Operation*>> valToUserOpsDoNotReplace;
 
     public:
     mlir::MLIRContext *context;
@@ -116,7 +117,7 @@ namespace toucan {
 
     void updateGraphWeight_r0();
     void updateGraphWeight_r1();
-    mlir::LogicalResult runStage2RepCutPartitioner(float partSizeRatio, int targetGPUSMCount, float ibFactor);
+    mlir::LogicalResult runStage2RepCutPartitioner(float partSizeRatio, float ibFactor);
 
     void collectRepCutPartitionCodeGenData();
 

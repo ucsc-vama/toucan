@@ -55,7 +55,7 @@ namespace toucan {
     };
     mlir::LogicalResult _partition(mlir::MLIRContext *context);
 
-    void setPartitionTarget(float partSizeRatio, int targetGPUSMCount);
+    void setPartitionTarget(float partSizeRatio);
 
     // private:
     std::filesystem::path outputDirectory;

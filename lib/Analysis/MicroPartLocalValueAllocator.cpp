@@ -584,7 +584,7 @@ void MicroPartLocalValueAllocator::populateInitialPinnedVals(RepCutPartitionCode
   }
   // allocate exchange reads
   for (auto &inputVal: partData.allExgReadVals) {
-    assert(!pinnedOutputVals.contains(inputVal));
+    assert(!pinnedOutputVals.contains(inputVal) && "Possibly an edge from input directly to output");
     assert(!pinnedInputVals.contains(inputVal));
     assert(!constVals.contains(inputVal));
 

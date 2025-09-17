@@ -617,7 +617,7 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
       pm.updateGraphWeight_r1();
 
       assert(ibFactor > 0.0f);
-      ret = pm.runStage2RepCutPartitioner(partSizeRatio, targetSMs, ibFactor);
+      ret = pm.runStage2RepCutPartitioner(partSizeRatio, ibFactor);
       if (failed(ret)) {
         signalPassFailure();
         return;

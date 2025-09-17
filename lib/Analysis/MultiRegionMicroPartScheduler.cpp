@@ -2522,7 +2522,6 @@ void MultiRegionMicroPartScheduler::schedule(mlir::MLIRContext *context, const P
         for (size_t i = 0; i < regularMPartsThisLevel.size(); i++) {
           partInfo.microPartOps.back().emplace_back(std::move(regularMPartsThisLevel[i]));
         }
-        // Expect: design 6.2M
       }
 
 

@@ -203,7 +203,6 @@ bool MicroPart::checkAndCollectRegularPartIOValues(const PartitioningGraph &g, c
         }
 
         allPreviousLevelResultValues.insert(getOpResultValue(rawOp));
-        
       }
 
       // Collect output vals
@@ -463,6 +462,8 @@ void MicroPart::print() const {
           assert(nodeToInputVals.contains(eachVtx));
           assert(nodeToInputVals.at(eachVtx).size() == 1);
           nodeToInputVals.at(eachVtx).front().print(llvm::dbgs());
+          llvm::dbgs() << "\n    Result vec: ";
+          nodeToOutputVal.at(eachVtx).print(llvm::dbgs());
           llvm::dbgs() << "\n";
         } else {
           llvm::dbgs() << "  Regular node: ";

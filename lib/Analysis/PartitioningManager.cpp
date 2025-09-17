@@ -460,26 +460,79 @@ mlir::LogicalResult PartitioningManager::buildMicroPartGraph(const PartitioningG
 
 
 int PartitioningManager::findCutPoint() {
-  int totalNumVtxes = 0;
-  int maxLevels = microPartGraph_levels.size();
 
+  // count expected parts
+  std::vector<uint32_t> estimateMPartsPerLevel;
   for (const auto &eachLevel: microPartGraph_levels) {
-    totalNumVtxes += eachLevel.size();
+    uint32_t thisLevelMPartCntEst = 0;
+
+    for (const auto &vtx: eachLevel) {
+      auto tOpName = (*microPartGraph)[vtx].toucanOpName;
+      auto mPart = (*microPartGraph)[vtx].mp;
+
+      uint32_t numOpWidth = 0;
+
+      switch (tOpName) {
+        case CGToucanOPName::RegRead: {
+          numOpWidth += 1;
+          break;
+        }
+        case CGToucanOPName::MPart_Regular: {
+          uint32_t maxParallelOps = 0;
+          for (const auto &el: mPart->levels) {
+            maxParallelOps = std::max(maxParallelOps, static_cast<uint32_t>(el.size()));
+          }
+
+          numOpWidth += maxParallelOps;
+          break;
+        }
+        case CGToucanOPName::MPart_Special: {
+          numOpWidth += mPart->specialOps.size();
+          break;
+        }
+        case CGToucanOPName::LUT: {
+          numOpWidth += 1;
+          break;
+        }
+
+        case CGToucanOPName::Print:
+        case CGToucanOPName::Stop:
+        case CGToucanOPName::RegWrite:
+        case CGToucanOPName::MemWrite: {
+          numOpWidth += 1;
+          break;
+        }
+        default: {
+          llvm_unreachable("Unexpected node type");
+        }
+      }
+
+      thisLevelMPartCntEst += (numOpWidth + 31) / 32;
+    }
+    estimateMPartsPerLevel.push_back(thisLevelMPartCntEst);
   }
 
   // for now, ensure over 60% of vtxes in region 0
-  float region0VtxTarget = 0.65f;
+  float region0VtxTarget = 0.5f;
+
+
+  int totalNumVtxes = 0;
+  int maxLevels = estimateMPartsPerLevel.size();
+
+  for (const auto &eachLevelEst: estimateMPartsPerLevel) {
+    totalNumVtxes += eachLevelEst;
+  }
 
   int region0NumVtxes = 0;
   int cutPoint = 0;
 
   size_t level_id = 0;
-  for (const auto &eachLevel: microPartGraph_levels) {
-    llvm::outs() << "Graph level " << level_id << " has " << eachLevel.size() << " nodes\n";
+  for (const auto &eachLevel: estimateMPartsPerLevel) {
+    llvm::outs() << "Graph level " << level_id << " has " << eachLevel << " estimated MPart nodes\n";
     level_id++;
   }
-  for (const auto &eachLevel: microPartGraph_levels) {
-    region0NumVtxes += eachLevel.size();
+  for (const auto &eachLevelEstMP: estimateMPartsPerLevel) {
+    region0NumVtxes += eachLevelEstMP;
     cutPoint ++;
     if (region0NumVtxes >= (totalNumVtxes * region0VtxTarget)) {
       break;
@@ -730,6 +783,7 @@ void PartitioningManager::cutGraph(int cutPoint) {
 
 
 void PartitioningManager::breakDirectIOConnection(const PartitioningGraph &rawGraph) {
+  valToUserOpsDoNotReplace.clear();
 
   // collect raw ops in region 1
   auto rawOpsInRegion1 = collectGraphRawOps(*microPartGraph_r1, boost::make_iterator_range((boost::vertices(*microPartGraph_r1))));
@@ -743,6 +797,8 @@ void PartitioningManager::breakDirectIOConnection(const PartitioningGraph &rawGr
 
   llvm::outs() << "Update all mPart IO values\n";
   mp->collectPartIOValues(context, rawGraph);
+
+  valToUserOpsDoNotReplace.shrink_and_clear();
 }
 
 mlir::SmallVector<uint32_t> PartitioningManager::breakDirectIOConnectionWorker(PartitioningGraph &g, const mlir::DenseSet<mlir::Operation*> &rawOpsInFollowingRegions) {
@@ -811,6 +867,113 @@ mlir::SmallVector<uint32_t> PartitioningManager::breakDirectIOConnectionWorker(P
   OpBuilder builder(anyOp);
   mlir::IRRewriter rewriter(builder);
 
+  
+
+  {
+    // find user op that inside this graph/region. Do not replace them in later stage
+    mlir::DenseMap<uint32_t, mlir::Value> allSrcVtxInEdgesToBreak;
+    for (auto [srcVtx, dstVtx]: edgesToBreak) {
+      auto dstTOpName = g[dstVtx].toucanOpName;
+      bool dstVtxIsExgWrite = (dstTOpName == CGToucanOPName::ExchangeWrite);
+      bool dstVtxIsRegWrite = (dstTOpName == CGToucanOPName::RegWrite);
+      // bool dstVtxIsStop = (dstTOpName == CGToucanOPName::Stop);
+      // bool dstVtxIsPrint = (dstTOpName == CGToucanOPName::Print);
+
+      mlir::Value srcVal;
+      if (dstVtxIsRegWrite) {
+        auto dstOp = g[dstVtx].op;
+        assert(isa<toucan::RegWriteOp>(dstOp));
+        srcVal = cast<toucan::RegWriteOp>(dstOp).getData();
+      } else if (dstVtxIsExgWrite) {
+        auto exchangeValId = g[dstVtx].exchangeValId;
+        assert(exchangeValPool.size() > exchangeValId);
+        srcVal = exchangeValPool[exchangeValId];
+      } else {
+        llvm::errs() << stringifyCGToucanOPName(dstTOpName) << "\n";
+        llvm_unreachable("Unexpected break edge end point");
+      }
+
+      if (!allSrcVtxInEdgesToBreak.contains(srcVtx)) {
+        allSrcVtxInEdgesToBreak[srcVtx] = srcVal;
+      } else {
+        assert(allSrcVtxInEdgesToBreak[srcVtx] == srcVal);
+      }
+
+    }
+    for (auto [srcVtx, srcVal]: allSrcVtxInEdgesToBreak) {
+      if (!valToUserOpsDoNotReplace.contains(srcVal)) {
+        valToUserOpsDoNotReplace[srcVal] = {};
+      }
+      for (auto ei = boost::out_edges(srcVtx, g); ei.first != ei.second; ++ei.first) {
+        auto dstVtx = boost::target(*ei.first, g);
+
+        auto dstVtxOpName = g[dstVtx].toucanOpName;
+        auto dstOp = g[dstVtx].op;
+        auto mp = g[dstVtx].mp;
+
+        switch (dstVtxOpName) {
+          case CGToucanOPName::MPart_Regular: {
+            assert(mp != nullptr);
+            assert(mp->inputValues.contains(srcVal));
+
+            for (auto &[_, v]: mp->nodeToOutputVal) {
+              auto op = v.getDefiningOp();
+              // valToUserOpsDoNotReplace[srcVal].insert(op);
+              for (const auto &operand: op->getOperands()) {
+                if (operand == srcVal) {
+                  valToUserOpsDoNotReplace[srcVal].insert(op);
+                  break;
+                }
+              }
+            }
+
+            assert(mp->nops.empty());
+            assert(valToUserOpsDoNotReplace[srcVal].size() != 0);
+
+            break;
+          }
+          case CGToucanOPName::MPart_Special: {
+            assert(mp != nullptr);
+            assert(mp->inputValues.contains(srcVal));
+
+            for (const auto &op: mp->specialOps) {
+              // valToUserOpsDoNotReplace[srcVal].insert(op);
+              for (const auto &operand: op->getOperands()) {
+                if (operand == srcVal) {
+                  valToUserOpsDoNotReplace[srcVal].insert(op);
+                  break;
+                }
+              }
+            }
+            assert(valToUserOpsDoNotReplace[srcVal].size() != 0);
+
+            break;
+          }
+          case CGToucanOPName::Print:
+          case CGToucanOPName::Stop:
+          case CGToucanOPName::RegWrite:
+          case CGToucanOPName::MemWrite: {
+            assert(dstOp != nullptr);
+            valToUserOpsDoNotReplace[srcVal].insert(dstOp);
+
+            break;
+          }
+
+          case CGToucanOPName::ExchangeWrite:
+          case CGToucanOPName::ExchangeRead: {
+            break;
+          }
+
+          default: {
+            llvm::dbgs() << stringifyCGToucanOPName(dstVtxOpName) << "\n";
+            llvm_unreachable("Op that should not appear here");
+          }
+        }
+      }
+    }
+  }
+
+
   // mlir::DenseMap<uint32_t, uint32_t> regToNewReader;
   mlir::DenseMap<mlir::Value, uint32_t> valToNewReader;
   for (auto [srcVtx, dstVtx]: edgesToBreak) {
@@ -856,11 +1019,15 @@ mlir::SmallVector<uint32_t> PartitioningManager::breakDirectIOConnectionWorker(P
 
       srcVal.replaceUsesWithIf(newNop.getResult(), [&](const OpOperand &operand) {
         auto userOp = operand.getOwner();
-        
+        auto operandVal = operand.get();
+
+        assert(valToUserOpsDoNotReplace.contains(operandVal));
+        auto thisUseIsInCurrentRegion = valToUserOpsDoNotReplace[operandVal].contains(userOp);
+
         bool usedInFollowingRegion = rawOpsInFollowingRegions.contains(userOp);
         bool isOutput = opIsOutput(userOp);
 
-        return usedInFollowingRegion || isOutput;
+        return (usedInFollowingRegion && (!thisUseIsInCurrentRegion)) || isOutput;
       });
 
       // use this nop vtx to avoid direct contact
@@ -993,7 +1160,7 @@ void PartitioningManager::updateGraphWeight_r1() {
 }
 
 
-mlir::LogicalResult PartitioningManager::runStage2RepCutPartitioner(float partSizeRatio, int targetGPUSMCount, float ibFactor) {
+mlir::LogicalResult PartitioningManager::runStage2RepCutPartitioner(float partSizeRatio, float ibFactor) {
   assert(regionWorkDirectory.size() == 2);
   // r0: optimize for throughput
 
@@ -1005,7 +1172,7 @@ mlir::LogicalResult PartitioningManager::runStage2RepCutPartitioner(float partSi
   p_r0.PARTITION_PREFERRED_WEIGHT = 40000;
   p_r0.targetIb = ibFactor;
 
-  p_r0.setPartitionTarget(partSizeRatio, targetGPUSMCount);
+  p_r0.setPartitionTarget(partSizeRatio);
   auto ret_r0 = p_r0._partition(context);
   if (failed(ret_r0)) return ret_r0;
 
@@ -1018,7 +1185,7 @@ mlir::LogicalResult PartitioningManager::runStage2RepCutPartitioner(float partSi
   p_r1.PARTITION_PREFERRED_WEIGHT = 30000;
   p_r1.targetIb = ibFactor;
 
-  p_r1.setPartitionTarget(partSizeRatio, targetGPUSMCount);
+  p_r1.setPartitionTarget(partSizeRatio);
 
   auto ret_r1 = p_r1._partition(context);
   if (failed(ret_r1)) return ret_r1;
@@ -1035,7 +1202,7 @@ mlir::LogicalResult PartitioningManager::runStage2RepCutPartitioner(float partSi
 void PartitioningManager::collectRepCutPartitionCodeGenData() {
 
 
-  auto getCodeGenData = [](
+  auto getCodeGenData = [&](
     RepCutPartitionCodeGenData &info, 
     PartitioningGraph &partGraph, 
     const mlir::SmallVector<uint32_t> &repcutNodes, 
@@ -1077,6 +1244,7 @@ void PartitioningManager::collectRepCutPartitionCodeGenData() {
 
     info.mpartLevels.reserve(graphLevels.size());
     for (uint32_t level_id = 0; level_id < graphLevels.size(); level_id++) {
+      // llvm::dbgs() << "Scanning at level " << level_id << "\n";
       assert(level_id == info.mpartLevels.size());
       info.mpartLevels.emplace_back();
       info.mpartLevels.back().reserve(graphLevels[level_id].size() + 10);
@@ -1319,6 +1487,7 @@ void PartitioningManager::collectRepCutPartitionCodeGenData() {
   partCodeGenData_r0.clear();
   partCodeGenData_r0.resize(repcutPartitions_r0.size());
   for (size_t i = 0; i < repcutPartitions_r0.size(); i++) {
+    llvm::dbgs() << "Working on region 0 part " << i << "\n";
     // parallel?
     getCodeGenData(
       partCodeGenData_r0[i], 
@@ -1332,6 +1501,7 @@ void PartitioningManager::collectRepCutPartitionCodeGenData() {
   partCodeGenData_r1.clear();
   partCodeGenData_r1.resize(repcutPartitions_r1.size());
   for (size_t i = 0; i < repcutPartitions_r1.size(); i++) {
+    llvm::dbgs() << "Working on region 1 part " << i << "\n";
     // parallel?
     getCodeGenData(
       partCodeGenData_r1[i], 
