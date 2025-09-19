@@ -23,6 +23,7 @@
 #include "llvm/Support/raw_ostream.h"
 
 #include "toucan/MultiRegionMicroPartScheduler.h"
+#include "toucan/CGToucanOpName.h"
 #include "toucan/MicroPartLocalValueAllocator.h"
 #include "toucan/MicroPartitioner.h"
 #include "toucan/PartitioningManager.h"
@@ -2370,6 +2371,97 @@ void MultiRegionMicroPartScheduler::fillDebugInfo() {
 
 }
 
+void MultiRegionMicroPartScheduler::printPartInfo(const CGPartitionMetaInfo &partInfo) {
+  llvm::dbgs() << "  Part has " << partInfo.regReadOps.size() << " RegReads, " << partInfo.exchangeReadOps.size() << " ExchangeReads, " << partInfo.microPartOps.size() << " MP levels\n";
+
+  std::unordered_map<size_t, size_t> mPartMaxActiveVarsToCount;
+  std::unordered_map<size_t, size_t> mPartSizeToCount;
+  std::unordered_map<size_t, size_t> mPartLevelsToCount;
+  std::unordered_map<size_t, size_t> specialMPSizeToCount;
+
+  size_t allRegularMPs = 0;
+  size_t allSpecialMPs = 0;
+  for (size_t levelId = 0; levelId < partInfo.microPartOps.size(); levelId++) {
+    size_t regularMPCount = 0;
+    size_t specialVRMPCount = 0;
+    size_t specialVAMPCount = 0;
+    size_t specialVLMPCount = 0;
+    size_t specialMRMPCount = 0;
+
+    for (const auto &eachMP: partInfo.microPartOps[levelId]) {
+      if (eachMP.opType == CGToucanOPName::LUT) {
+        // a regular part
+        regularMPCount++;
+
+        size_t activeVars = eachMP.maxActiveVars;
+        size_t partLevels = eachMP.middleLevels.size() + 2;
+        size_t partSize = 0;
+        for (const auto &el: eachMP.middleLevels) {
+          partSize += el.size();
+        }
+        partSize += eachMP.topLevel.size();
+        partSize += eachMP.lastLevel.size();
+
+        if (!mPartMaxActiveVarsToCount.contains(activeVars)) {
+          mPartMaxActiveVarsToCount[activeVars] = 0;
+        }
+        mPartMaxActiveVarsToCount[activeVars]++;
+
+        if (!mPartSizeToCount.contains(partSize)) {
+          mPartSizeToCount[partSize] = 0;
+        }
+        mPartSizeToCount[partSize]++;
+
+        if (!mPartLevelsToCount.contains(partLevels)) {
+          mPartLevelsToCount[partLevels] = 0;
+        }
+        mPartLevelsToCount[partLevels]++;
+      } else {
+        if (!eachMP.vecRead.empty()) {
+          specialVRMPCount++;
+        }
+        if (!eachMP.vecArith.empty()) {
+          specialVAMPCount++;
+        }
+        if (!eachMP.vecLogic.empty()) {
+          specialVLMPCount++;
+        }
+        if (!eachMP.memRead.empty()) {
+          specialMRMPCount++;
+        }
+
+        size_t partSize = eachMP.vecRead.size() + eachMP.vecArith.size() + eachMP.vecLogic.size() + eachMP.memRead.size();
+
+        if (!specialMPSizeToCount.contains(partSize)) {
+          specialMPSizeToCount[partSize] = 0;
+        }
+        specialMPSizeToCount[partSize]++;
+      }
+    }
+
+    llvm::dbgs() << "    Level " << levelId << " has " << regularMPCount << " regular MP, " << specialVRMPCount << " VectorRead MP, " << specialVAMPCount << " VecArith MP, " << specialVLMPCount << " VecLogic MP, " << specialMRMPCount << " MemRead MP.\n";
+
+    allRegularMPs += regularMPCount;
+    allSpecialMPs += specialVRMPCount;
+    allSpecialMPs += specialVAMPCount;
+    allSpecialMPs += specialVLMPCount;
+    allSpecialMPs += specialMRMPCount;
+  }
+
+  llvm::dbgs() << "  This part has " << allRegularMPs << " regular MPs, " << allSpecialMPs << " special MPs.\n";
+
+  size_t avgMaxActiveVars = 0;
+  size_t mpCount = 0;
+  for (const auto &[k, v]: mPartMaxActiveVarsToCount) {
+    avgMaxActiveVars += (k * v);
+    mpCount += v;
+  }
+  llvm::dbgs() << "  Average max active vars is " << (static_cast<float>(avgMaxActiveVars) / mpCount) << "\n";
+
+  llvm::dbgs() << "  Part has " << partInfo.regWriteOps.size() << " RegWrites, " << partInfo.exchangeWriteOps.size() << " ExchangeWrites, " << partInfo.memWriteOps.size() << " MemWrites, " << partInfo.stopOps.size() << " Stops, " << partInfo.printOps.size() << " Prints.\n";
+
+}
+
 // Scheduler entry point
 void MultiRegionMicroPartScheduler::schedule(mlir::MLIRContext *context, const PartitioningGraph &rawGraph, const mlir::SmallVector<mlir::Value> &exchangeValPool) {
 
@@ -2578,6 +2670,11 @@ void MultiRegionMicroPartScheduler::schedule(mlir::MLIRContext *context, const P
     startPartIdInThisRegion += numPartsInThisRegion;
   }
   assert(startPartIdInThisRegion == totalNumParts);
+
+  // for (size_t partId = 0; partId < codeGenInfo.partitionInfo.size(); partId++) {
+  //   llvm::dbgs() << "Part " << partId << "\n";
+  //   printPartInfo(codeGenInfo.partitionInfo[partId]);
+  // }
 
   fillDebugInfo();
 

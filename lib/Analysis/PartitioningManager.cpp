@@ -512,8 +512,7 @@ int PartitioningManager::findCutPoint() {
     estimateMPartsPerLevel.push_back(thisLevelMPartCntEst);
   }
 
-  // for now, ensure over 60% of vtxes in region 0
-  float region0VtxTarget = 0.5f;
+  float region0VtxTarget = 0.2f;
 
 
   int totalNumVtxes = 0;
@@ -1086,9 +1085,15 @@ void PartitioningManager::updateGraphWeight_r0() {
       }
       case CGToucanOPName::MPart_Regular: {
         auto mpart_levels = mPart->levels.size();
+
+        size_t max_ops = 0;
+        for (const auto &eachLevel: mPart->levels) {
+          max_ops = std::max(max_ops, eachLevel.size());
+        }
         assert(mpart_levels > 0);
 
-        weight = mpart_levels * 10;
+        weight = max_ops * 10;
+
         break;
       }
       case CGToucanOPName::MPart_Special: {
@@ -1096,7 +1101,7 @@ void PartitioningManager::updateGraphWeight_r0() {
         // For now should just be 1
         assert(mpart_numOps == 1);
 
-        weight = mpart_numOps * 50;
+        weight = mpart_numOps * 10;
         break;
       }
       case CGToucanOPName::LUT: {
@@ -1224,7 +1229,6 @@ void PartitioningManager::collectRepCutPartitionCodeGenData() {
         v = vecVal;
       }
 
-
       if (!isa<toucan::ConstantOp>(v.getDefiningOp())) {
         if (!activeVals.contains(v)) {
           v.print(llvm::dbgs());
@@ -1237,22 +1241,35 @@ void PartitioningManager::collectRepCutPartitionCodeGenData() {
       activeVals.insert(val);
     };
 
+    mlir::SmallVector<mlir::SmallVector<uint32_t>> graphLevelOfThisPart;
+    for (uint32_t level_id = 0; level_id < graphLevels.size(); level_id++) {
+      graphLevelOfThisPart.emplace_back();
+
+      for (const auto vtx: graphLevels[level_id]) {
+        if (repcutNodeSet.contains(vtx)) {
+          graphLevelOfThisPart.back().push_back(vtx);
+        };
+      }
+    }
+
 
     mlir::SmallVector<std::shared_ptr<MicroPart>> specialMPartsInThisLevel;
     mlir::SmallVector<toucan::LUTOp> nopsInThisLevel;
 
 
-    info.mpartLevels.reserve(graphLevels.size());
-    for (uint32_t level_id = 0; level_id < graphLevels.size(); level_id++) {
+    info.mpartLevels.reserve(graphLevelOfThisPart.size());
+    for (uint32_t level_id = 0; level_id < graphLevelOfThisPart.size(); level_id++) {
+      if (graphLevelOfThisPart[level_id].empty()) continue;
+
       // llvm::dbgs() << "Scanning at level " << level_id << "\n";
-      assert(level_id == info.mpartLevels.size());
-      info.mpartLevels.emplace_back();
-      info.mpartLevels.back().reserve(graphLevels[level_id].size() + 10);
+
+      mlir::SmallVector<std::shared_ptr<MicroPart>> mpsThisLevel;
+      mpsThisLevel.reserve(graphLevelOfThisPart[level_id].size());
 
       specialMPartsInThisLevel.clear();
       nopsInThisLevel.clear();
-      for (const auto vtx: graphLevels[level_id]) {
-        if (!repcutNodeSet.contains(vtx)) continue;
+      for (const auto vtx: graphLevelOfThisPart[level_id]) {
+        assert(repcutNodeSet.contains(vtx));
 
         auto tOpName = partGraph[vtx].toucanOpName;
         auto op = partGraph[vtx].op;
@@ -1264,7 +1281,7 @@ void PartitioningManager::collectRepCutPartitionCodeGenData() {
             // regular mPart. Just keep it
             assert(mPart != nullptr);
             assert(mPart->partIsValid);
-            info.mpartLevels.back().push_back(mPart);
+            mpsThisLevel.push_back(mPart);
 
             for (const auto &eachVal: mPart->inputValues) {
               // assertValExist(eachVal);
@@ -1413,10 +1430,11 @@ void PartitioningManager::collectRepCutPartitionCodeGenData() {
           if (nopsInThisPart.size() >= 32 || (i+1) == nopsInThisLevel.size()) {
             auto newMP = std::make_shared<MicroPart>();
             newMP->buildNOPRegularLUTPart(nopsInThisPart);
-            info.mpartLevels.back().push_back(newMP);
+            mpsThisLevel.push_back(newMP);
             nopsInThisPart.clear();
           }
         }
+        assert(nopsInThisPart.empty());
       }
 
       // Merge special mParts
@@ -1447,14 +1465,17 @@ void PartitioningManager::collectRepCutPartitionCodeGenData() {
             if (mPartToMerge.size() >= 32 || (i+1) == mParts.size()) {
               auto newMP = std::make_shared<MicroPart>();
               newMP->mergeSpecialPartFromOtherParts(mPartToMerge);
-              info.mpartLevels.back().push_back(newMP);
+              mpsThisLevel.push_back(newMP);
               mPartToMerge.clear();
             }
           }
+          assert(mPartToMerge.empty());
         }
       }
 
-
+      if (!mpsThisLevel.empty()) {
+        info.mpartLevels.emplace_back(std::move(mpsThisLevel));
+      }
     }
 
     for (auto &regReadOp: info.allRegReads) {
@@ -1487,7 +1508,7 @@ void PartitioningManager::collectRepCutPartitionCodeGenData() {
   partCodeGenData_r0.clear();
   partCodeGenData_r0.resize(repcutPartitions_r0.size());
   for (size_t i = 0; i < repcutPartitions_r0.size(); i++) {
-    llvm::dbgs() << "Working on region 0 part " << i << "\n";
+    // llvm::dbgs() << "Working on region 0 part " << i << "\n";
     // parallel?
     getCodeGenData(
       partCodeGenData_r0[i], 
@@ -1501,7 +1522,7 @@ void PartitioningManager::collectRepCutPartitionCodeGenData() {
   partCodeGenData_r1.clear();
   partCodeGenData_r1.resize(repcutPartitions_r1.size());
   for (size_t i = 0; i < repcutPartitions_r1.size(); i++) {
-    llvm::dbgs() << "Working on region 1 part " << i << "\n";
+    // llvm::dbgs() << "Working on region 1 part " << i << "\n";
     // parallel?
     getCodeGenData(
       partCodeGenData_r1[i], 
