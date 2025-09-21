@@ -2614,11 +2614,6 @@ void MultiRegionMicroPartScheduler::schedule(mlir::MLIRContext *context, const P
   }
   assert(startPartIdInThisRegion == totalNumParts);
 
-  // for (size_t partId = 0; partId < codeGenInfo.partitionInfo.size(); partId++) {
-  //   llvm::dbgs() << "Part " << partId << "\n";
-  //   printPartInfo(codeGenInfo.partitionInfo[partId]);
-  // }
-
   fillDebugInfo();
 
   return;

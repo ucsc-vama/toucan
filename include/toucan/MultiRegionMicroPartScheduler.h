@@ -146,6 +146,7 @@ namespace toucan {
     void copyVecTables(const MicroPartitioner mPartitioner);
 
 
+    static void printPartInfo(const CGPartitionMetaInfo &partInfo);
 
     
 
@@ -220,8 +221,6 @@ namespace toucan {
 
     void fillSignalDebugInfoForSinglePart(const MicroPartLocalValueAllocator &valAllocator, uint32_t partId);
     void fillDebugInfo();
-
-    static void printPartInfo(const CGPartitionMetaInfo &partInfo);
 
   };
 

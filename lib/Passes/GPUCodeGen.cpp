@@ -649,6 +649,15 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     // After this point, pm is not used and can be released.
     scheduler.schedule(&getContext(), graph.g, pm.exchangeValPool);
 
+    // To use this, run with -debug-only=GPUCodeGenPass
+    LLVM_DEBUG(
+      llvm::dbgs() << "============ Partitioning Details =============\n";
+      for (size_t partId = 0; partId < scheduler.codeGenInfo.partitionInfo.size(); partId++) {
+        llvm::dbgs() << "Part " << partId << "\n";
+        scheduler.printPartInfo(scheduler.codeGenInfo.partitionInfo[partId]);
+      }
+    );
+
 
     llvm::outs() << "======================= Code Gen =======================\n";
 
