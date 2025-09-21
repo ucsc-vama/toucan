@@ -67,13 +67,19 @@ static cl::opt<bool> removeSVDialect("removeSVDialect", cl::desc("Remove print a
 // static cl::opt<uint32_t> targetGPUSMs("gpuSMs", cl::desc("Target GPU SM count. This argument affects number of partitions if partSize is not explicitely given."), cl::init(142), cl::cat(mainCategory));
 // static cl::opt<uint32_t> partitionNumRegions("numRegions", cl::desc("Partitioning region count."), cl::init(4), cl::cat(mainCategory));
 static cl::opt<float> partitionIbFactor("ibFactor", cl::desc("Partitioning target imbalance factor (1.0 > ibFactor > 0.0)."), cl::init(0.015), cl::cat(mainCategory));
-static cl::opt<float> partitionSizeRatio("partSize", cl::desc("Force partition size ration between 0.1 and 1.0. Values outside of this range would allow toucan decide part size automatically"), cl::init(1.0), cl::cat(mainCategory));
+static cl::opt<float> partitionSizeRatio("partSize", cl::desc("Adjust partition size between 0.1 and 10.0."), cl::init(1.0), cl::cat(mainCategory));
 
-void checkArgs() {
+bool checkArgs() {
     // if (!cpuCodeGen && !gpuCodeGen) {
     //     llvm::outs() << "Please specify at least one code gen type (-cpu or -gpu)\n";
     //     exit(-1);
     // }
+    if (partitionSizeRatio < 0.01 || partitionSizeRatio > 10.0) {
+    // Invalid inputs
+        llvm::errs() << "Error input part size ratio. expected between 0.01 and 10.0\n";
+        return false;
+    }
+    return true;
 }
 
 static LogicalResult compileAndEmit(
@@ -261,7 +267,9 @@ int main(int argc, char ** argv) {
     mlir::registerDefaultTimingManagerCLOptions();
 
     cl::ParseCommandLineOptions(argc, argv);
-    checkArgs();
+    auto argsLegal = checkArgs();
+    if (!argsLegal) exit(-1);
+
     auto result = toucanMain(context);
     exit(failed(result));
 }

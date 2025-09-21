@@ -71,10 +71,10 @@ void RepCutPartitioner::setPartitionTarget(float partSizeRatio) {
   auto &graph = *_graph;
   auto eachRegionWeight = getGraphTotalWeight(graph);
 
-  if (partSizeRatio < 0.01 || partSizeRatio > 1.1) {
+  if (partSizeRatio < 0.01 || partSizeRatio > 100.0) {
     // Invalid inputs
-    llvm::errs() << "Error input part size ratio. expected between 0.01 and 1.0\n";
-    llvm_unreachable("");
+    llvm::errs() << "Error input part size ratio. expected between 0.01 and 100.0\n";
+    llvm_unreachable("Illegal part size");
   } else {
     PARTITION_MAX_WEIGHT = PARTITION_MAX_WEIGHT * partSizeRatio;
     PARTITION_PREFERRED_WEIGHT = PARTITION_PREFERRED_WEIGHT * partSizeRatio;
