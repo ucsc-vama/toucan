@@ -2052,19 +2052,12 @@ void MultiRegionMicroPartScheduler::mergeSmallRegularMParts(std::vector<CGMicroP
     size_t frontPtr = 0;
     size_t lastPtr = mPartIds.size() - 1;
 
-    assert(mPartIds.size() > frontPtr);
-    while (mPartsThisLevel[mPartIds.at(frontPtr)].maxActiveVars >= 32) {
-      assert(mPartIds.size() > frontPtr);
+    while ((frontPtr <= mPartIds.size()) && (mPartsThisLevel[mPartIds.at(frontPtr)].maxActiveVars >= 32)) {
       assert(mPartsThisLevel[mPartIds.at(frontPtr)].maxActiveVars == 32);
       frontPtr++;
     }
 
     while (frontPtr < lastPtr) {
-      // llvm::dbgs() << "front ptr " << frontPtr << ", last ptr " << lastPtr << ", front mp id " << mPartIds.at(frontPtr) << ", last mp id " << mPartIds.at(lastPtr) << "\n";
-      assert(mPartIds.size() > frontPtr);
-      assert(mPartIds.size() > lastPtr);
-      // assert(mPartIds.at(frontPtr) != mPartIds.at(lastPtr));
-
       auto frontMpId = mPartIds.at(frontPtr);
       auto lastMpId = mPartIds.at(lastPtr);
       assert(frontMpId != lastMpId);
