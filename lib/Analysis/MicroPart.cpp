@@ -20,6 +20,7 @@ using namespace toucan;
 void MicroPart::clear() {
   partIsValid = false;
   isNOPPart = false;
+  ioCollected = false;
   nodes.clear();
   levels.clear();
   inputValues.clear();
@@ -46,6 +47,7 @@ void MicroPart::updateNodeToLevel() {
 void MicroPart::buildRegularLUTPart(const mlir::SmallVector<mlir::SmallVector<uint32_t>> &newNodesLevel) {
   partIsValid = true;
   isNOPPart = false;
+  ioCollected = false;
   assert(nodes.empty());
   assert(nodeToOpCount.empty());
 
@@ -71,6 +73,7 @@ void MicroPart::buildRegularLUTPart(const mlir::SmallVector<mlir::SmallVector<ui
 void MicroPart::buildSpecialPart(const CGToucanOPName vtxOpName, const mlir::SmallVector<mlir::Operation*> &rawOps) {
   partIsValid = true;
   isNOPPart = false;
+  ioCollected = false;
   assert(rawOps.size() <= 32);
   assert(nodes.empty());
   assert(nodeToOpCount.empty());
@@ -416,6 +419,7 @@ void MicroPart::buildNOPRegularLUTPart(mlir::SmallVector<toucan::LUTOp> &partNop
 }
 
 bool MicroPart::checkAndCollectIOValues(const PartitioningGraph &g, const mlir::DenseSet<uint32_t> &allNodes, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToDepNodeId, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToOriginalVecDeclId, const mlir::DenseMap<uint32_t, mlir::SmallVector<uint32_t>> outputVectorNopMap) {
+  ioCollected = true;
   bool ret;
   bool isRegularPart = this->isRegularPart();
   if (isRegularPart) {
@@ -459,12 +463,15 @@ void MicroPart::print() const {
       for (const auto &eachVtx: eachLevel) {
         if (dummyNodes.contains(eachVtx)) {
           llvm::dbgs() << "  Dummy NOP, read from: ";
-          assert(nodeToInputVals.contains(eachVtx));
-          assert(nodeToInputVals.at(eachVtx).size() == 1);
-          nodeToInputVals.at(eachVtx).front().print(llvm::dbgs());
-          llvm::dbgs() << "\n    Result vec: ";
-          nodeToOutputVal.at(eachVtx).print(llvm::dbgs());
-          llvm::dbgs() << "\n";
+          if (nodeToInputVals.contains(eachVtx)) {
+            assert(nodeToInputVals.at(eachVtx).size() == 1);
+            nodeToInputVals.at(eachVtx).front().print(llvm::dbgs());
+            llvm::dbgs() << "\n    Result vec: ";
+            nodeToOutputVal.at(eachVtx).print(llvm::dbgs());
+            llvm::dbgs() << "\n";
+          } else {
+            llvm::dbgs() << " N/A (A const)\n";
+          }
         } else {
           llvm::dbgs() << "  Regular node: ";
           assert(nodeToOutputVal.contains(eachVtx));
@@ -483,4 +490,324 @@ void MicroPart::print() const {
   }
 
   llvm::dbgs() << "----\n";
+}
+
+
+mlir::DenseMap<mlir::Value, MicroPartValLifeCycle> MicroPart::extractValueLifeTime() const {
+  mlir::DenseMap<mlir::Value, MicroPartValLifeCycle> valueToLifeCycle;
+
+  assert(ioCollected);
+  assert(levels.size() != 0);
+  auto writeBackLevel = static_cast<uint32_t>(levels.size());
+  valueToLifeCycle.clear();
+
+  mlir::DenseSet<mlir::Value> visitedInputVals;
+
+  for (const auto &[vtx, outputVal]: nodeToOutputVal) {
+    auto vtxLevel = nodeToLevel.at(vtx);
+    assert(vtxLevel < writeBackLevel);
+    assert(!isa<toucan::ConstantOp>(outputVal.getDefiningOp()));
+    if (valueToLifeCycle.contains(outputVal)) {
+      // a vector
+      assert(isa<mlir::TypedValue<toucan::VecType>>(outputVal));
+    }
+    valueToLifeCycle[outputVal] = {vtxLevel, vtxLevel};
+  }
+  for (const auto &[vtx, inputVals]: nodeToInputVals) {
+    auto vtxLevel = nodeToLevel.at(vtx);
+
+    if (vtxLevel == 0) {
+      continue;
+    }
+
+    for (const auto &eachVal: inputVals) {
+      assert(!isa<toucan::ConstantOp>(eachVal.getDefiningOp()));
+
+      visitedInputVals.insert(eachVal);
+
+      if (!valueToLifeCycle.contains(eachVal)) {
+        // an external input value that is not used by first level
+        assert(inputValues.contains(eachVal));
+        valueToLifeCycle[eachVal] = {0, vtxLevel};
+      } else {
+        // max
+        assert(valueToLifeCycle[eachVal].start < vtxLevel);
+        auto oldEndTime = valueToLifeCycle[eachVal].end;
+        if (oldEndTime < vtxLevel) {
+          valueToLifeCycle[eachVal].end = vtxLevel;
+        }
+      }
+    }
+  }
+
+  for (const auto &eachOutputVal: outputValueSet) {
+    assert(valueToLifeCycle.contains(eachOutputVal));
+    // Extend life time to write back
+    valueToLifeCycle[eachOutputVal].end = writeBackLevel;
+  }
+
+  for (const auto &[val, lifetime]: valueToLifeCycle) {
+    assert(lifetime.start != lifetime.end);
+    assert(!isa<toucan::ConstantOp>(val.getDefiningOp()));
+  }
+
+  return valueToLifeCycle;
+}
+
+// See MultiRegionMicroPartScheduler::scheduleRegularMicroPart for a complete version!
+int MicroPart::estimateMaxActiveVars() const {
+  if (opType != CGToucanOPName::LUT) return specialOps.size();
+  if (!nops.empty()) return nops.size();
+
+  assert(!levels.empty());
+
+  size_t maxActiveVars = levels[0].size();
+
+  auto valueToLifeCycle = extractValueLifeTime();
+
+  auto WriteBackLevel = static_cast<uint32_t>(levels.size());
+
+  mlir::DenseMap<mlir::Value, uint8_t> shuffleValueToId, shuffleValueToId_next;
+
+  // Values that need to be written back to SMem at last level
+  mlir::SmallVector<mlir::Value> pendingWriteBackValue;
+  pendingWriteBackValue.reserve(32);
+
+  int dummyNopsWithConstInput = 0;
+
+  {
+    // first level
+    uint8_t opIndex = 0;
+    mlir::SmallVector<mlir::Value> topLevelResultVals;
+
+    topLevelResultVals.reserve(32);
+
+    for (auto eachVtx: levels.front()) {
+      auto vtxIsDummyNop = isa<mlir::TypedValue<toucan::VecType>>(nodeToOutputVal.at(eachVtx));
+
+      if (vtxIsDummyNop) {
+        // This value need to be passed through entire micro part
+        if (nodeToInputVals.contains(eachVtx)) {
+          assert(nodeToInputVals.at(eachVtx).size() == 1);
+          auto depValue = nodeToInputVals.at(eachVtx)[0];
+
+          // this value should be written to smem at last level!
+          pendingWriteBackValue.push_back(depValue);
+
+          // assert(!shuffleValueToId.contains(depValue));
+          if (!shuffleValueToId_next.contains(depValue)) {
+            topLevelResultVals.push_back(depValue);
+            auto resultValShuffleId = static_cast<uint8_t>(opIndex + 32);
+            shuffleValueToId_next[depValue] = resultValShuffleId;
+
+            assert(opIndex < 32);
+            opIndex++;
+          } else {
+            // This depValue already being read by some other NOP
+            // do nothing
+          }
+        } else {
+          dummyNopsWithConstInput++;
+        }
+
+      } else {
+        // regular lut op
+
+        auto resultVal = nodeToOutputVal.at(eachVtx);
+
+        if (outputValueSet.contains(resultVal)) {
+          pendingWriteBackValue.push_back(resultVal);
+        }
+
+        assert(valueToLifeCycle.contains(resultVal));
+        assert(valueToLifeCycle[resultVal].start == 0);
+
+        topLevelResultVals.push_back(resultVal);
+
+        assert(!shuffleValueToId_next.contains(resultVal));
+        auto resultValShuffleId = static_cast<uint8_t>(opIndex + 32);
+        shuffleValueToId_next[resultVal] = resultValShuffleId;
+
+        assert(opIndex < 32);
+        opIndex++;
+      }
+    }
+
+    // insert NOP for partition reads
+    mlir::DenseSet<mlir::Value> valuesOnlyUsedByFirstLevel;
+    valuesOnlyUsedByFirstLevel.reserve(64);
+
+    assert(valuesUsedByEachLevel.size() > 0);
+    valuesOnlyUsedByFirstLevel.insert(valuesUsedByEachLevel.front().begin(), valuesUsedByEachLevel.front().end());
+    for (size_t i = 1; i < valuesUsedByEachLevel.size(); i++) {
+      for (const auto &v: valuesUsedByEachLevel[i]) {
+        if (valuesOnlyUsedByFirstLevel.contains(v)) {
+          valuesOnlyUsedByFirstLevel.erase(v);
+        }
+      }
+    }
+
+    for (auto &eachInputVal: inputValues) {
+      assert(!outputValueSet.contains(eachInputVal));
+      if (valuesOnlyUsedByFirstLevel.contains(eachInputVal)) continue;
+      if (!shuffleValueToId_next.contains(eachInputVal)) {
+        // insert a dummy read op
+
+        topLevelResultVals.push_back(eachInputVal);
+
+        assert(!shuffleValueToId_next.contains(eachInputVal));
+        auto resultValShuffleId = static_cast<uint8_t>(opIndex + 32);
+        shuffleValueToId_next[eachInputVal] = resultValShuffleId;
+
+        assert(!isa<toucan::ConstantOp>(eachInputVal.getDefiningOp()));
+
+        opIndex++;
+      }
+    }
+
+    maxActiveVars = shuffleValueToId_next.size();
+    assert(opIndex <= 32);
+    assert(shuffleValueToId.empty());
+  }
+
+  // remaining levels
+
+  for (size_t levelId = 1; levelId < levels.size(); levelId++) {
+    std::swap(shuffleValueToId, shuffleValueToId_next);
+
+    for (const auto &val : pendingWriteBackValue) {
+      if (valueToLifeCycle.contains(val)) {
+        if (valueToLifeCycle.at(val).start < levelId) {
+          assert(shuffleValueToId.contains(val));
+        }
+      }
+    }
+
+    uint8_t opIndex = 0;
+    shuffleValueToId_next.clear();
+    shuffleValueToId_next.reserve(32);
+
+
+    // Create NOP for pass through values
+    for (const auto &[val, lifeTime]: valueToLifeCycle) {
+      assert(lifeTime.end > lifeTime.start);
+
+      if (isa<mlir::TypedValue<toucan::VecType>>(val)) {
+        // a vector value, should only be used by first or last level, ignore
+        continue;
+      }
+
+      // future value, ignore
+      if (lifeTime.start > levelId) continue;
+      if (lifeTime.start == levelId) {
+        // value created by this level
+        // valuesOutputOfThisLevel.insert(val);
+      } else {
+        // value created by previous level
+        if (lifeTime.end > levelId) {
+          // pass through
+          assert(shuffleValueToId.contains(val));
+          if (!shuffleValueToId_next.contains(val)) {
+            // insert a dummy NOP op
+
+            auto resultValShuffleId = static_cast<uint8_t>(opIndex + 32);
+            shuffleValueToId_next[val] = resultValShuffleId;
+
+            opIndex++;
+          }
+        }
+      }
+    }
+
+    assert(opIndex <= 32);
+
+    // Create NOP for pass through values that reads from outside (and thus not in valueLifeTime)
+    for (const auto &val: pendingWriteBackValue) {
+      assert(shuffleValueToId.contains(val));
+      if (!shuffleValueToId_next.contains(val)) {
+
+        // get output id
+        auto resultValShuffleId = static_cast<uint8_t>(opIndex + 32);
+        shuffleValueToId_next[val] = resultValShuffleId;
+
+        opIndex++;
+      }
+    }
+
+    assert(opIndex <= 32);
+
+    for (auto &val: pendingWriteBackValue) {
+      if (valueToLifeCycle.contains(val)) {
+        if (valueToLifeCycle[val].start <= levelId) {
+          // Double check
+          assert(shuffleValueToId.contains(val));
+        }
+      }
+    }
+
+
+
+    for (const auto eachVtx: levels[levelId]) {
+      auto vtxIsDummyNop = isa<mlir::TypedValue<toucan::VecType>>(nodeToOutputVal.at(eachVtx));
+
+      if (vtxIsDummyNop) {
+        // This value need to be passed through entire micro part
+        auto depValue = nodeToInputVals.at(eachVtx)[0];
+
+        // This value need to be passed through entire micro part
+        assert(valueToLifeCycle.contains(depValue));
+        assert(valueToLifeCycle[depValue].start < levelId);
+        // Note: pass down to last level.
+
+        // The input value must in somewhere in the shuffle network!
+        assert(shuffleValueToId.contains(depValue));
+
+        // this value should be written to smem at last level!
+        pendingWriteBackValue.push_back(depValue);
+
+        // also create a NOP if needed
+        if (!shuffleValueToId_next.contains(depValue)) {
+
+          auto resultValShuffleId = static_cast<uint8_t>(opIndex + 32);
+          shuffleValueToId_next[depValue] = resultValShuffleId;
+
+          opIndex++;
+        }
+
+      } else {
+        // regular lut op
+        auto resultVal = nodeToOutputVal.at(eachVtx);
+
+        assert(!shuffleValueToId_next.contains(resultVal));
+        auto resultValShuffleId = static_cast<uint8_t>(opIndex + 32);
+        shuffleValueToId_next[resultVal] = resultValShuffleId;
+
+        opIndex++;
+
+        // Result of a lut must be used somewhere, or just in output
+        assert(valueToLifeCycle.contains(resultVal));
+        assert(valueToLifeCycle[resultVal].start == levelId);
+        // or an output value
+        if (valueToLifeCycle[resultVal].end == WriteBackLevel) {
+          assert(outputValueSet.contains(resultVal));
+
+          pendingWriteBackValue.push_back(resultVal);
+        }
+      }
+    }
+
+    assert(opIndex <= 32);
+    maxActiveVars = std::max(maxActiveVars, static_cast<size_t>(shuffleValueToId_next.size()));
+  }
+
+
+  {
+    // last level
+    maxActiveVars = std::max(maxActiveVars, pendingWriteBackValue.size());
+  }
+
+  maxActiveVars += dummyNopsWithConstInput;
+
+  assert(maxActiveVars <= 32);
+  return static_cast<int>(maxActiveVars);
 }

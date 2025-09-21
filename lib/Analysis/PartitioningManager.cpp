@@ -512,7 +512,7 @@ int PartitioningManager::findCutPoint() {
     estimateMPartsPerLevel.push_back(thisLevelMPartCntEst);
   }
 
-  float region0VtxTarget = 0.2f;
+  float region0VtxTarget = 0.4f;
 
 
   int totalNumVtxes = 0;
@@ -1067,7 +1067,7 @@ mlir::SmallVector<uint32_t> PartitioningManager::breakDirectIOConnectionWorker(P
 
 void PartitioningManager::updateGraphWeight_r0() {
   // region 0: optimize for throughput
-  auto r0Graph = *microPartGraph_r0;
+  auto &r0Graph = *microPartGraph_r0;
   assert(!microPartGraph_r0_levels.empty());
 
   for (auto vtx: boost::make_iterator_range((boost::vertices(r0Graph)))) {
@@ -1080,19 +1080,18 @@ void PartitioningManager::updateGraphWeight_r0() {
 
     switch (tOpName) {
       case CGToucanOPName::RegRead: {
-        weight = 2;
+        weight = 4;
         break;
       }
       case CGToucanOPName::MPart_Regular: {
         auto mpart_levels = mPart->levels.size();
 
-        size_t max_ops = 0;
-        for (const auto &eachLevel: mPart->levels) {
-          max_ops = std::max(max_ops, eachLevel.size());
-        }
-        assert(mpart_levels > 0);
+        size_t max_ops = mPart->estimateMaxActiveVars();
 
-        weight = max_ops * 10;
+        assert(mpart_levels > 0);
+        assert(max_ops <= 32);
+
+        weight = max_ops * 4;
 
         break;
       }
@@ -1101,7 +1100,7 @@ void PartitioningManager::updateGraphWeight_r0() {
         // For now should just be 1
         assert(mpart_numOps == 1);
 
-        weight = mpart_numOps * 10;
+        weight = mpart_numOps * 4;
         break;
       }
       case CGToucanOPName::LUT: {
@@ -1109,18 +1108,19 @@ void PartitioningManager::updateGraphWeight_r0() {
         assert(isa<toucan::LUTOp>(rawOp));
         assert(cast<toucan::LUTOp>(rawOp).getOpName() == LUTOpName::LUT_Nop);
 
-        weight = 10;
+        weight = 4;
         break;
       }
       case CGToucanOPName::ExchangeWrite: {
         auto exgVal = exchangeValPool[exchangeValId];
+        int writeBytes = 1;
         if (auto vecVal = dyn_cast<mlir::TypedValue<toucan::VecType>>(exgVal)) {
           // a vector
           auto vecLength = vecVal.getType().getLength();
-          weight = vecLength;
-        } else {
-          weight = 1;
+          writeBytes = vecLength;
         }
+
+        weight = writeBytes;
         break;
       }
 
@@ -1138,26 +1138,80 @@ void PartitioningManager::updateGraphWeight_r0() {
 }
 void PartitioningManager::updateGraphWeight_r1() {
   // region 1: optimize for latency
-  auto r1Graph = *microPartGraph_r1;
+  auto &r1Graph = *microPartGraph_r1;
   assert(!microPartGraph_r1_levels.empty());
 
   for (uint32_t level_id = 0; level_id < microPartGraph_r1_levels.size(); level_id++) {
     for (const auto eachVtx: microPartGraph_r1_levels[level_id]) {
       uint32_t weight = 0;
+      auto mPart = r1Graph[eachVtx].mp;
+      auto rawOp = r1Graph[eachVtx].op;
       auto tOpName = r1Graph[eachVtx].toucanOpName;
-      auto exgValId = r1Graph[eachVtx].exchangeValId;
+      auto exchangeValId = r1Graph[eachVtx].exchangeValId;
 
-      weight = level_id * 10 + 1;
+      switch (tOpName) {
+        case CGToucanOPName::MPart_Regular: {
+          auto mpart_levels = mPart->levels.size();
 
-      if (tOpName == CGToucanOPName::ExchangeRead) {
-        auto val = exchangeValPool[exgValId];
-        uint32_t readBytes = 1;
-        if (auto vecVal = llvm::dyn_cast<mlir::TypedValue<toucan::VecType>>(val)) {
-          readBytes = vecVal.getType().getLength();
+          size_t max_ops = mPart->estimateMaxActiveVars();
+
+          assert(mpart_levels > 0);
+          assert(max_ops <= 32);
+
+          weight = max_ops * 4;
+
+          break;
+        }
+        case CGToucanOPName::MPart_Special: {
+          auto mpart_numOps = mPart->specialOps.size();
+          // For now should just be 1
+          assert(mpart_numOps == 1);
+
+          weight = mpart_numOps * 4;
+          break;
+        }
+        case CGToucanOPName::LUT: {
+          assert(rawOp != nullptr);
+          assert(isa<toucan::LUTOp>(rawOp));
+          assert(cast<toucan::LUTOp>(rawOp).getOpName() == LUTOpName::LUT_Nop);
+
+          weight = 4;
+          break;
+        }
+        case CGToucanOPName::ExchangeRead: {
+          auto exgVal = exchangeValPool[exchangeValId];
+          int readBytes = 1;
+          if (auto vecVal = dyn_cast<mlir::TypedValue<toucan::VecType>>(exgVal)) {
+            // a vector
+            auto vecLength = vecVal.getType().getLength();
+            readBytes = vecLength;
+          }
+
+          weight = readBytes * 4;
+          break;
         }
 
-        weight = readBytes * 2;
+        case CGToucanOPName::Print:
+        case CGToucanOPName::Stop: {
+          weight = 2;
+          break;
+        }
+        case CGToucanOPName::RegWrite: {
+          weight = 1;
+          break;
+        }
+        case CGToucanOPName::MemWrite: {
+          weight = 8;
+          break;
+        }
+        case CGToucanOPName::RegRead:
+        case CGToucanOPName::ExchangeWrite:
+        default: {
+          llvm_unreachable("Unexpected node type");
+        }
       }
+
+      weight = static_cast<float>(weight) * (1.0f + (static_cast<float>(level_id) / 8.0f));
 
       r1Graph[eachVtx].weight = weight;
     }
@@ -1173,8 +1227,8 @@ mlir::LogicalResult PartitioningManager::runStage2RepCutPartitioner(float partSi
   llvm::outs() << "=============== RepCut partitioning for region 0 ===============\n";
 
   auto p_r0 = RepCutPartitioner(regionWorkDirectory[0], microPartGraph_r0);
-  p_r0.PARTITION_MAX_WEIGHT = 60000;
-  p_r0.PARTITION_PREFERRED_WEIGHT = 40000;
+  p_r0.PARTITION_MAX_WEIGHT = 120000;
+  p_r0.PARTITION_PREFERRED_WEIGHT = 100000;
   p_r0.targetIb = ibFactor;
 
   p_r0.setPartitionTarget(partSizeRatio);
@@ -1186,8 +1240,8 @@ mlir::LogicalResult PartitioningManager::runStage2RepCutPartitioner(float partSi
   llvm::outs() << "=============== RepCut partitioning for region 1 ===============\n";
   auto p_r1 = RepCutPartitioner(regionWorkDirectory[1], microPartGraph_r1);
 
-  p_r1.PARTITION_MAX_WEIGHT = 50000;
-  p_r1.PARTITION_PREFERRED_WEIGHT = 30000;
+  p_r1.PARTITION_MAX_WEIGHT = 400000;
+  p_r1.PARTITION_PREFERRED_WEIGHT = 300000;
   p_r1.targetIb = ibFactor;
 
   p_r1.setPartitionTarget(partSizeRatio);

@@ -46,6 +46,9 @@
 namespace toucan {
 
 
+  struct MicroPartValLifeCycle {
+    uint32_t start, end;
+  };
   // MicroPart data structure
   class MicroPart {
     public:
@@ -78,6 +81,9 @@ namespace toucan {
     // Valid for NOP part
     mlir::SmallVector<toucan::LUTOp> nops;
 
+    bool ioCollected;
+
+    int estimateMaxActiveVars() const;
 
 
     // void schedule();
@@ -96,6 +102,7 @@ namespace toucan {
     
     bool checkAndCollectIOValues(const PartitioningGraph &g, const mlir::DenseSet<uint32_t> &allNodes, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToDepNodeId, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToOriginalVecDeclId, const mlir::DenseMap<uint32_t, mlir::SmallVector<uint32_t>> outputVectorNopMap);
 
+    mlir::DenseMap<mlir::Value, MicroPartValLifeCycle> extractValueLifeTime() const;
 
     private:
     void updateNodeToLevel();

@@ -1139,66 +1139,6 @@ void MultiRegionMicroPartScheduler::scheduleExchangeWrites(CGPartitionMetaInfo &
 }
 
 
-struct ValLifeCycle {
-  uint32_t start, end;
-};
-
-static void extractMicroPartValueLifeTime(const PartitioningGraph &graph, const MicroPart &mPart, mlir::DenseMap<mlir::Value, ValLifeCycle> &valueToLifeCycle) {
-  assert(mPart.levels.size() != 0);
-  auto writeBackLevel = static_cast<uint32_t>(mPart.levels.size());
-  valueToLifeCycle.clear();
-
-  mlir::DenseSet<mlir::Value> visitedInputVals;
-
-  for (const auto &[vtx, outputVal]: mPart.nodeToOutputVal) {        
-    auto vtxLevel = mPart.nodeToLevel.at(vtx);
-    assert(vtxLevel < writeBackLevel);
-    assert(!isa<toucan::ConstantOp>(outputVal.getDefiningOp()));
-    if (valueToLifeCycle.contains(outputVal)) {
-      // a vector
-      assert(isa<mlir::TypedValue<toucan::VecType>>(outputVal));
-    }
-    valueToLifeCycle[outputVal] = {vtxLevel, vtxLevel};
-  }
-  for (const auto &[vtx, inputVals]: mPart.nodeToInputVals) {
-    auto vtxLevel = mPart.nodeToLevel.at(vtx);
-
-    if (vtxLevel == 0) {
-      continue;
-    }
-
-    for (const auto &eachVal: inputVals) {
-      assert(!isa<toucan::ConstantOp>(eachVal.getDefiningOp()));
-
-      visitedInputVals.insert(eachVal);
-
-      if (!valueToLifeCycle.contains(eachVal)) {
-        // an external input value that is not used by first level
-        assert(mPart.inputValues.contains(eachVal));
-        valueToLifeCycle[eachVal] = {0, vtxLevel};
-      } else {
-        // max
-        assert(valueToLifeCycle[eachVal].start < vtxLevel);
-        auto oldEndTime = valueToLifeCycle[eachVal].end;
-        if (oldEndTime < vtxLevel) {
-          valueToLifeCycle[eachVal].end = vtxLevel;
-        }
-      }
-    }
-  }
-
-  for (const auto &eachOutputVal: mPart.outputValueSet) {
-    assert(valueToLifeCycle.contains(eachOutputVal));
-    // Extend life time to write back
-    valueToLifeCycle[eachOutputVal].end = writeBackLevel;
-  }
-
-  for (const auto &[val, lifetime]: valueToLifeCycle) {
-    assert(lifetime.start != lifetime.end);
-    assert(!isa<toucan::ConstantOp>(val.getDefiningOp()));
-  }
-}
-
 
 void MultiRegionMicroPartScheduler::buildDummyVtxIndexInVec(const MicroPartitioner mPartitioner) {
   assert(dummyVtxIndexInVecTable.empty());
@@ -1255,8 +1195,7 @@ void MultiRegionMicroPartScheduler::scheduleRegularMicroPart(const PartitioningG
   part.opType = CGToucanOPName::LUT;
 
   
-  mlir::DenseMap<mlir::Value, ValLifeCycle> valueToLifeCycle;
-  extractMicroPartValueLifeTime(graph, mPart, valueToLifeCycle);
+  auto valueToLifeCycle = mPart.extractValueLifeTime();
 
   auto WriteBackLevel = static_cast<uint32_t>(mPart.levels.size());
 
@@ -2113,18 +2052,22 @@ void MultiRegionMicroPartScheduler::mergeSmallRegularMParts(std::vector<CGMicroP
     size_t frontPtr = 0;
     size_t lastPtr = mPartIds.size() - 1;
 
-
-    while (mPartsThisLevel[mPartIds[frontPtr]].maxActiveVars >= 32) {
-      assert(mPartsThisLevel[mPartIds[frontPtr]].maxActiveVars == 32);
+    assert(mPartIds.size() > frontPtr);
+    while (mPartsThisLevel[mPartIds.at(frontPtr)].maxActiveVars >= 32) {
+      assert(mPartIds.size() > frontPtr);
+      assert(mPartsThisLevel[mPartIds.at(frontPtr)].maxActiveVars == 32);
       frontPtr++;
     }
 
     while (frontPtr < lastPtr) {
-      // llvm::dbgs() << "front ptr " << frontPtr << ", last ptr " << lastPtr << ", front mp id " << mPartIds[frontPtr] << ", last mp id " << mPartIds[lastPtr] << "\n";
-      assert(mPartIds[frontPtr] != mPartIds[lastPtr]);
+      // llvm::dbgs() << "front ptr " << frontPtr << ", last ptr " << lastPtr << ", front mp id " << mPartIds.at(frontPtr) << ", last mp id " << mPartIds.at(lastPtr) << "\n";
+      assert(mPartIds.size() > frontPtr);
+      assert(mPartIds.size() > lastPtr);
+      // assert(mPartIds.at(frontPtr) != mPartIds.at(lastPtr));
 
-      auto frontMpId = mPartIds[frontPtr];
-      auto lastMpId = mPartIds[lastPtr];
+      auto frontMpId = mPartIds.at(frontPtr);
+      auto lastMpId = mPartIds.at(lastPtr);
+      assert(frontMpId != lastMpId);
       auto &frontMPart = mPartsThisLevel[frontMpId];
       auto &lastMPart = mPartsThisLevel[lastMpId];
 
@@ -2594,15 +2537,15 @@ void MultiRegionMicroPartScheduler::schedule(mlir::MLIRContext *context, const P
           if (isNOPPart) {
             assert(isRegularPart);
             scheduleNOPMicroPart(newPart, *eachMPart, partInfo.valueToValId);
-            partInfo.microPartOps.back().emplace_back(newPart);
+            partInfo.microPartOps.back().push_back(newPart);
           } else {
             if (isRegularPart) {
               scheduleRegularMicroPart(rawGraph, newPart, *eachMPart, partInfo.valueToValId);
               // Save for merge
-              regularMPartsThisLevel.emplace_back(newPart);
+              regularMPartsThisLevel.push_back(newPart);
             } else {
               scheduleSpecialMicroPart(rawGraph, newPart, *eachMPart, partInfo);
-              partInfo.microPartOps.back().emplace_back(newPart);
+              partInfo.microPartOps.back().push_back(newPart);
             }
           }
 
@@ -2612,7 +2555,7 @@ void MultiRegionMicroPartScheduler::schedule(mlir::MLIRContext *context, const P
         mergeSmallRegularMParts(regularMPartsThisLevel);
         partInfo.microPartOps.back().reserve(partInfo.microPartOps.back().size() + regularMPartsThisLevel.size());
         for (size_t i = 0; i < regularMPartsThisLevel.size(); i++) {
-          partInfo.microPartOps.back().emplace_back(std::move(regularMPartsThisLevel[i]));
+          partInfo.microPartOps.back().push_back(regularMPartsThisLevel[i]);
         }
       }
 
