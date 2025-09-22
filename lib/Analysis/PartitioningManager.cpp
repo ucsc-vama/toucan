@@ -2,6 +2,7 @@
 #include "toucan/PartitioningManager.h"
 #include "toucan/CGToucanOpName.h"
 #include "toucan/RepCutPartitioner.h"
+#include "toucan/ToucanConfigs.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Value.h"
@@ -512,7 +513,7 @@ int PartitioningManager::findCutPoint() {
     estimateMPartsPerLevel.push_back(thisLevelMPartCntEst);
   }
 
-  float region0VtxTarget = 0.4f;
+  float region0VtxTarget = PARTITIONING_MANAGER_CUT_TARGET;
 
 
   int totalNumVtxes = 0;
@@ -1227,8 +1228,8 @@ mlir::LogicalResult PartitioningManager::runStage2RepCutPartitioner(float partSi
   llvm::outs() << "=============== RepCut partitioning for region 0 ===============\n";
 
   auto p_r0 = RepCutPartitioner(regionWorkDirectory[0], microPartGraph_r0);
-  p_r0.PARTITION_MAX_WEIGHT = 120000;
-  p_r0.PARTITION_PREFERRED_WEIGHT = 100000;
+  p_r0.PARTITION_MAX_WEIGHT = PARTITIONING_MANAGER_MAX_WEIGHT_R0;
+  p_r0.PARTITION_PREFERRED_WEIGHT = PARTITIONING_MANAGER_PREFERRED_WEIGHT_R0;
   p_r0.targetIb = ibFactor;
 
   p_r0.setPartitionTarget(partSizeRatio);
@@ -1240,8 +1241,8 @@ mlir::LogicalResult PartitioningManager::runStage2RepCutPartitioner(float partSi
   llvm::outs() << "=============== RepCut partitioning for region 1 ===============\n";
   auto p_r1 = RepCutPartitioner(regionWorkDirectory[1], microPartGraph_r1);
 
-  p_r1.PARTITION_MAX_WEIGHT = 400000;
-  p_r1.PARTITION_PREFERRED_WEIGHT = 300000;
+  p_r1.PARTITION_MAX_WEIGHT = PARTITIONING_MANAGER_MAX_WEIGHT_R1;
+  p_r1.PARTITION_PREFERRED_WEIGHT = PARTITIONING_MANAGER_PREFERRED_WEIGHT_R1;
   p_r1.targetIb = ibFactor;
 
   p_r1.setPartitionTarget(partSizeRatio);
