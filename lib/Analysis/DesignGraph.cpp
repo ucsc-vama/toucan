@@ -37,8 +37,38 @@ bool DesignGraph::opShouldRemoveInGraph(mlir::Operation *op) {
   return false;
 }
 
-static uint32_t getOpWeight(Operation *op) {
-  return 1;
+static uint32_t getOpWeight(Operation* op) {
+  if (isa<toucan::LUTOp>(op)) return 10;
+  if (auto vecDeclOp = dyn_cast<toucan::DefVectorOp>(op)) {
+    auto vecSize = vecDeclOp.getHandle().getType().getLength();
+    return vecSize * 7;
+  }
+  if (isa<toucan::RegReadOp>(op)) return 10;
+
+  // terminal ops: their input values are alive to the last. Don't produce any value
+  if (isa<toucan::RegWriteOp>(op)) return 5;
+  if (isa<toucan::MemWriteOp>(op)) return 200;
+  if (isa<toucan::PrintOp>(op)) return 5;
+  if (isa<toucan::StopOp>(op)) return 5;
+  // Consts and const vecs don't have place in smem
+  if (isa<toucan::ConstantOp>(op)) return 0;
+  if (isa<toucan::DefConstVectorOp>(op)) return 0;
+  // Static segment read ops are just pointer to certain place of vector value
+  if (isa<toucan::StaticVectorSegmentReadOp>(op)) return 0;
+  if (isa<toucan::MemReadOp>(op)) return 200;
+  // if (isa<toucan::VectorArithOp>(op)) return 10;
+  if (auto vecLogicOp = dyn_cast<toucan::VectorLogicOp>(op)) {
+    auto vecLength = vecLogicOp.getV1().getType().getLength();
+    return vecLength * 10;
+  }
+  if (auto vecArithOp = dyn_cast<toucan::VectorArithOp>(op)) {
+    auto vecLength = vecArithOp.getResult().getType().getLength();
+    return vecLength * 10;
+  }
+  // if (isa<toucan::VectorLogicOp>(op)) return 10;
+  if (isa<toucan::VectorReadOp>(op)) return 10;
+
+  return 10;
 }
 
 static uint32_t getOpCount(Operation* op) {
