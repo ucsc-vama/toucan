@@ -2052,7 +2052,7 @@ void MultiRegionMicroPartScheduler::mergeSmallRegularMParts(std::vector<CGMicroP
     size_t frontPtr = 0;
     size_t lastPtr = mPartIds.size() - 1;
 
-    while ((frontPtr <= mPartIds.size()) && (mPartsThisLevel[mPartIds.at(frontPtr)].maxActiveVars >= 32)) {
+    while ((frontPtr < mPartIds.size()) && (mPartsThisLevel[mPartIds.at(frontPtr)].maxActiveVars >= 32)) {
       assert(mPartsThisLevel[mPartIds.at(frontPtr)].maxActiveVars == 32);
       frontPtr++;
     }
