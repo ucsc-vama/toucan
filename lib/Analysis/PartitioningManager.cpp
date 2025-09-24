@@ -117,6 +117,7 @@ static mlir::DenseMap<uint32_t, mlir::SmallVector<mlir::Value>> collectGraphVtxT
       }
 
       default: {
+        llvm::errs() << stringifyCGToucanOPName(tOpName) << "\n";
         llvm_unreachable("Op that should not appear here");
       }
     }
@@ -162,6 +163,7 @@ static mlir::DenseMap<uint32_t, mlir::SmallVector<mlir::Value>> collectGraphVtxT
 
 
       default: {
+        llvm::errs() << stringifyCGToucanOPName(tOpName) << "\n";
         llvm_unreachable("Op that should not appear here");
       }
     }
@@ -233,6 +235,7 @@ static mlir::DenseSet<mlir::Operation*> collectGraphRawOps(PartitioningGraph &g,
       }
 
       default: {
+        llvm::errs() << stringifyCGToucanOPName(tOpName) << "\n";
         llvm_unreachable("Op that should not appear here");
       }
     }
@@ -504,6 +507,7 @@ int PartitioningManager::findCutPoint() {
           break;
         }
         default: {
+          llvm::errs() << stringifyCGToucanOPName(tOpName) << "\n";
           llvm_unreachable("Unexpected node type");
         }
       }
@@ -965,7 +969,7 @@ mlir::SmallVector<uint32_t> PartitioningManager::breakDirectIOConnectionWorker(P
           }
 
           default: {
-            llvm::dbgs() << stringifyCGToucanOPName(dstVtxOpName) << "\n";
+            llvm::errs() << stringifyCGToucanOPName(dstVtxOpName) << "\n";
             llvm_unreachable("Op that should not appear here");
           }
         }
@@ -1130,6 +1134,7 @@ void PartitioningManager::updateGraphWeight_r0() {
       case CGToucanOPName::RegWrite:
       case CGToucanOPName::MemWrite:
       default: {
+        llvm::errs() << stringifyCGToucanOPName(tOpName) << "\n";
         llvm_unreachable("Unexpected node type");
       }
     }
@@ -1208,6 +1213,7 @@ void PartitioningManager::updateGraphWeight_r1() {
         case CGToucanOPName::RegRead:
         case CGToucanOPName::ExchangeWrite:
         default: {
+          llvm::errs() << stringifyCGToucanOPName(tOpName) << "\n";
           llvm_unreachable("Unexpected node type");
         }
       }
@@ -1468,6 +1474,7 @@ void PartitioningManager::collectRepCutPartitionCodeGenData() {
           }
 
           default: {
+            llvm::errs() << stringifyCGToucanOPName(tOpName) << "\n";
             llvm_unreachable("Unexpected node type");
           }
         }

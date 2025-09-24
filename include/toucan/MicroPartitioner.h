@@ -128,7 +128,10 @@ namespace toucan {
     const char* outputVectorMapFilePrefix = "micro_part_result_vecmap_";
     const char* outputVectorMapFileSuffix = ".txt";
 
-    const char* microPartitionerBin = "toucan-mpart";
+    // use C++ version of micro partitioner
+    const char* microPartitionerBin = "micro_partitioner";
+    // uncomment follow to switch to python based partitioner (prototype)
+    // const char* microPartitionerBin = "toucan-mpart";
 
     
     mlir::LogicalResult callExternalPartitioner();

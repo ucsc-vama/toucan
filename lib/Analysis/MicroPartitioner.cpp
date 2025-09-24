@@ -256,7 +256,7 @@ mlir::LogicalResult MicroPartitioner::callExternalPartitioner() {
 
   auto mpartExe = llvm::sys::findProgramByName(microPartitionerBin);
   if (!mpartExe) {
-    llvm::errs() << "Cannot find toucan-mpart. Please ensure it's in your PATH!\n";
+    llvm::errs() << "Cannot find " << microPartitionerBin << ". Please ensure it's in your PATH!\n";
     return failure();
   }
 
@@ -314,6 +314,8 @@ mlir::LogicalResult MicroPartitioner::loadMicroParts() {
   std::vector<std::string> split_line;
   mlir::SmallVector<mlir::SmallVector<uint32_t>> newPartNodesLevel;
 
+  mlir::DenseSet<uint32_t> allNodesInMP, allNodesExclude;
+
   while (std::getline(file, line)) {
     split_line.clear();
     boost::split(split_line, line, boost::is_any_of(" "));
@@ -349,7 +351,11 @@ mlir::LogicalResult MicroPartitioner::loadMicroParts() {
           return failure();
         }
         assert(!split_line[i].empty());
-        thisLevelExcludeNodes.push_back(std::stoi(split_line[i]));
+        auto v = std::stoi(split_line[i]);
+        thisLevelExcludeNodes.push_back(v);
+
+        assert(!allNodesExclude.contains(v) && "Duplicated node");
+        allNodesExclude.insert(v);
       }
 
       assert(levelId + 1 == static_cast<int>(excludeNodeLevels.size()));
@@ -379,6 +385,9 @@ mlir::LogicalResult MicroPartitioner::loadMicroParts() {
           assert(!split_line[i].empty());
           auto v = std::stoi(split_line[i]);
           newPartNodesLevel.back().push_back(v);
+
+          assert(!allNodesInMP.contains(v) && "Duplicated node!");
+          allNodesInMP.insert(v);
         }
       }
 

@@ -11,8 +11,19 @@ INSTALL_PREFIX=$(realpath ../install)
 
 
 
+# build micro partitioner
+pushd toucan-micro-partitioner
 
-# Create launcher for toucan-micro-partitioner
+[ -d build ] || mkdir build
+cd build
+cmake .. \
+    -DCMAKE_INSTALL_PREFIX=$INSTALL_PREFIX \
+    -DCMAKE_BUILD_TYPE=RELEASE
+make -j$(nproc) install
+
+popd
+
+# Create launcher for toucan-micro-partitioner (python version)
 EXTERNAL_LIB_DIR=$(realpath ./)
 BIN_DIR="$INSTALL_PREFIX/bin"
 LAUNCHER_SCRIPT="$BIN_DIR/toucan-mpart"
