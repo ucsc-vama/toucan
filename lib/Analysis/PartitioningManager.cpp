@@ -424,20 +424,46 @@ mlir::LogicalResult PartitioningManager::buildMicroPartGraph(const PartitioningG
 
   // visit RW, MW, Stop, Print, add missing vtx and edges
   auto createVtxAndConnectEdge = [&](uint32_t oldVtxId) {
-    auto vp = rawGraph[oldVtxId];
+    auto &vp = rawGraph[oldVtxId];
+    auto tOpName = vp.toucanOpName;
+    auto rawOp = vp.op;
+
     auto newVertex = boost::add_vertex(vp, *microPartGraph);
     assert(!mpGraph_idToRawGraphId.contains(newVertex));
     mpGraph_idToRawGraphId[newVertex] = oldVtxId;
 
-    assert(vp.op != nullptr);
+    assert(rawOp != nullptr);
+    assert(vp.opCount > 0);
 
-    for (const auto &eachVal: vp.op->getOperands()) {
-      auto valDefiningOp = eachVal.getDefiningOp();
-      if (!(isa<toucan::ConstantOp>(valDefiningOp) || isa<toucan::DefRegOp>(valDefiningOp) || isa<toucan::DefMemOp>(valDefiningOp))) {
-        assert(mpGraphValueToProducingVtx.contains(eachVal));
-        for (const auto &eachSrcVtx: mpGraphValueToProducingVtx[eachVal]) {
-          auto dstVtx = newVertex;
-          boost::add_edge(eachSrcVtx, dstVtx, *microPartGraph);
+    mlir::SmallVector<mlir::Operation*> allOps;
+    if (tOpName == CGToucanOPName::MemWrite && vp.opCount != 1) {
+      assert(isa<toucan::MemWriteOp>(rawOp));
+      // mem write could be merged nodes
+      // collect all of them
+      uint32_t realOpCount = 0;
+      auto oneMWOp = cast<toucan::MemWriteOp>(rawOp);
+      auto memVal = oneMWOp.getMem();
+
+      for (auto eachUserOp: memVal.getUsers()) {
+        if (auto mwOp = dyn_cast<toucan::MemWriteOp>(eachUserOp)) {
+          realOpCount += 1;
+          allOps.push_back(mwOp);
+        }
+      }
+      assert(realOpCount == vp.opCount);
+    } else {
+      allOps.push_back(rawOp);
+    }
+
+    for (const auto &eachOp: allOps) {
+      for (const auto &eachVal: eachOp->getOperands()) {
+        auto valDefiningOp = eachVal.getDefiningOp();
+        if (!(isa<toucan::ConstantOp>(valDefiningOp) || isa<toucan::DefRegOp>(valDefiningOp) || isa<toucan::DefMemOp>(valDefiningOp))) {
+          assert(mpGraphValueToProducingVtx.contains(eachVal));
+          for (const auto &eachSrcVtx: mpGraphValueToProducingVtx[eachVal]) {
+            auto dstVtx = newVertex;
+            boost::add_edge(eachSrcVtx, dstVtx, *microPartGraph);
+          }
         }
       }
     }
@@ -459,6 +485,11 @@ mlir::LogicalResult PartitioningManager::buildMicroPartGraph(const PartitioningG
   // levelize
   levelizeGraph(*microPartGraph, microPartGraph_levels);
 
+  for (auto vtx: boost::make_iterator_range(boost::vertices(*microPartGraph))) {
+    if ((*microPartGraph)[vtx].toucanOpName == CGToucanOPName::RegRead) {
+      assert(boost::out_degree(vtx, *microPartGraph) != 0 && "RegRead result must have a user!");
+    }
+  }
   return success();
 }
 
@@ -467,6 +498,7 @@ int PartitioningManager::findCutPoint() {
 
   // count expected parts
   std::vector<uint32_t> estimateMPartsPerLevel;
+  size_t levelId = 0;
   for (const auto &eachLevel: microPartGraph_levels) {
     uint32_t thisLevelMPartCntEst = 0;
 
@@ -478,6 +510,7 @@ int PartitioningManager::findCutPoint() {
 
       switch (tOpName) {
         case CGToucanOPName::RegRead: {
+          assert(levelId == 0 && "RegRead can only appear in first level. If this happends, ensure this register is NOT a sink vtx (dead register)");
           numOpWidth += 1;
           break;
         }
@@ -507,6 +540,7 @@ int PartitioningManager::findCutPoint() {
           break;
         }
         default: {
+          llvm::errs() << "At level " << levelId << "\n";
           llvm::errs() << stringifyCGToucanOPName(tOpName) << "\n";
           llvm_unreachable("Unexpected node type");
         }
@@ -515,6 +549,7 @@ int PartitioningManager::findCutPoint() {
       thisLevelMPartCntEst += (numOpWidth + 31) / 32;
     }
     estimateMPartsPerLevel.push_back(thisLevelMPartCntEst);
+    levelId++;
   }
 
   float region0VtxTarget = PARTITIONING_MANAGER_CUT_TARGET;
@@ -1505,7 +1540,7 @@ void PartitioningManager::collectRepCutPartitionCodeGenData() {
         mlir::SmallVector<mlir::SmallVector<std::shared_ptr<MicroPart>>> mpartGroupByType;
         mlir::SmallVector<std::shared_ptr<MicroPart>> mPartToMerge;
 
-        mpartGroupByType.resize(getMaxEnumValForCGToucanOPName());
+        mpartGroupByType.resize(getMaxEnumValForCGToucanOPName() + 1);
 
         for (auto &eachMp: specialMPartsInThisLevel) {
           auto opType = eachMp->opType;
@@ -1886,11 +1921,12 @@ static void getVtxToLevel(const PartitioningGraph &g, mlir::SmallVector<uint32_t
 
   // Initialize levels
   levels.clear();
-  levels.resize(maxVtxId, 0);
+  levels.resize(maxVtxId + 1, 0);
   uint32_t maxLevel = 0;
 
   // Assign levels based on dependencies. Ignore sink vtxes
   for (auto v : topo_order) {
+    assert(v <= maxVtxId);
     if (boost::out_degree(v, g) == 0) {
       // a sink node
       sinkVtxes.push_back(v);
@@ -1917,11 +1953,17 @@ static void getVtxToLevel(const PartitioningGraph &g, mlir::SmallVector<uint32_t
 
 void PartitioningManager::levelizeGraph(const PartitioningGraph &g, mlir::SmallVector<mlir::SmallVector<uint32_t>> &graphLevels) const {
 
+  uint32_t maxVtxId = 0;
+  for (uint32_t vtx: boost::make_iterator_range(boost::vertices(g))) {
+    maxVtxId = std::max(maxVtxId, vtx);
+  }
+
   mlir::SmallVector<uint32_t> levels;
   getVtxToLevel(g, levels, boost::num_vertices(g));
 
 
-  for (uint32_t vtx = 0; vtx < levels.size(); vtx++) {
+  for (auto vtx: boost::make_iterator_range(boost::vertices(g))) {
+    assert(vtx < levels.size());
     uint32_t vtxLevel = levels[vtx];
     assert(vtxLevel != UINT32_MAX);
     while (graphLevels.size() <= vtxLevel) {

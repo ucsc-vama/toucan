@@ -65,12 +65,10 @@ namespace toucan {
     const char* repcutOutputFileName = "rcp_output.txt";
     const char* repcutConsoleLogFileName = "repcut_print.txt";
 
+    static mlir::LogicalResult dumpGraphToFile(const PartitioningGraph &g, std::string fileName);
     private:
 
     std::shared_ptr<PartitioningGraph> _graph;
-
-
-    static mlir::LogicalResult dumpGraphToFile(const PartitioningGraph &g, std::string fileName);
 
 
     mlir::LogicalResult callRepCutAndWait(uint32_t nParts, float target_ib, const std::string &graphFile, const std::filesystem::path &workingDirectory, int maxThreads);

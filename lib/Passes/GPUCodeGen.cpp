@@ -17,6 +17,7 @@
 #include "toucan/MicroPartitioner.h"
 #include "toucan/MultiRegionMicroPartScheduler.h"
 #include "toucan/PartitioningGraph.h"
+#include "toucan/RepCutPartitioner.h"
 #include "toucan/ToucanAnalysis.h"
 #include "toucan/ToucanCodeGenInfo.h"
 
@@ -578,6 +579,22 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     }
   }
 
+  void saveDebugGraph(std::filesystem::path graphDirectory, const PartitioningGraph &rawGraph, const PartitioningGraph &mpGraph) {
+    const char *rawGraphName = "rawGraph.graph";
+    const char* mpGraphName = "mpGraph.graph";
+
+    auto rawGraphSucc = RepCutPartitioner::dumpGraphToFile(rawGraph, graphDirectory / rawGraphName);
+    assert(mlir::succeeded(rawGraphSucc));
+
+    mlir::SmallVector<uint32_t> allNodes;
+    for (auto v: boost::make_iterator_range(boost::vertices(mpGraph))) {
+      allNodes.push_back(v);
+    }
+    auto mpGraphSucc = PartitioningManager::dumpGraphToFileForMicroPartitioner(mpGraph, allNodes, graphDirectory / mpGraphName);
+
+    assert(mlir::succeeded(mpGraphSucc));
+  }
+
 
   void runOnOperation() final {
     // Mark all analyses as preserved. This is a read only pass
@@ -607,6 +624,8 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
         signalPassFailure();
         return;
       }
+
+      // saveDebugGraph(outputDirectory.getValue(), graph.g, *pm.microPartGraph);
 
       auto cutPoint = pm.findCutPoint();
 

@@ -6,6 +6,7 @@
 
 #include "mlir/IR/Value.h"
 #include "mlir/Pass/AnalysisManager.h"
+#include "toucan/CGToucanOpName.h"
 #include "toucan/PartitioningGraph.h"
 #include "toucan/ToucanAnalysis.h"
 #include "toucan/ToucanOps.h"
@@ -301,4 +302,10 @@ DesignGraph::DesignGraph(Operation *op, AnalysisManager &am) {
   llvm::outs() << "Raw graph has " << boost::num_vertices(rawGraph) << " vertices and " << boost::num_edges(rawGraph) << " edges\n";
 
   llvm::outs() << "After removing and merging, graph has " << boost::num_vertices(g) << " vertices and " << boost::num_edges(g) << " edges\n";
+
+  for (auto vtx: boost::make_iterator_range(boost::vertices(g))) {
+    if (g[vtx].toucanOpName == CGToucanOPName::RegRead) {
+      assert(boost::out_degree(vtx, g) != 0 && "RegRead result must have a user!");
+    }
+  }
 }
