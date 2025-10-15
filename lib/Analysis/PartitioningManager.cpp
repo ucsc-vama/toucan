@@ -1109,6 +1109,7 @@ void PartitioningManager::updateGraphWeight_r0() {
   // region 0: optimize for throughput
   auto &r0Graph = *microPartGraph_r0;
   assert(!microPartGraph_r0_levels.empty());
+  mpGraphTotalWeight_r0 = 0;
 
   for (auto vtx: boost::make_iterator_range((boost::vertices(r0Graph)))) {
     auto tOpName = r0Graph[vtx].toucanOpName;
@@ -1175,12 +1176,14 @@ void PartitioningManager::updateGraphWeight_r0() {
     }
 
     r0Graph[vtx].weight = weight;
+    mpGraphTotalWeight_r0 += weight;
   }
 }
 void PartitioningManager::updateGraphWeight_r1() {
   // region 1: optimize for latency
   auto &r1Graph = *microPartGraph_r1;
   assert(!microPartGraph_r1_levels.empty());
+  mpGraphTotalWeight_r1 = 0;
 
   for (uint32_t level_id = 0; level_id < microPartGraph_r1_levels.size(); level_id++) {
     for (const auto eachVtx: microPartGraph_r1_levels[level_id]) {
@@ -1256,6 +1259,7 @@ void PartitioningManager::updateGraphWeight_r1() {
       weight = static_cast<float>(weight) * (1.0f + (static_cast<float>(level_id) / 8.0f));
 
       r1Graph[eachVtx].weight = weight;
+      mpGraphTotalWeight_r1 += weight;
     }
   }
 }
@@ -1272,6 +1276,7 @@ mlir::LogicalResult PartitioningManager::runStage2RepCutPartitioner(float partSi
   p_r0.PARTITION_MAX_WEIGHT = PARTITIONING_MANAGER_MAX_WEIGHT_R0;
   p_r0.PARTITION_PREFERRED_WEIGHT = PARTITIONING_MANAGER_PREFERRED_WEIGHT_R0;
   p_r0.targetIb = ibFactor;
+  p_r0.rePartitionMaxIterations = PARTITIONING_MANAGER_MAX_REPARTITION_R0;
 
   p_r0.setPartitionTarget(partSizeRatio);
   auto ret_r0 = p_r0._partition(context);
@@ -1282,9 +1287,14 @@ mlir::LogicalResult PartitioningManager::runStage2RepCutPartitioner(float partSi
   llvm::outs() << "=============== RepCut partitioning for region 1 ===============\n";
   auto p_r1 = RepCutPartitioner(regionWorkDirectory[1], microPartGraph_r1);
 
-  p_r1.PARTITION_MAX_WEIGHT = PARTITIONING_MANAGER_MAX_WEIGHT_R1;
-  p_r1.PARTITION_PREFERRED_WEIGHT = PARTITIONING_MANAGER_PREFERRED_WEIGHT_R1;
+  auto numParts_r0 = p_r0.repcutPartitions.size();
+  assert(numParts_r0 != 0);
+
+  auto expected_r1_weight = mpGraphTotalWeight_r1 / numParts_r0;
+  p_r1.PARTITION_PREFERRED_WEIGHT = expected_r1_weight;
+  p_r1.PARTITION_MAX_WEIGHT = PARTITIONING_MANAGER_MAX_WEIGHT_RATIO_R1 * expected_r1_weight;
   p_r1.targetIb = ibFactor;
+  p_r1.rePartitionMaxIterations = PARTITIONING_MANAGER_MAX_REPARTITION_R1;
 
   p_r1.setPartitionTarget(partSizeRatio);
 

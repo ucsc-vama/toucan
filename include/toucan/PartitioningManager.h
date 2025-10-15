@@ -80,6 +80,9 @@ namespace toucan {
     std::shared_ptr<PartitioningGraph> microPartGraph_r0;
     std::shared_ptr<PartitioningGraph> microPartGraph_r1;
 
+    size_t mpGraphTotalWeight_r0;
+    size_t mpGraphTotalWeight_r1;
+
     mlir::SmallVector<uint32_t> newNOPVtxes_r0;
     mlir::SmallVector<uint32_t> newNOPVtxes_r1;
     mlir::SmallVector<mlir::SmallVector<uint32_t>> repcutPartitions_r0;
