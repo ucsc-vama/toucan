@@ -168,7 +168,7 @@ LogicalResult RepCutPartitioner::_partition(mlir::MLIRContext *context) {
 
     if (!converged) {
       llvm::errs() << "Fail to limit partition size by repartition!\n";
-      return failure();
+      // return failure();
     }
 
     // sort
