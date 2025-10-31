@@ -132,7 +132,7 @@ LogicalResult RepCutPartitioner::_partition(mlir::MLIRContext *context) {
     uint32_t rawPartitionCount = repcutPartitions.size();
     uint32_t numPartsBefore;
     keepRepartitionMayUseless = false;
-    while ((rePartIterationCount <= rePartitionMaxIterations) && (!converged)) {
+    while ((rePartIterationCount < rePartitionMaxIterations) && (!converged)) {
       msgOss.str("");
       msgOss.clear();
       msgOss << "> Repartition iteration " << rePartIterationCount << "\n";

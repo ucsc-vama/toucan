@@ -1291,7 +1291,7 @@ mlir::LogicalResult PartitioningManager::runStage2RepCutPartitioner(float partSi
   assert(numParts_r0 != 0);
 
   auto expected_r1_weight = mpGraphTotalWeight_r1 / numParts_r0;
-  p_r1.PARTITION_PREFERRED_WEIGHT = expected_r1_weight;
+  p_r1.PARTITION_PREFERRED_WEIGHT = expected_r1_weight * 1.1;
   p_r1.PARTITION_MAX_WEIGHT = PARTITIONING_MANAGER_MAX_WEIGHT_RATIO_R1 * expected_r1_weight;
   p_r1.targetIb = ibFactor;
   p_r1.rePartitionMaxIterations = PARTITIONING_MANAGER_MAX_REPARTITION_R1;
