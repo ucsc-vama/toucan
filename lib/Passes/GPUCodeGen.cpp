@@ -68,6 +68,29 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
   toucanGPUSim::SimDesignInfo designInfo;
   toucanGPUSim::SimDebugInfo debugInfo;
 
+  static void printDesignStatistics(const toucanGPUSim::SimDesignInfo &designInfo) {
+    int totalMPCount = 0;
+    int totalMPSize = 0;
+    int totalMPLevels = 0;
+    for (const auto &eachPart: designInfo.parts) {
+      for (const auto &eachMPLevel: eachPart.exec_mParts) {
+        for (const auto &eachMP: eachMPLevel) {
+          totalMPSize += eachMP.topLevel.size();
+          totalMPSize += eachMP.lastLevel.size();
+          for (const auto &el: eachMP.middleLevels) {
+            totalMPSize += el.size();
+          }
+
+          totalMPLevels += (2 + eachMP.middleLevels.size());
+        }
+        totalMPCount += eachMPLevel.size();
+      }
+    }
+
+    llvm::dbgs() << "Statistic: design has " << totalMPCount << " MPs\n";
+    llvm::dbgs() << "Statistic: design MP has " << (totalMPSize / totalMPCount) << " average size\n";
+    llvm::dbgs() << "Statistic: design MP has " << (static_cast<float>(totalMPLevels) / totalMPCount) << " average levels\n";
+  }
 
   void populateMicroPartInfo(const CGMicroPartInfo &mp, toucanGPUSim::CGMicroPartInfo &cmp) {
 
@@ -761,6 +784,8 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     ofs_io_symbol.close();
 
     llvm::outs() << "Done\n";
+
+    // printDesignStatistics(designInfo);
   }
 
 };
