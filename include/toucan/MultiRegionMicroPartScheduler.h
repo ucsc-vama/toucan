@@ -141,7 +141,7 @@ namespace toucan {
 
 
 
-    void schedule(mlir::MLIRContext *context, const PartitioningGraph &rawGraph, const mlir::SmallVector<mlir::Value> &exchangeValPool);
+    mlir::LogicalResult schedule(mlir::MLIRContext *context, const PartitioningGraph &rawGraph, const mlir::SmallVector<mlir::Value> &exchangeValPool);
     void buildDummyVtxIndexInVec(const MicroPartitioner mPartitioner);
     void copyVecTables(const MicroPartitioner mPartitioner);
 

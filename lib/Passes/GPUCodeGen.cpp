@@ -689,7 +689,13 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     scheduler.copyVecTables(*(pm.mp));
 
     // After this point, pm is not used and can be released.
-    scheduler.schedule(&getContext(), graph.g, pm.exchangeValPool);
+    auto schedule_result = scheduler.schedule(&getContext(), graph.g, pm.exchangeValPool);
+
+    if (failed(schedule_result)) {
+      llvm::outs() << "Fail to schedule!\n";
+      signalPassFailure();
+      return;
+    }
 
     // To use this, run with -debug-only=GPUCodeGenPass
     LLVM_DEBUG(

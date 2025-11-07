@@ -2399,7 +2399,7 @@ void MultiRegionMicroPartScheduler::printPartInfo(const CGPartitionMetaInfo &par
 }
 
 // Scheduler entry point
-void MultiRegionMicroPartScheduler::schedule(mlir::MLIRContext *context, const PartitioningGraph &rawGraph, const mlir::SmallVector<mlir::Value> &exchangeValPool) {
+mlir::LogicalResult MultiRegionMicroPartScheduler::schedule(mlir::MLIRContext *context, const PartitioningGraph &rawGraph, const mlir::SmallVector<mlir::Value> &exchangeValPool) {
 
 
   // schedule all registers, memories and exchange values. Also sort registers and exchange writes
@@ -2495,9 +2495,15 @@ void MultiRegionMicroPartScheduler::schedule(mlir::MLIRContext *context, const P
       llvm::outs() << oss.str();
 
       if (valAllocator.numTotalValSize >= UINT16_MAX) {
-        // TODO: If this happens, consider fall back to rePartition
-        llvm::errs() << "Values in a partition exceeds UINT16_MAX, cannot proceed.\n";
-        llvm_unreachable("Consider lower PARTITION_MAX_WEIGHT");
+        oss.str("");
+        oss
+          << "Region " << regionId
+          << " part " << partId
+          << " allocator requires " << valAllocator.numTotalValSize
+          << " total bytes, exceeds UINT16_MAX, cannot proceed.\n";
+        llvm::outs() << oss.str();
+        // llvm_unreachable("Consider lower PARTITION_MAX_WEIGHT");
+        return failure();
       }
 
       scheduleRegReads(partInfo, partData.allRegReads);
@@ -2609,7 +2615,7 @@ void MultiRegionMicroPartScheduler::schedule(mlir::MLIRContext *context, const P
 
   fillDebugInfo();
 
-  return;
+  return success();
 }
 
 
