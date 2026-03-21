@@ -9,4 +9,4 @@
 	url = https://github.com/kahypar/mt-kahypar.git
 [submodule "external/toucan-micro-partitioner"]
 	path = external/toucan-micro-partitioner
-	url = git@github.com:haoozi/toucan-micro-partitioner.git
+	url = git@github.com:ucsc-vama/toucan-micro-partitioner.git
