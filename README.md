@@ -2,7 +2,7 @@
 
 Toucan is a **GPU-accelerated RTL simulator** that compiles hardware designs described in FIRRTL/Verilog into efficient GPU simulation kernels.
 
-Toucan lowers CIRCT's HW/Comb/Seq/SV dialects through a custom MLIR dialect pipeline, partitions the design using hypergraph partitioning (RepCut + MtKaHyPar), and generates CUDA simulation code.
+Toucan lowers CIRCT's HW/Comb/Seq/SV dialects through a custom MLIR dialect pipeline, partitions the design (RepCut + micro-partitioner), and generates CUDA simulation binary.
 
 ## Paper
 
@@ -17,7 +17,7 @@ If you use Toucan in your research, please cite:
 | CMake | >= 3.26 |
 | Boost | (graph, filesystem) |
 | MtKaHyPar | requires `tbb`, `hwloc` |
-| toucan-micro-partitioner | requires `python-networkx` |
+| toucan-micro-partitioner | (see `external/toucan-micro-partitioner`) |
 | LLVM/MLIR | (built via CIRCT) |
 | CIRCT | (see `external/circt`) |
 
