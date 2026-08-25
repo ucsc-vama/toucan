@@ -47,8 +47,8 @@ struct FlattenPass : toucan::impl::FlattenBase<FlattenPass> {
   static void flattenName(MLIRContext *ctx, Operation *op, StringRef prefix) {
     if(op->hasAttr("sv.namehint")) {
       auto attr = op->getAttrOfType<StringAttr>("sv.namehint");
-      auto newName = prefix + "." + attr.getValue();
       // Here, we allow name collision, as splitted signals share same name
+      auto newName = (prefix + "." + attr.getValue()).str();
       op->setAttr("sv.namehint", StringAttr::get(ctx, newName));
     }
   }
