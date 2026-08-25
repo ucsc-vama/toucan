@@ -66,16 +66,16 @@ export PATH="$PWD/install/bin:$PATH"
 
 ```bash
 # Compile MLIR (CIRCT core dialect) to GPU simulation design
-./toucan input.mlir -o ./output_dir -gpu
+./build/tools/toucan/toucan input.mlir -o ./output_dir -gpu
 
 # Specify input level and dump intermediate MLIR
-./toucan input.mlir -o ./output_dir -gpu --inputLevel=core --dump
+./build/tools/toucan/toucan input.mlir -o ./output_dir -gpu --inputLevel=core --dump
 
 # Tune partition size (ratio 0.01-10.0, default 1.0)
-./toucan input.mlir -o ./output_dir -gpu --partSize 0.5
+./build/tools/toucan/toucan input.mlir -o ./output_dir -gpu --partSize 0.5
 
 # Remove SV print/assert ops (no I/O during sim)
-./toucan input.mlir -o ./output_dir -gpu --removeSVDialect
+./build/tools/toucan/toucan input.mlir -o ./output_dir -gpu --removeSVDialect
 ```
 
 **Input levels:** `core` (default), `toucanHigh`, `toucan4B`, `toucanFlattened`
