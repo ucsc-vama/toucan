@@ -42,16 +42,11 @@ static bool are_ids_consecutive(const PartitioningGraph& g) {
   return true;
 }
 
-static bool isDirectoryExists(const std::string &dir) {
-  return std::filesystem::exists(dir);
-}
-
 static bool createDirectoryIfNotExists(const std::string dir) {
-  if (!isDirectoryExists(dir)) {
-    bool created = std::filesystem::create_directory(dir);
-    return created;
-  }
-  return true;
+  std::error_code ec;
+  // create_directories creates all missing parent directories as well
+  std::filesystem::create_directories(dir, ec);
+  return !ec;
 }
 
 template <typename T>

@@ -87,6 +87,14 @@ static LogicalResult compileAndEmit(
 
     std::string errorMsg;
 
+    // Create the output directory if it does not exist yet
+    std::error_code dirError;
+    std::filesystem::create_directories(outputDir, dirError);
+    if (dirError) {
+        llvm::errs() << "Error creating output directory " << outputDir << ": " << dirError.message() << "\n";
+        return failure();
+    }
+
     auto mod = parseSourceFile<ModuleOp>(sourceMgr, &context);
     if(!mod) return failure();
 
