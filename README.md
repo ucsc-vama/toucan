@@ -58,6 +58,12 @@ GPU Simulation
 
 ## Usage
 
+GPU codegen shells out to the partitioner binaries (`rcp`, `micro_partitioner`, `MtKaHyPar`), which are installed into `install/bin`. Make sure they are on `PATH`:
+
+```bash
+export PATH="$PWD/install/bin:$PATH"
+```
+
 ```bash
 # Compile MLIR (CIRCT core dialect) to GPU simulation design
 ./toucan input.mlir -o ./output_dir -gpu
