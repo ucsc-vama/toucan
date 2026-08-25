@@ -6,8 +6,12 @@ if [[ "$BUILD_TYPE" == "" ]]; then
   BUILD_TYPE="DEBUG"
 fi
 
-INSTALL_PREFIX=$(realpath ../install)
-[ -d $INSTALL_PREFIX ] || mkdir $INSTALL_PREFIX
+# Resolve the install prefix relative to this script's location and create it if
+# missing. install/ is gitignored, so it does not exist on a fresh checkout.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+INSTALL_PREFIX="$SCRIPT_DIR/../install"
+mkdir -p "$INSTALL_PREFIX"
+INSTALL_PREFIX="$(cd "$INSTALL_PREFIX" && pwd)"
 
 
 
