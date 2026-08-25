@@ -282,7 +282,7 @@ LogicalResult RepCutPartitioner::callRepCutAndWait(uint32_t nParts, float target
     "--nparts", nPartsString, 
     "--graph_file", graphFile, 
     "--work_directory", workingDirectory.c_str(), 
-    "--log_level", "trace", 
+    "--log_level", "debug", 
     "--threads", numThreadsString
   };
 
