@@ -493,7 +493,7 @@ void MicroPartLocalValueAllocator::allocateLocalValues() {
 }
 
 
-void MicroPartLocalValueAllocator::populateInitialPinnedVals(RepCutPartitionCodeGenData &partData, const mlir::DenseMap<mlir::Value, uint32_t> constValToRawValue) {
+void MicroPartLocalValueAllocator::populateInitialPinnedVals(RepCutPartitionCodeGenData &partData, const mlir::DenseMap<mlir::Value, uint32_t> &constValToRawValue) {
 
   // In each value pool, populate all possible const values (4 bits, 0 to 15)
   compactConstValPool.clear();

@@ -65,7 +65,7 @@ namespace toucan {
     void collectValueLifetime(RepCutPartitionCodeGenData &partData);
 
     // Populate const vals and RegWrite/ExchangeWrite. Those values are pinned
-    void populateInitialPinnedVals(RepCutPartitionCodeGenData &partData, const mlir::DenseMap<mlir::Value, uint32_t> constValToRawValue);
+    void populateInitialPinnedVals(RepCutPartitionCodeGenData &partData, const mlir::DenseMap<mlir::Value, uint32_t> &constValToRawValue);
 
 
     private:

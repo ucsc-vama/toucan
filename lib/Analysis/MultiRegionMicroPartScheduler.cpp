@@ -924,7 +924,7 @@ void MultiRegionMicroPartScheduler::scheduleRegReads(CGPartitionMetaInfo &partIn
   std::swap(partInfo.regReadOps, currentLevelOps);
 }
 
-static bool isArrayElementIncrementalAndContinuous(const mlir::SmallVector<uint32_t> in) {
+static bool isArrayElementIncrementalAndContinuous(const mlir::SmallVector<uint32_t> &in) {
   assert(in.size() > 0);
 
   auto startElem = in.front();
@@ -1140,7 +1140,7 @@ void MultiRegionMicroPartScheduler::scheduleExchangeWrites(CGPartitionMetaInfo &
 
 
 
-void MultiRegionMicroPartScheduler::buildDummyVtxIndexInVec(const MicroPartitioner mPartitioner) {
+void MultiRegionMicroPartScheduler::buildDummyVtxIndexInVec(const MicroPartitioner &mPartitioner) {
   assert(dummyVtxIndexInVecTable.empty());
 
   for (auto &[vecId, _]: mPartitioner.outputVectorNopMap) {
@@ -1161,14 +1161,10 @@ void MultiRegionMicroPartScheduler::buildDummyVtxIndexInVec(const MicroPartition
   }
 }
 
-void MultiRegionMicroPartScheduler::copyVecTables(const MicroPartitioner mPartitioner) {
-  outputVectorNopMap.clear();
-  newNodeIdToDepNodeId.clear();
-  newNodeIdToOriginalVecDeclId.clear();
-
-  outputVectorNopMap = mPartitioner.outputVectorNopMap;
-  newNodeIdToDepNodeId = mPartitioner.newNodeIdToDepNodeId;
-  newNodeIdToOriginalVecDeclId = mPartitioner.newNodeIdToOriginalVecDeclId;
+void MultiRegionMicroPartScheduler::takeVecTables(MicroPartitioner &mPartitioner) {
+  outputVectorNopMap = std::move(mPartitioner.outputVectorNopMap);
+  newNodeIdToDepNodeId = std::move(mPartitioner.newNodeIdToDepNodeId);
+  newNodeIdToOriginalVecDeclId = std::move(mPartitioner.newNodeIdToOriginalVecDeclId);
 }
 
 
@@ -2617,8 +2613,6 @@ mlir::LogicalResult MultiRegionMicroPartScheduler::schedule(mlir::MLIRContext *c
 
   return success();
 }
-
-
 
 
 

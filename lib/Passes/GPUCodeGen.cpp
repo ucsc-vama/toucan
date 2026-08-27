@@ -623,7 +623,7 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     // Mark all analyses as preserved. This is a read only pass
     markAllAnalysesPreserved();
 
-    auto graph = getAnalysis<DesignGraph>();
+    const auto &graph = getAnalysis<DesignGraph>();
     PartitioningManager pm;
     pm.context = &getContext();
 
@@ -686,7 +686,7 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     std::swap(scheduler.regionPartData[0], pm.partCodeGenData_r0);
     std::swap(scheduler.regionPartData[1], pm.partCodeGenData_r1);
     scheduler.buildDummyVtxIndexInVec(*(pm.mp));
-    scheduler.copyVecTables(*(pm.mp));
+    scheduler.takeVecTables(*(pm.mp));
 
     // After this point, pm is not used and can be released.
     auto schedule_result = scheduler.schedule(&getContext(), graph.g, pm.exchangeValPool);

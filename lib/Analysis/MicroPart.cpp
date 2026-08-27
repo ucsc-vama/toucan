@@ -91,7 +91,7 @@ void MicroPart::buildSpecialPart(const CGToucanOPName vtxOpName, const mlir::Sma
 }
 
 
-bool MicroPart::checkAndCollectRegularPartIOValues(const PartitioningGraph &g, const mlir::DenseSet<uint32_t> &allNodes, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToDepNodeId, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToOriginalVecDeclId, const mlir::DenseMap<uint32_t, mlir::SmallVector<uint32_t>> outputVectorNopMap) {
+bool MicroPart::checkAndCollectRegularPartIOValues(const PartitioningGraph &g, const mlir::DenseSet<uint32_t> &allNodes, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToDepNodeId, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToOriginalVecDeclId, const mlir::DenseMap<uint32_t, mlir::SmallVector<uint32_t>> &outputVectorNopMap) {
   assert(isRegularPart());
   assert(!levels.empty() && "Only check and collect IO values if it's loaded");
 
@@ -418,7 +418,7 @@ void MicroPart::buildNOPRegularLUTPart(mlir::SmallVector<toucan::LUTOp> &partNop
   totalOpCount = totalNodeCount;
 }
 
-bool MicroPart::checkAndCollectIOValues(const PartitioningGraph &g, const mlir::DenseSet<uint32_t> &allNodes, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToDepNodeId, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToOriginalVecDeclId, const mlir::DenseMap<uint32_t, mlir::SmallVector<uint32_t>> outputVectorNopMap) {
+bool MicroPart::checkAndCollectIOValues(const PartitioningGraph &g, const mlir::DenseSet<uint32_t> &allNodes, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToDepNodeId, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToOriginalVecDeclId, const mlir::DenseMap<uint32_t, mlir::SmallVector<uint32_t>> &outputVectorNopMap) {
   ioCollected = true;
   bool ret;
   bool isRegularPart = this->isRegularPart();

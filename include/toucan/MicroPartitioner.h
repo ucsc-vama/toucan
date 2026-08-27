@@ -35,6 +35,7 @@
 
 #include <unordered_map>
 #include <filesystem>
+#include <utility>
 #include <vector>
 
 #define DESIGNGRAPH_EXGREAD_WEIGHT 1
@@ -77,8 +78,8 @@ namespace toucan {
 
 
 
-    void init(const mlir::SmallVector<uint32_t> &thisRepCutPartition, const std::filesystem::path workDirectory, const size_t partId, const mlir::DenseMap<uint32_t, mlir::SmallVector<uint32_t>> vectorElementsMap) {
-      originalVectorElementsMap = vectorElementsMap;
+    void init(const mlir::SmallVector<uint32_t> &thisRepCutPartition, const std::filesystem::path &workDirectory, const size_t partId, mlir::DenseMap<uint32_t, mlir::SmallVector<uint32_t>> &&vectorElementsMap) {
+      originalVectorElementsMap = std::move(vectorElementsMap);
       this->partId = partId;
       this->workDirectory = workDirectory;
 

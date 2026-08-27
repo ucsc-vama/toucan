@@ -298,7 +298,7 @@ mlir::LogicalResult PartitioningManager::runStage1MicroPartitioner(const Partiti
 
   mp = std::make_unique<MicroPartitioner>();
 
-  mp->init(allNodesInEntireGraph, microPartitionerWorkDir, 0, rawGraphVectorElementsMap);
+  mp->init(allNodesInEntireGraph, microPartitionerWorkDir, 0, std::move(rawGraphVectorElementsMap));
   // Note: force set input/output file path
   mp->graphVectorInfoFile = vectorElementsMapFilePath;
   mp->inputGraphFile = rawGraphPath;
@@ -693,7 +693,7 @@ void PartitioningManager::cutGraph(int cutPoint) {
   // build graph
   mlir::SmallVector<uint32_t> r0VtxToOldId, r1VtxToOldId;
 
-  auto createNewSubGraph = [&](PartitioningGraph &newGraph, const PartitioningGraph &oldGraph, mlir::SmallVector<uint32_t> &newVtxToOldVtx, const mlir::SmallVector<uint32_t> oldVtxesInNewGraph, const mlir::DenseMap<mlir::Value, uint32_t> exgReadVals, const mlir::DenseMap<mlir::Value, uint32_t> exgWriteVals) {
+  auto createNewSubGraph = [&](PartitioningGraph &newGraph, const PartitioningGraph &oldGraph, mlir::SmallVector<uint32_t> &newVtxToOldVtx, const mlir::SmallVector<uint32_t> &oldVtxesInNewGraph, const mlir::DenseMap<mlir::Value, uint32_t> &exgReadVals, const mlir::DenseMap<mlir::Value, uint32_t> &exgWriteVals) {
     newVtxToOldVtx.clear();
     newVtxToOldVtx.reserve(oldVtxesInNewGraph.size() * 2);
     assert(boost::num_vertices(newGraph) == 0);
