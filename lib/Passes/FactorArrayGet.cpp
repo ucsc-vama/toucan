@@ -1,25 +1,25 @@
 
+#include "circt/Dialect/Comb/CombDialect.h"
+#include "circt/Dialect/Comb/CombOps.h"
 #include "circt/Dialect/HW/HWDialect.h"
 #include "circt/Dialect/HW/HWOps.h"
 #include "circt/Dialect/HW/HWTypes.h"
 #include "circt/Dialect/Seq/SeqDialect.h"
-#include "circt/Support/LLVM.h"
-#include "circt/Dialect/Comb/CombDialect.h"
-#include "circt/Dialect/Comb/CombOps.h"
 #include "circt/Dialect/Seq/SeqOps.h"
+#include "circt/Support/LLVM.h"
 
 #include "mlir/IR/Builders.h"
-#include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/Operation.h"
+#include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/Threading.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/ValueRange.h"
 #include "mlir/IR/Visitors.h"
 #include "mlir/Rewrite/FrozenRewritePatternSet.h"
 #include "mlir/Support/LLVM.h"
-#include "mlir/IR/Threading.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -28,21 +28,20 @@
 #include "toucan/ToucanDialect.h"
 #include "toucan/ToucanTypes.h"
 
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/STLExtras.h"
 
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/Format.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Support/Format.h"
 
+#include <atomic>
 #include <memory>
 #include <string>
-#include <atomic>
-
 
 #define GEN_PASS_DEF_FACTORARRAYGETMUX
 #include "toucan/ToucanPassCommon.h"
@@ -60,7 +59,7 @@ using namespace llvm;
 static std::atomic<uint64_t> arrayMuxLoweredInModules;
 static std::atomic<uint64_t> arrayConcatLoweredInModules;
 
-struct LowerArrayMux: OpRewritePattern<comb::MuxOp> {
+struct LowerArrayMux : OpRewritePattern<comb::MuxOp> {
   using OpRewritePattern<comb::MuxOp>::OpRewritePattern;
 
   static bool arrayIsDirectlyDefined(Operation *arrayDefiningOp) {
@@ -78,7 +77,7 @@ struct LowerArrayMux: OpRewritePattern<comb::MuxOp> {
     } else {
       assert(isa<hw::AggregateConstantOp>(valOp));
 
-      for (auto eachConst: cast<hw::AggregateConstantOp>(valOp).getFields().getValue()) {
+      for (auto eachConst : cast<hw::AggregateConstantOp>(valOp).getFields().getValue()) {
         auto constIntAttr = eachConst.cast<mlir::IntegerAttr>();
         auto constOp = rewriter.create<hw::ConstantOp>(valOp->getLoc(), constIntAttr);
         elms.push_back(constOp.getResult());
@@ -122,30 +121,31 @@ struct LowerArrayMux: OpRewritePattern<comb::MuxOp> {
   }
 };
 
-
-struct ExpandVectorConcat: OpRewritePattern<hw::ArrayConcatOp> {
+struct ExpandVectorConcat : OpRewritePattern<hw::ArrayConcatOp> {
   using OpRewritePattern<hw::ArrayConcatOp>::OpRewritePattern;
 
-  LogicalResult getArrayElementsFromConcat(hw::ArrayConcatOp op, PatternRewriter &rewriter, mlir::SmallVector<mlir::Value> &newVecElems) const {
-    for (const auto &eachArrayVal: op.getInputs()) {
+  LogicalResult getArrayElementsFromConcat(hw::ArrayConcatOp op, PatternRewriter &rewriter,
+                                           mlir::SmallVector<mlir::Value> &newVecElems) const {
+    for (const auto &eachArrayVal : op.getInputs()) {
       assert(isa<hw::ArrayType>(eachArrayVal.getType()));
 
       auto valDefiningOp = eachArrayVal.getDefiningOp();
 
       if (auto arrayCreateOp = dyn_cast<hw::ArrayCreateOp>(valDefiningOp)) {
-        for (auto eachVal: arrayCreateOp.getInputs()) {
+        for (auto eachVal : arrayCreateOp.getInputs()) {
           newVecElems.push_back(eachVal);
         }
       } else if (auto constArrayOp = dyn_cast<hw::AggregateConstantOp>(valDefiningOp)) {
         // const vec
-        for (auto eachConst: constArrayOp.getFields().getValue()) {
+        for (auto eachConst : constArrayOp.getFields().getValue()) {
           auto constIntAttr = eachConst.cast<mlir::IntegerAttr>();
           auto constOp = rewriter.create<hw::ConstantOp>(op->getLoc(), constIntAttr);
           newVecElems.push_back(constOp.getResult());
         }
       } else if (auto valDefiningConcatOp = dyn_cast<hw::ArrayConcatOp>(valDefiningOp)) {
         auto ret = getArrayElementsFromConcat(valDefiningConcatOp, rewriter, newVecElems);
-        if (failed(ret)) return ret;
+        if (failed(ret))
+          return ret;
       } else {
         return failure();
         // valDefiningOp->print(llvm::errs());
@@ -160,7 +160,8 @@ struct ExpandVectorConcat: OpRewritePattern<hw::ArrayConcatOp> {
   LogicalResult matchAndRewrite(hw::ArrayConcatOp op, PatternRewriter &rewriter) const final {
     mlir::SmallVector<mlir::Value> newVecElems;
     auto ret = getArrayElementsFromConcat(op, rewriter, newVecElems);
-    if (failed(ret)) return ret;
+    if (failed(ret))
+      return ret;
 
     auto newArrayDefOp = rewriter.create<hw::ArrayCreateOp>(op->getLoc(), newVecElems);
 
@@ -172,7 +173,6 @@ struct ExpandVectorConcat: OpRewritePattern<hw::ArrayConcatOp> {
     return success();
   }
 };
-
 
 struct FactorArrayGetMuxPass : toucan::impl::FactorArrayGetMuxBase<FactorArrayGetMuxPass> {
   using FactorArrayGetMuxBase<FactorArrayGetMuxPass>::FactorArrayGetMuxBase;
@@ -187,9 +187,8 @@ struct FactorArrayGetMuxPass : toucan::impl::FactorArrayGetMuxBase<FactorArrayGe
     return success();
   }
 
-
   LogicalResult runOnModule(hw::HWModuleOp mod) {
-    SmallVector<Operation*> toRemove;
+    SmallVector<Operation *> toRemove;
 
     return applyPatternsAndFoldGreedily(mod, *patterns);
   }
@@ -201,24 +200,21 @@ struct FactorArrayGetMuxPass : toucan::impl::FactorArrayGetMuxBase<FactorArrayGe
     arrayConcatLoweredInModules = 0;
 
     SmallVector<hw::HWModuleOp> modulesToProcess;
-    for(auto & inner: mod.getOps()) {
-      if(auto mod = dyn_cast<hw::HWModuleOp>(&inner)) {
+    for (auto &inner : mod.getOps()) {
+      if (auto mod = dyn_cast<hw::HWModuleOp>(&inner)) {
         modulesToProcess.push_back(mod);
       }
     }
 
     // Parallel
-    auto result = mlir::failableParallelForEach(&getContext(), modulesToProcess.begin(), modulesToProcess.end(), [&](auto mod) {
-      return runOnModule(mod);
-    });
-    if (failed(result)) return signalPassFailure();
+    auto result = mlir::failableParallelForEach(&getContext(), modulesToProcess.begin(), modulesToProcess.end(),
+                                                [&](auto mod) { return runOnModule(mod); });
+    if (failed(result))
+      return signalPassFailure();
 
     arrayMuxLowered = arrayMuxLoweredInModules;
     arrayConcatLowered = arrayConcatLoweredInModules;
   }
-
 };
 
-std::unique_ptr<mlir::Pass> toucan::createFactorArrayGetMuxPass() {
-  return std::make_unique<FactorArrayGetMuxPass>();
-}
+std::unique_ptr<mlir::Pass> toucan::createFactorArrayGetMuxPass() { return std::make_unique<FactorArrayGetMuxPass>(); }

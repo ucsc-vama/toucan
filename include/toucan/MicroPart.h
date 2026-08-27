@@ -23,18 +23,17 @@
 #include <optional>
 
 #include "mlir/Support/LogicalResult.h"
+#include "toucan/CGToucanOpName.h"
+#include "toucan/PartitioningGraph.h"
 #include "toucan/ToucanAttributes.h"
 #include "toucan/ToucanDialect.h"
 #include "toucan/ToucanOps.h"
 #include "toucan/ToucanTypes.h"
-#include "toucan/CGToucanOpName.h"
-#include "toucan/PartitioningGraph.h"
-
 
 #include <boost/graph/adjacency_list.hpp>
 
-#include <unordered_map>
 #include <filesystem>
+#include <unordered_map>
 #include <vector>
 
 #define DESIGNGRAPH_EXGREAD_WEIGHT 1
@@ -45,71 +44,75 @@
 
 namespace toucan {
 
+struct MicroPartValLifeCycle {
+  uint32_t start, end;
+};
+// MicroPart data structure
+class MicroPart {
+public:
+  bool partIsValid;
+  bool isNOPPart;
+  uint32_t lineno, partId;
 
-  struct MicroPartValLifeCycle {
-    uint32_t start, end;
-  };
-  // MicroPart data structure
-  class MicroPart {
-    public:
-    bool partIsValid;
-    bool isNOPPart;
-    uint32_t lineno, partId;
+  mlir::DenseSet<uint32_t> nodes;
+  // NodeId to ops ** in this part **
+  mlir::DenseMap<uint32_t, uint32_t> nodeToOpCount;
+  // LUT(and VecDecl), VecRead, RegRead,
+  CGToucanOPName opType;
+  uint32_t totalOpCount;
+  mlir::DenseSet<mlir::Value> inputValues, outputValueSet;
+  mlir::SmallVector<mlir::Value> outputValues;
 
-    mlir::DenseSet<uint32_t> nodes;
-    // NodeId to ops ** in this part **
-    mlir::DenseMap<uint32_t, uint32_t> nodeToOpCount;
-    // LUT(and VecDecl), VecRead, RegRead, 
-    CGToucanOPName opType;
-    uint32_t totalOpCount;
-    mlir::DenseSet<mlir::Value> inputValues, outputValueSet;
-    mlir::SmallVector<mlir::Value> outputValues;
+  // Only records levels! (unordered)
+  // Valid for normal part
+  mlir::SmallVector<mlir::SmallVector<uint32_t>> levels;
+  mlir::DenseMap<uint32_t, uint32_t> nodeToLevel;
+  mlir::DenseMap<uint32_t, mlir::SmallVector<mlir::Value>> nodeToInputVals;
+  mlir::DenseMap<uint32_t, mlir::Value> nodeToOutputVal;
+  mlir::DenseSet<uint32_t> dummyNodes;
+  mlir::SmallVector<mlir::DenseSet<mlir::Value>> valuesUsedByEachLevel;
 
+  // Valid for special ops
+  mlir::SmallVector<mlir::Operation *> specialOps;
 
-    // Only records levels! (unordered)
-    // Valid for normal part
-    mlir::SmallVector<mlir::SmallVector<uint32_t>> levels;
-    mlir::DenseMap<uint32_t, uint32_t> nodeToLevel;
-    mlir::DenseMap<uint32_t, mlir::SmallVector<mlir::Value>> nodeToInputVals;
-    mlir::DenseMap<uint32_t, mlir::Value> nodeToOutputVal;
-    mlir::DenseSet<uint32_t> dummyNodes;
-    mlir::SmallVector<mlir::DenseSet<mlir::Value>> valuesUsedByEachLevel;
+  // Valid for NOP part
+  mlir::SmallVector<toucan::LUTOp> nops;
 
-    // Valid for special ops
-    mlir::SmallVector<mlir::Operation*> specialOps;
+  bool ioCollected;
 
-    // Valid for NOP part
-    mlir::SmallVector<toucan::LUTOp> nops;
+  int estimateMaxActiveVars() const;
 
-    bool ioCollected;
+  // void schedule();
+  void clear();
+  void print() const;
 
-    int estimateMaxActiveVars() const;
+  bool isRegularPart() const { return opType == toucan::CGToucanOPName::LUT; };
 
+  void buildRegularLUTPart(const mlir::SmallVector<mlir::SmallVector<uint32_t>> &newNodesLevel);
+  void buildSpecialPart(const CGToucanOPName vtxOpName, const mlir::SmallVector<mlir::Operation *> &rawOps);
 
-    // void schedule();
-    void clear();
-    void print() const;
+  void mergeSpecialPartFromOtherParts(const mlir::SmallVector<std::shared_ptr<MicroPart>> &otherMPs);
+  void buildNOPRegularLUTPart(mlir::SmallVector<toucan::LUTOp> &partNops);
 
-    bool isRegularPart() const {return opType == toucan::CGToucanOPName::LUT;};
+  bool checkAndCollectIOValues(const PartitioningGraph &g, const mlir::DenseSet<uint32_t> &allNodes,
+                               const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToDepNodeId,
+                               const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToOriginalVecDeclId,
+                               const mlir::DenseMap<uint32_t, mlir::SmallVector<uint32_t>> &outputVectorNopMap);
 
-    void buildRegularLUTPart(const mlir::SmallVector<mlir::SmallVector<uint32_t>> &newNodesLevel);
-    void buildSpecialPart(const CGToucanOPName vtxOpName, const mlir::SmallVector<mlir::Operation*> &rawOps);
+  mlir::DenseMap<mlir::Value, MicroPartValLifeCycle> extractValueLifeTime() const;
 
-    void mergeSpecialPartFromOtherParts(const mlir::SmallVector<std::shared_ptr<MicroPart>> &otherMPs);
-    void buildNOPRegularLUTPart(mlir::SmallVector<toucan::LUTOp> &partNops);
+private:
+  void updateNodeToLevel();
 
+  bool
+  checkAndCollectRegularPartIOValues(const PartitioningGraph &g, const mlir::DenseSet<uint32_t> &allNodes,
+                                     const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToDepNodeId,
+                                     const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToOriginalVecDeclId,
+                                     const mlir::DenseMap<uint32_t, mlir::SmallVector<uint32_t>> &outputVectorNopMap);
 
-    
-    bool checkAndCollectIOValues(const PartitioningGraph &g, const mlir::DenseSet<uint32_t> &allNodes, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToDepNodeId, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToOriginalVecDeclId, const mlir::DenseMap<uint32_t, mlir::SmallVector<uint32_t>> &outputVectorNopMap);
+  bool checkAndCollectSpecialPartIOValues(const PartitioningGraph &g,
+                                          const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToDepNodeId,
+                                          const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToOriginalVecDeclId);
+};
 
-    mlir::DenseMap<mlir::Value, MicroPartValLifeCycle> extractValueLifeTime() const;
-
-    private:
-    void updateNodeToLevel();
-
-    bool checkAndCollectRegularPartIOValues(const PartitioningGraph &g, const mlir::DenseSet<uint32_t> &allNodes, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToDepNodeId, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToOriginalVecDeclId, const mlir::DenseMap<uint32_t, mlir::SmallVector<uint32_t>> &outputVectorNopMap);
-
-    bool checkAndCollectSpecialPartIOValues(const PartitioningGraph &g, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToDepNodeId, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToOriginalVecDeclId);
-  };
-
-}
+} // namespace toucan

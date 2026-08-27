@@ -4,9 +4,8 @@
 
 using namespace toucan;
 
-
 void CGOpStatistics::print() const {
-  auto printMember = [=](uint32_t num, const char* name) {
+  auto printMember = [=](uint32_t num, const char *name) {
     if (num != 0) {
       llvm::outs() << name << ": " << num << "\n";
     }
@@ -32,4 +31,3 @@ size_t toucan::getExtraAlignmentSpace(size_t valSize, size_t alignment) {
   }
   return extraSpace;
 }
-

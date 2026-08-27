@@ -1,24 +1,24 @@
 
+#include "circt/Dialect/Comb/CombDialect.h"
+#include "circt/Dialect/Comb/CombOps.h"
 #include "circt/Dialect/HW/HWDialect.h"
 #include "circt/Dialect/HW/HWOps.h"
 #include "circt/Dialect/HW/HWTypes.h"
-#include "circt/Support/LLVM.h"
-#include "circt/Dialect/Comb/CombDialect.h"
-#include "circt/Dialect/Comb/CombOps.h"
 #include "circt/Dialect/Seq/SeqOps.h"
+#include "circt/Support/LLVM.h"
 
 #include "mlir/IR/Builders.h"
-#include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/Operation.h"
+#include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/Threading.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/ValueRange.h"
 #include "mlir/IR/Visitors.h"
 #include "mlir/Rewrite/FrozenRewritePatternSet.h"
 #include "mlir/Support/LLVM.h"
-#include "mlir/IR/Threading.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -27,20 +27,19 @@
 #include "toucan/ToucanDialect.h"
 #include "toucan/ToucanTypes.h"
 
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/STLExtras.h"
 
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/Format.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Support/Format.h"
 
-#include <memory>
 #include <atomic>
-
+#include <memory>
 
 #define GEN_PASS_DEF_LOWERCOMBTO4B_3
 #include "toucan/ToucanPassCommon.h"
@@ -60,9 +59,8 @@ static std::atomic<uint64_t> numCombOrInModules;
 static std::atomic<uint64_t> numCombXorInModules;
 
 struct LowerBitwiseOpBase {
-  public:
-
-  template<class OpTy>
+public:
+  template <class OpTy>
   LogicalResult lowerBitwiseOpCore(PatternRewriter &rewriter, OpTy &op, LUTOpName newOpName) const {
     auto resultValue = op.getResult();
     auto resultValueWidth = hw::getBitWidth(resultValue.getType());
@@ -78,7 +76,7 @@ struct LowerBitwiseOpBase {
       auto rhsValues = split_value_4B(op.getOperation(), rhs, rewriter);
 
       SmallVector<Value> intermediateResults;
-      for (auto&& [lhs, rhs]: zip(lhsValues, rhsValues)) {
+      for (auto &&[lhs, rhs] : zip(lhsValues, rhsValues)) {
         auto newOp = rewriter.create<toucan::LUTOp>(op.getLoc(), newOpName, lhs, rhs);
         intermediateResults.push_back(newOp.getResult());
       }
@@ -91,12 +89,12 @@ struct LowerBitwiseOpBase {
       attachNameHintAndFragmentId(rewriter, newOp, optionalNameHint);
       rewriter.replaceOp(op, newOp);
     }
-    
+
     return success();
-  } 
+  }
 };
 
-struct LowerCombAndOp: OpRewritePattern<comb::AndOp>, LowerBitwiseOpBase {
+struct LowerCombAndOp : OpRewritePattern<comb::AndOp>, LowerBitwiseOpBase {
   using OpRewritePattern<comb::AndOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(comb::AndOp op, PatternRewriter &rewriter) const final {
@@ -110,8 +108,7 @@ struct LowerCombAndOp: OpRewritePattern<comb::AndOp>, LowerBitwiseOpBase {
   }
 };
 
-
-struct LowerCombOrOp: OpRewritePattern<comb::OrOp>, LowerBitwiseOpBase {
+struct LowerCombOrOp : OpRewritePattern<comb::OrOp>, LowerBitwiseOpBase {
   using OpRewritePattern<comb::OrOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(comb::OrOp op, PatternRewriter &rewriter) const final {
@@ -125,8 +122,7 @@ struct LowerCombOrOp: OpRewritePattern<comb::OrOp>, LowerBitwiseOpBase {
   }
 };
 
-
-struct LowerCombXorOp: OpRewritePattern<comb::XorOp>, LowerBitwiseOpBase {
+struct LowerCombXorOp : OpRewritePattern<comb::XorOp>, LowerBitwiseOpBase {
   using OpRewritePattern<comb::XorOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(comb::XorOp op, PatternRewriter &rewriter) const final {
@@ -139,9 +135,6 @@ struct LowerCombXorOp: OpRewritePattern<comb::XorOp>, LowerBitwiseOpBase {
     return lowerBitwiseOpCore<comb::XorOp>(rewriter, op, LUTOpName::LUT_Xor);
   }
 };
-
-
-
 
 struct LowerCombTo4B_3Pass : toucan::impl::LowerCombTo4B_3Base<LowerCombTo4B_3Pass> {
   using LowerCombTo4B_3Base<LowerCombTo4B_3Pass>::LowerCombTo4B_3Base;
@@ -156,7 +149,7 @@ struct LowerCombTo4B_3Pass : toucan::impl::LowerCombTo4B_3Base<LowerCombTo4B_3Pa
 
     RewritePatternSet owningPatterns(context);
     ConversionTarget conversionTarget(*context);
-    
+
     // owningPatterns.add<LowerHWConstantOp>(context);
     owningPatterns.add<LowerCombAndOp>(context);
     owningPatterns.add<LowerCombOrOp>(context);
@@ -186,23 +179,19 @@ struct LowerCombTo4B_3Pass : toucan::impl::LowerCombTo4B_3Base<LowerCombTo4B_3Pa
     // conversionTarget.addIllegalOp<comb::ModSOp>();
 
     patterns = std::make_shared<FrozenRewritePatternSet>(std::move(owningPatterns));
-    target = std::make_shared<ConversionTarget>(std::move(
-    conversionTarget));
+    target = std::make_shared<ConversionTarget>(std::move(conversionTarget));
 
     return success();
   }
 
-
-  LogicalResult runOnModule(hw::HWModuleOp mod) {
-    return applyFullConversion(mod, *target, *patterns);
-  }
+  LogicalResult runOnModule(hw::HWModuleOp mod) { return applyFullConversion(mod, *target, *patterns); }
 
   void runOnOperation() final {
     auto mod = getOperation();
 
     SmallVector<hw::HWModuleOp> modulesToProcess;
-    for(auto & inner: mod.getOps()) {
-      if(auto mod = dyn_cast<hw::HWModuleOp>(&inner)) {
+    for (auto &inner : mod.getOps()) {
+      if (auto mod = dyn_cast<hw::HWModuleOp>(&inner)) {
         modulesToProcess.push_back(mod);
       }
     }
@@ -213,18 +202,15 @@ struct LowerCombTo4B_3Pass : toucan::impl::LowerCombTo4B_3Base<LowerCombTo4B_3Pa
     // }
 
     // Parallel
-    auto result = mlir::failableParallelForEach(&getContext(), modulesToProcess.begin(), modulesToProcess.end(), [&](auto mod) {
-      return runOnModule(mod);
-    });
-    if (failed(result)) return signalPassFailure();
+    auto result = mlir::failableParallelForEach(&getContext(), modulesToProcess.begin(), modulesToProcess.end(),
+                                                [&](auto mod) { return runOnModule(mod); });
+    if (failed(result))
+      return signalPassFailure();
 
     numCombAnd = numCombAndInModules;
     numCombOr = numCombOrInModules;
     numCombXor = numCombXorInModules;
   }
-
 };
 
-std::unique_ptr<mlir::Pass> toucan::createLowerCombTo4B_3Pass() {
-  return std::make_unique<LowerCombTo4B_3Pass>();
-}
+std::unique_ptr<mlir::Pass> toucan::createLowerCombTo4B_3Pass() { return std::make_unique<LowerCombTo4B_3Pass>(); }

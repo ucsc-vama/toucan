@@ -48,4 +48,4 @@ std::unique_ptr<mlir::Pass> createGPUCodeGenPass(GPUCodeGenOptions options);
 #define GEN_PASS_REGISTRATION
 #include "toucan/ToucanPasses.h.inc"
 
-}
+} // namespace toucan

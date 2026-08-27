@@ -1,24 +1,24 @@
 
+#include "circt/Dialect/Comb/CombDialect.h"
+#include "circt/Dialect/Comb/CombOps.h"
 #include "circt/Dialect/HW/HWDialect.h"
 #include "circt/Dialect/HW/HWOps.h"
 #include "circt/Dialect/HW/HWTypes.h"
-#include "circt/Support/LLVM.h"
-#include "circt/Dialect/Comb/CombDialect.h"
-#include "circt/Dialect/Comb/CombOps.h"
 #include "circt/Dialect/Seq/SeqOps.h"
+#include "circt/Support/LLVM.h"
 
 #include "mlir/IR/Builders.h"
-#include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/Operation.h"
+#include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/Threading.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/ValueRange.h"
 #include "mlir/IR/Visitors.h"
 #include "mlir/Rewrite/FrozenRewritePatternSet.h"
 #include "mlir/Support/LLVM.h"
-#include "mlir/IR/Threading.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -28,23 +28,22 @@
 #include "toucan/ToucanTypes.h"
 #include "toucan/ToucanVecOpLimits.h"
 
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/STLExtras.h"
 
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/Format.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Support/Format.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cassert>
 #include <cstddef>
 #include <memory>
-#include <atomic>
-
 
 #define GEN_PASS_DEF_LOWERCOMBTO4B_1
 #include "toucan/ToucanPassCommon.h"
@@ -74,8 +73,7 @@ static std::atomic<uint64_t> numCombParityInModules;
 static std::atomic<uint64_t> numShiftToArrayInModules;
 static std::atomic<uint64_t> numArrayReadFromShiftInModules;
 
-
-struct LowerCombReplicateOp: OpRewritePattern<comb::ReplicateOp> {
+struct LowerCombReplicateOp : OpRewritePattern<comb::ReplicateOp> {
   using OpRewritePattern<comb::ReplicateOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(comb::ReplicateOp op, PatternRewriter &rewriter) const final {
@@ -89,10 +87,10 @@ struct LowerCombReplicateOp: OpRewritePattern<comb::ReplicateOp> {
       numShortRepInModule++;
 
       assert(resultValueWidth > 1 && "Why you have a replicateOp with same input and output width?");
-      
+
       if (resultValueWidth > 4) {
         SmallVector<Value> intermediateResults;
-        for (auto&& [sigId, sigWidth]: split_signal_4B(resultValueWidth)) {
+        for (auto &&[sigId, sigWidth] : split_signal_4B(resultValueWidth)) {
           if (sigWidth > 1) {
             auto newOp = rewriter.create<toucan::LUTOp>(op.getLoc(), LUTOpName::LUT_Rep1b, inputValue);
             auto repVal = newOp.getResult();
@@ -140,14 +138,13 @@ struct LowerCombReplicateOp: OpRewritePattern<comb::ReplicateOp> {
   }
 };
 
-
-
 class DynamicShiftOperations {
-  public:
-
+public:
   // A vector-based shift right, use high bits of shamt
   // This logic is shared by shift left and right
-  Value shiftCore(RewriterBase &rewriter, Operation *op, SmallVector<Value> intermediateResults, Value shamt, Value fillingValue, size_t realInputWidth, std::optional<StringAttr> namehint, bool isShiftLeft) const {
+  Value shiftCore(RewriterBase &rewriter, Operation *op, SmallVector<Value> intermediateResults, Value shamt,
+                  Value fillingValue, size_t realInputWidth, std::optional<StringAttr> namehint,
+                  bool isShiftLeft) const {
     auto shamtWidth = hw::getBitWidth(shamt.getType());
 
     SmallVector<Value> shiftResult;
@@ -157,18 +154,20 @@ class DynamicShiftOperations {
       if (isShiftLeft) {
         std::reverse(intermediateResults.begin(), intermediateResults.end());
       }
-      
+
       auto createVecOp = rewriter.create<toucan::DefVectorOp>(op->getLoc(), intermediateResults);
       auto vecHandle = createVecOp.getHandle();
 
       auto extractHighBitsOp = rewriter.create<comb::ExtractOp>(op->getLoc(), shamt, 2, shamtWidth - 2);
       auto shamt_high = extractHighBitsOp.getResult();
 
-      auto shamt_high_split = (hw::getBitWidth(shamt_high.getType()) > 4) ? split_value_4B(op, shamt_high, rewriter) : SmallVector<Value>({shamt_high});
-      
+      auto shamt_high_split = (hw::getBitWidth(shamt_high.getType()) > 4) ? split_value_4B(op, shamt_high, rewriter)
+                                                                          : SmallVector<Value>({shamt_high});
+
       for (size_t i = 0; i < intermediateResults.size(); i++) {
         uint16_t offset = intermediateResults.size() - 1 - i;
-        auto vecReadOp = rewriter.create<toucan::VectorReadOp>(op->getLoc(), vecHandle, offset, fillingValue, shamt_high_split);
+        auto vecReadOp =
+            rewriter.create<toucan::VectorReadOp>(op->getLoc(), vecHandle, offset, fillingValue, shamt_high_split);
         shiftResult.push_back(vecReadOp.getResult());
       }
       if (isShiftLeft) {
@@ -176,7 +175,7 @@ class DynamicShiftOperations {
       }
       numShiftToArrayInModules++;
       numArrayReadFromShiftInModules += shiftResult.size();
-      
+
     } else {
       shiftResult = std::move(intermediateResults);
     }
@@ -200,7 +199,8 @@ class DynamicShiftOperations {
   }
 
   // shift left, inputs are 4b values from msb to lsb
-  Value dshlCore(SmallVector<Value> &inputs, Value shamt, RewriterBase &rewriter, Operation* op, size_t realInputWidth, std::optional<StringAttr> namehint) const {
+  Value dshlCore(SmallVector<Value> &inputs, Value shamt, RewriterBase &rewriter, Operation *op, size_t realInputWidth,
+                 std::optional<StringAttr> namehint) const {
 
     auto shamtWidth = hw::getBitWidth(shamt.getType());
 
@@ -209,9 +209,9 @@ class DynamicShiftOperations {
     auto zeroConstValue = zeroConst.getResult();
 
     uint64_t resultWidth = inputs.size() * 4;
-    for (auto each_section: inputs) {
-        auto sectionBitWidth = hw::getBitWidth(each_section.getType());
-        assert(sectionBitWidth == 4);
+    for (auto each_section : inputs) {
+      auto sectionBitWidth = hw::getBitWidth(each_section.getType());
+      assert(sectionBitWidth == 4);
     }
 
     auto result_sections = (resultWidth + 3) / 4;
@@ -233,7 +233,7 @@ class DynamicShiftOperations {
     for (size_t i = 0; i < inputs.size(); i++) {
       // Shift by 1, 2, and 3
       auto op1 = inputs[i];
-      auto op2 = (i < inputs.size() - 1) ? inputs[i+1] : zeroConstValue;
+      auto op2 = (i < inputs.size() - 1) ? inputs[i + 1] : zeroConstValue;
 
       auto dshlOp = rewriter.create<toucan::LUTOp>(op->getLoc(), toucan::LUTOpName::LUT_DShl, shamt_l2b, op1, op2);
 
@@ -244,14 +244,15 @@ class DynamicShiftOperations {
   }
 
   // shift right, inputs need to be extended!!!, inputs are 4b values from msb to lsb
-  Value dshrCore(SmallVector<Value> &inputs, Value shamt, RewriterBase &rewriter, Operation* op, size_t realInputWidth, Value fillingValue, std::optional<StringAttr> namehint) const {
+  Value dshrCore(SmallVector<Value> &inputs, Value shamt, RewriterBase &rewriter, Operation *op, size_t realInputWidth,
+                 Value fillingValue, std::optional<StringAttr> namehint) const {
 
     auto shamtWidth = hw::getBitWidth(shamt.getType());
 
     uint64_t resultWidth = inputs.size() * 4;
-    for (auto each_section: inputs) {
-        auto sectionBitWidth = hw::getBitWidth(each_section.getType());
-        assert(sectionBitWidth == 4);
+    for (auto each_section : inputs) {
+      auto sectionBitWidth = hw::getBitWidth(each_section.getType());
+      assert(sectionBitWidth == 4);
     }
 
     auto result_sections = (resultWidth + 3) / 4;
@@ -272,7 +273,7 @@ class DynamicShiftOperations {
 
     for (size_t i = 0; i < inputs.size(); i++) {
       // Shift by 1, 2, and 3
-      auto op1 = (i == 0) ? fillingValue : inputs[i-1];
+      auto op1 = (i == 0) ? fillingValue : inputs[i - 1];
       auto op2 = inputs[i];
 
       auto dshrOp = rewriter.create<toucan::LUTOp>(op->getLoc(), toucan::LUTOpName::LUT_DShr, shamt_l2b, op1, op2);
@@ -283,8 +284,6 @@ class DynamicShiftOperations {
     return shiftCore(rewriter, op, intermediateResults, shamt, fillingValue, realInputWidth, namehint, false);
   }
 
-
-
   // This function may modify shamtValue!
   // For now, don't check if shamt has extra bits. leave it to canonicalizer.
   size_t limitShamtWidth(Value &inputValue, Value &shamtValue, RewriterBase &rewriter, Operation *op) const {
@@ -293,7 +292,9 @@ class DynamicShiftOperations {
     auto shamtWidth = hw::getBitWidth(shamtValue.getType());
 
     if (shamtWidth > necessaryShamtBits) {
-      op->emitWarning() << "Shamt too large: " << necessaryShamtBits << " bits of shamt is sufficient for " << inputValueWidth << " width inputs, but got " << shamtWidth << ". Extra bits will be trimmed.";
+      op->emitWarning() << "Shamt too large: " << necessaryShamtBits << " bits of shamt is sufficient for "
+                        << inputValueWidth << " width inputs, but got " << shamtWidth
+                        << ". Extra bits will be trimmed.";
       auto shamtExtractOp = rewriter.create<comb::ExtractOp>(op->getLoc(), shamtValue, 0, necessaryShamtBits);
       shamtValue = shamtExtractOp.getResult();
       shamtWidth = necessaryShamtBits;
@@ -302,8 +303,7 @@ class DynamicShiftOperations {
   }
 };
 
-
-struct LowerCombShlOp: OpRewritePattern<comb::ShlOp>, DynamicShiftOperations {
+struct LowerCombShlOp : OpRewritePattern<comb::ShlOp>, DynamicShiftOperations {
   using OpRewritePattern<comb::ShlOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(comb::ShlOp shlOp, PatternRewriter &rewriter) const final {
@@ -326,7 +326,8 @@ struct LowerCombShlOp: OpRewritePattern<comb::ShlOp>, DynamicShiftOperations {
 
     auto optionalNameHint = getSVNameHintAttr(shlOp);
 
-    auto result = dshlCore(inputValuesWithPadding_4b, shamtValue, rewriter, shlOp.getOperation(), hw::getBitWidth(inputValue.getType()), optionalNameHint);
+    auto result = dshlCore(inputValuesWithPadding_4b, shamtValue, rewriter, shlOp.getOperation(),
+                           hw::getBitWidth(inputValue.getType()), optionalNameHint);
 
     auto oldResult = shlOp.getResult();
     auto oldResultWidth = hw::getBitWidth(oldResult.getType());
@@ -339,7 +340,7 @@ struct LowerCombShlOp: OpRewritePattern<comb::ShlOp>, DynamicShiftOperations {
   }
 };
 
-struct LowerCombShrUOp: OpRewritePattern<comb::ShrUOp>, DynamicShiftOperations {
+struct LowerCombShrUOp : OpRewritePattern<comb::ShrUOp>, DynamicShiftOperations {
   using OpRewritePattern<comb::ShrUOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(comb::ShrUOp shruOp, PatternRewriter &rewriter) const final {
@@ -372,20 +373,19 @@ struct LowerCombShrUOp: OpRewritePattern<comb::ShrUOp>, DynamicShiftOperations {
       return success();
     }
 
-
     auto inputValueWithPadding = padding_with_0_and_align_4b(shruOp.getOperation(), rewriter, inputValue);
     auto inputValuesWithPadding_4b = split_value_4B(shruOp.getOperation(), inputValueWithPadding, rewriter);
 
     auto inputValueWidth = hw::getBitWidth(inputValue.getType());
     assert(inputValueWidth > 1);
 
-
     auto zeroConstOp = rewriter.create<hw::ConstantOp>(shruOp.getLoc(), rewriter.getI4Type(), 0);
     auto zeroConstValue = zeroConstOp.getResult();
 
     auto optionalNameHint = getSVNameHintAttr(shruOp);
 
-    auto result = dshrCore(inputValuesWithPadding_4b, shamtValue, rewriter, shruOp.getOperation(), inputValueWidth, zeroConstValue, optionalNameHint);
+    auto result = dshrCore(inputValuesWithPadding_4b, shamtValue, rewriter, shruOp.getOperation(), inputValueWidth,
+                           zeroConstValue, optionalNameHint);
 
     auto oldResult = shruOp.getResult();
     auto oldResultWidth = hw::getBitWidth(oldResult.getType());
@@ -398,8 +398,7 @@ struct LowerCombShrUOp: OpRewritePattern<comb::ShrUOp>, DynamicShiftOperations {
   }
 };
 
-
-struct LowerCombShrSOp: OpRewritePattern<comb::ShrSOp>, DynamicShiftOperations {
+struct LowerCombShrSOp : OpRewritePattern<comb::ShrSOp>, DynamicShiftOperations {
   using OpRewritePattern<comb::ShrSOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(comb::ShrSOp shrsOp, PatternRewriter &rewriter) const final {
@@ -449,7 +448,8 @@ struct LowerCombShrSOp: OpRewritePattern<comb::ShrSOp>, DynamicShiftOperations {
 
     auto optionalNameHint = getSVNameHintAttr(shrsOp);
 
-    auto result = dshrCore(inputValues_4b, shamtValue, rewriter, shrsOp.getOperation(), inputValueWidth, fillingValue, optionalNameHint);
+    auto result = dshrCore(inputValues_4b, shamtValue, rewriter, shrsOp.getOperation(), inputValueWidth, fillingValue,
+                           optionalNameHint);
 
     auto oldResult = shrsOp.getResult();
     auto oldResultWidth = hw::getBitWidth(oldResult.getType());
@@ -462,8 +462,7 @@ struct LowerCombShrSOp: OpRewritePattern<comb::ShrSOp>, DynamicShiftOperations {
   }
 };
 
-
-struct LowerCombICmpOp: OpRewritePattern<comb::ICmpOp> {
+struct LowerCombICmpOp : OpRewritePattern<comb::ICmpOp> {
   using OpRewritePattern<comb::ICmpOp>::OpRewritePattern;
 
   comb::ICmpPredicate getImplementablePredicate(comb::ICmpPredicate predicate) const {
@@ -508,7 +507,8 @@ struct LowerCombICmpOp: OpRewritePattern<comb::ICmpOp> {
 
     auto paddingTargetWidth = ((inputValueWidth & 0x3) == 0) ? inputValueWidth + 4 : ((inputValueWidth + 3) & (~0x3));
 
-    auto constOp = rewriter.create<hw::ConstantOp>(op.getLoc(), rewriter.getIntegerType(paddingTargetWidth - inputValueWidth), 0);
+    auto constOp =
+        rewriter.create<hw::ConstantOp>(op.getLoc(), rewriter.getIntegerType(paddingTargetWidth - inputValueWidth), 0);
     auto constVal = constOp.getResult();
 
     // Temp value, don't need namehint
@@ -517,7 +517,6 @@ struct LowerCombICmpOp: OpRewritePattern<comb::ICmpOp> {
 
     return paddingValue;
   }
-
 
   // This procedure allows wide comparison
   Value icmpEqCore(comb::ICmpOp &op, PatternRewriter &rewriter, Value lhsValue, Value rhsValue) const {
@@ -548,7 +547,8 @@ struct LowerCombICmpOp: OpRewritePattern<comb::ICmpOp> {
           // Too small to use vec op
           assert(allLhsValues.size() == static_cast<size_t>(sectionsInThisIteration));
           for (int i = 0; i < sectionsInThisIteration; i++) {
-            auto cmpLutOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Cmp_Eq, allLhsValues[i], allRhsValues[i]);
+            auto cmpLutOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_Cmp_Eq, allLhsValues[i],
+                                                           allRhsValues[i]);
             resultVals.push_back(cmpLutOp.getResult());
           }
         } else {
@@ -570,11 +570,11 @@ struct LowerCombICmpOp: OpRewritePattern<comb::ICmpOp> {
           auto lhsVecHandle = lhsVecDeclOp.getHandle();
           auto rhsVecHandle = rhsVecDeclOp.getHandle();
 
-          auto vecCmpEqOp = rewriter.create<toucan::VectorLogicOp>(op.getLoc(), toucan::VecLogicOpName::VecLogic_Eq, lhsVecHandle, rhsVecHandle);
+          auto vecCmpEqOp = rewriter.create<toucan::VectorLogicOp>(op.getLoc(), toucan::VecLogicOpName::VecLogic_Eq,
+                                                                   lhsVecHandle, rhsVecHandle);
 
           resultVals.push_back(vecCmpEqOp.getResult());
         }
-
       }
 
       assert(resultVals.size() != 0);
@@ -583,10 +583,11 @@ struct LowerCombICmpOp: OpRewritePattern<comb::ICmpOp> {
         return resultVals[0];
       } else {
         // Bitwise and of all them
-        auto result = generate_reduce_tree(rewriter, op.getLoc(), resultVals, [&](RewriterBase &rewriter, Location loc, Value lhs, Value rhs) {
-          auto andOp = rewriter.create<comb::AndOp>(loc, ValueRange({lhs, rhs}), false);
-          return andOp.getResult();
-        });
+        auto result = generate_reduce_tree(
+            rewriter, op.getLoc(), resultVals, [&](RewriterBase &rewriter, Location loc, Value lhs, Value rhs) {
+              auto andOp = rewriter.create<comb::AndOp>(loc, ValueRange({lhs, rhs}), false);
+              return andOp.getResult();
+            });
         return result;
       }
     }
@@ -630,7 +631,8 @@ struct LowerCombICmpOp: OpRewritePattern<comb::ICmpOp> {
 
       if (lhsValues.size() > TOUCAN_VEC_OP_MAX_SECTIONS) {
         llvm::errs() << "LT operation is too wide, not supported yet!\n";
-        llvm_unreachable("Comparison for int wider than 128 is not supported. Check icmpEqCore for reference implementation");
+        llvm_unreachable("Comparison for int wider than 128 is not supported. Check icmpEqCore for reference "
+                         "implementation");
       }
 
       auto lhsVecDeclOp = rewriter.create<toucan::DefVectorOp>(op.getLoc(), lhsValues);
@@ -639,7 +641,8 @@ struct LowerCombICmpOp: OpRewritePattern<comb::ICmpOp> {
       auto lhsVecHandle = lhsVecDeclOp.getHandle();
       auto rhsVecHandle = rhsVecDeclOp.getHandle();
 
-      auto vecCmpOp = rewriter.create<toucan::VectorLogicOp>(op.getLoc(), toucan::VecLogicOpName::VecLogic_Lt, lhsVecHandle, rhsVecHandle);
+      auto vecCmpOp = rewriter.create<toucan::VectorLogicOp>(op.getLoc(), toucan::VecLogicOpName::VecLogic_Lt,
+                                                             lhsVecHandle, rhsVecHandle);
 
       return vecCmpOp.getResult();
     }
@@ -675,7 +678,8 @@ struct LowerCombICmpOp: OpRewritePattern<comb::ICmpOp> {
 
       if (lhsValues.size() > TOUCAN_VEC_OP_MAX_SECTIONS) {
         llvm::errs() << "LE operation is too wide, not supported yet!\n";
-        llvm_unreachable("Comparison for int wider than 128 is not supported. Check icmpEqCore for reference implementation");
+        llvm_unreachable("Comparison for int wider than 128 is not supported. Check icmpEqCore for reference "
+                         "implementation");
       }
 
       auto lhsVecDeclOp = rewriter.create<toucan::DefVectorOp>(op.getLoc(), lhsValues);
@@ -684,7 +688,8 @@ struct LowerCombICmpOp: OpRewritePattern<comb::ICmpOp> {
       auto lhsVecHandle = lhsVecDeclOp.getHandle();
       auto rhsVecHandle = rhsVecDeclOp.getHandle();
 
-      auto vecCmpOp = rewriter.create<toucan::VectorLogicOp>(op.getLoc(), toucan::VecLogicOpName::VecLogic_Le, lhsVecHandle, rhsVecHandle);
+      auto vecCmpOp = rewriter.create<toucan::VectorLogicOp>(op.getLoc(), toucan::VecLogicOpName::VecLogic_Le,
+                                                             lhsVecHandle, rhsVecHandle);
 
       return vecCmpOp.getResult();
     }
@@ -700,7 +705,6 @@ struct LowerCombICmpOp: OpRewritePattern<comb::ICmpOp> {
     auto result = icmpEqCore(op, rewriter, lhsValue, rhsValue);
     return result;
   }
-
 
   Value LowerCombICmpULT(comb::ICmpOp &op, PatternRewriter &rewriter) const {
     auto lhsValue = op.getLhs();
@@ -785,7 +789,7 @@ struct LowerCombICmpOp: OpRewritePattern<comb::ICmpOp> {
     Value result;
 
     switch (implPredicate) {
-      case circt::comb::ICmpPredicate::eq : {
+      case circt::comb::ICmpPredicate::eq: {
         result = LowerCombICmpEQ(op, rewriter);
         break;
       }
@@ -829,7 +833,7 @@ struct LowerCombICmpOp: OpRewritePattern<comb::ICmpOp> {
   }
 };
 
-struct LowerCombMulOp: OpRewritePattern<comb::MulOp> {
+struct LowerCombMulOp : OpRewritePattern<comb::MulOp> {
   using OpRewritePattern<comb::MulOp>::OpRewritePattern;
 
   const size_t maxMulWidth = 128;
@@ -845,7 +849,7 @@ struct LowerCombMulOp: OpRewritePattern<comb::MulOp> {
 
     auto inputBitWidth = hw::getBitWidth(lhsValue.getType());
     if (static_cast<size_t>(inputBitWidth) > maxMulWidth) {
-      // Mul wider than this value may be too costly. 
+      // Mul wider than this value may be too costly.
       op->emitError() << "Multiplication too wide (max limit is " << maxMulWidth << ", got " << inputBitWidth << ")";
       return failure();
     }
@@ -863,7 +867,8 @@ struct LowerCombMulOp: OpRewritePattern<comb::MulOp> {
     auto lhsVecHandle = lhsVecDeclOp.getHandle();
     auto rhsVecHandle = rhsVecDeclOp.getHandle();
 
-    auto vecMulOp = rewriter.create<toucan::VectorArithOp>(op.getLoc(), toucan::VecArithOpName::VecArith_Mul, lhsVecHandle, rhsVecHandle);
+    auto vecMulOp = rewriter.create<toucan::VectorArithOp>(op.getLoc(), toucan::VecArithOpName::VecArith_Mul,
+                                                           lhsVecHandle, rhsVecHandle);
     auto vecMulResultVec = vecMulOp.getResult();
 
     auto mulVal = convertFullVectorBackToValue(rewriter, op.getLoc(), vecMulResultVec);
@@ -879,9 +884,7 @@ struct LowerCombMulOp: OpRewritePattern<comb::MulOp> {
   }
 };
 
-
-
-struct LowerCombParityOp: OpRewritePattern<comb::ParityOp> {
+struct LowerCombParityOp : OpRewritePattern<comb::ParityOp> {
   using OpRewritePattern<comb::ParityOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(comb::ParityOp op, PatternRewriter &rewriter) const final {
@@ -892,16 +895,17 @@ struct LowerCombParityOp: OpRewritePattern<comb::ParityOp> {
 
     if (inputValueWidth > 4) {
       SmallVector<Value> intermediateResults;
-      for (auto splitVal: split_value_4B(op, inputValue, rewriter)) {
+      for (auto splitVal : split_value_4B(op, inputValue, rewriter)) {
         auto xorrOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_XorR, splitVal);
         auto xorrResult = xorrOp.getResult();
         // assert(hw::getBitWidth(xorrResult.getType()) == 1);
         intermediateResults.push_back(xorrResult);
       }
-      auto result = generate_reduce_tree(rewriter, op.getLoc(), intermediateResults, [&](RewriterBase &rewriter, Location loc, Value lhs, Value rhs) {
-        auto xorOp = rewriter.create<comb::XorOp>(loc, ValueRange({lhs, rhs}), false);
-        return xorOp.getResult();
-      });
+      auto result = generate_reduce_tree(
+          rewriter, op.getLoc(), intermediateResults, [&](RewriterBase &rewriter, Location loc, Value lhs, Value rhs) {
+            auto xorOp = rewriter.create<comb::XorOp>(loc, ValueRange({lhs, rhs}), false);
+            return xorOp.getResult();
+          });
 
       assert(hw::getBitWidth(result.getType()) == 1);
 
@@ -911,7 +915,6 @@ struct LowerCombParityOp: OpRewritePattern<comb::ParityOp> {
     } else {
       auto xorrOp = rewriter.create<toucan::LUTOp>(op.getLoc(), toucan::LUTOpName::LUT_XorR, inputValue);
 
-
       copyCustomizedAttrs(op, xorrOp);
       rewriter.replaceOp(op, xorrOp);
     }
@@ -920,8 +923,7 @@ struct LowerCombParityOp: OpRewritePattern<comb::ParityOp> {
   }
 };
 
-
-struct LowerCombDivSOp: OpRewritePattern<comb::DivSOp> {
+struct LowerCombDivSOp : OpRewritePattern<comb::DivSOp> {
   using OpRewritePattern<comb::DivSOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(comb::DivSOp op, PatternRewriter &rewriter) const final {
@@ -930,7 +932,7 @@ struct LowerCombDivSOp: OpRewritePattern<comb::DivSOp> {
   }
 };
 
-struct LowerCombDivUOp: OpRewritePattern<comb::DivUOp> {
+struct LowerCombDivUOp : OpRewritePattern<comb::DivUOp> {
   using OpRewritePattern<comb::DivUOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(comb::DivUOp op, PatternRewriter &rewriter) const final {
@@ -939,7 +941,7 @@ struct LowerCombDivUOp: OpRewritePattern<comb::DivUOp> {
   }
 };
 
-struct LowerCombModSOp: OpRewritePattern<comb::ModSOp> {
+struct LowerCombModSOp : OpRewritePattern<comb::ModSOp> {
   using OpRewritePattern<comb::ModSOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(comb::ModSOp op, PatternRewriter &rewriter) const final {
@@ -948,7 +950,7 @@ struct LowerCombModSOp: OpRewritePattern<comb::ModSOp> {
   }
 };
 
-struct LowerCombModUOp: OpRewritePattern<comb::ModUOp> {
+struct LowerCombModUOp : OpRewritePattern<comb::ModUOp> {
   using OpRewritePattern<comb::ModUOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(comb::ModUOp op, PatternRewriter &rewriter) const final {
@@ -956,9 +958,6 @@ struct LowerCombModUOp: OpRewritePattern<comb::ModUOp> {
     return failure();
   }
 };
-
-
-
 
 struct LowerCombTo4B_1Pass : toucan::impl::LowerCombTo4B_1Base<LowerCombTo4B_1Pass> {
   using LowerCombTo4B_1Base<LowerCombTo4B_1Pass>::LowerCombTo4B_1Base;
@@ -981,7 +980,7 @@ struct LowerCombTo4B_1Pass : toucan::impl::LowerCombTo4B_1Base<LowerCombTo4B_1Pa
 
     RewritePatternSet owningPatterns(context);
     ConversionTarget conversionTarget(*context);
-    
+
     owningPatterns.add<LowerCombReplicateOp>(context);
     owningPatterns.add<LowerCombShlOp>(context);
     owningPatterns.add<LowerCombShrUOp>(context);
@@ -1015,23 +1014,19 @@ struct LowerCombTo4B_1Pass : toucan::impl::LowerCombTo4B_1Base<LowerCombTo4B_1Pa
     conversionTarget.addIllegalOp<comb::ModSOp>();
 
     patterns = std::make_shared<FrozenRewritePatternSet>(std::move(owningPatterns));
-    target = std::make_shared<ConversionTarget>(std::move(
-    conversionTarget));
+    target = std::make_shared<ConversionTarget>(std::move(conversionTarget));
 
     return success();
   }
 
-
-  LogicalResult runOnModule(hw::HWModuleOp mod) {
-    return applyFullConversion(mod, *target, *patterns);
-  }
+  LogicalResult runOnModule(hw::HWModuleOp mod) { return applyFullConversion(mod, *target, *patterns); }
 
   void runOnOperation() final {
     auto mod = getOperation();
 
     SmallVector<hw::HWModuleOp> modulesToProcess;
-    for(auto & inner: mod.getOps()) {
-      if(auto mod = dyn_cast<hw::HWModuleOp>(&inner)) {
+    for (auto &inner : mod.getOps()) {
+      if (auto mod = dyn_cast<hw::HWModuleOp>(&inner)) {
         modulesToProcess.push_back(mod);
       }
     }
@@ -1042,10 +1037,10 @@ struct LowerCombTo4B_1Pass : toucan::impl::LowerCombTo4B_1Base<LowerCombTo4B_1Pa
     // }
 
     // Parallel
-    auto result = mlir::failableParallelForEach(&getContext(), modulesToProcess.begin(), modulesToProcess.end(), [&](auto mod) {
-      return runOnModule(mod);
-    });
-    if (failed(result)) return signalPassFailure();
+    auto result = mlir::failableParallelForEach(&getContext(), modulesToProcess.begin(), modulesToProcess.end(),
+                                                [&](auto mod) { return runOnModule(mod); });
+    if (failed(result))
+      return signalPassFailure();
 
     numLongRep = numLongRepInModule;
     numShortRep = numShortRepInModule;
@@ -1061,6 +1056,4 @@ struct LowerCombTo4B_1Pass : toucan::impl::LowerCombTo4B_1Base<LowerCombTo4B_1Pa
   }
 };
 
-std::unique_ptr<mlir::Pass> toucan::createLowerCombTo4B_1Pass() {
-  return std::make_unique<LowerCombTo4B_1Pass>();
-}
+std::unique_ptr<mlir::Pass> toucan::createLowerCombTo4B_1Pass() { return std::make_unique<LowerCombTo4B_1Pass>(); }

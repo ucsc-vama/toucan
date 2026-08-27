@@ -1,7 +1,7 @@
 #include "circt/Dialect/Comb/CombOps.h"
+#include "circt/Dialect/HW/HWInstanceGraph.h"
 #include "circt/Dialect/HW/HWOpInterfaces.h"
 #include "circt/Dialect/HW/HWOps.h"
-#include "circt/Dialect/HW/HWInstanceGraph.h"
 #include "circt/Dialect/HW/HWTypes.h"
 #include "circt/Dialect/Seq/SeqOps.h"
 #include "circt/Dialect/Seq/SeqTypes.h"
@@ -22,12 +22,12 @@
 #include "toucan/ToucanOps.h"
 #include "toucan/ToucanUtils.h"
 
+#include "llvm/ADT/PostOrderIterator.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/GraphWriter.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/ADT/PostOrderIterator.h"
 
 #define GEN_PASS_DEF_FLATTEN
 #include "toucan/ToucanPassCommon.h"
@@ -45,7 +45,7 @@ struct FlattenPass : toucan::impl::FlattenBase<FlattenPass> {
   using toucan::impl::FlattenBase<FlattenPass>::FlattenBase;
 
   static void flattenName(MLIRContext *ctx, Operation *op, StringRef prefix) {
-    if(op->hasAttr("sv.namehint")) {
+    if (op->hasAttr("sv.namehint")) {
       auto attr = op->getAttrOfType<StringAttr>("sv.namehint");
       // Here, we allow name collision, as splitted signals share same name
       auto newName = (prefix + "." + attr.getValue()).str();
@@ -59,15 +59,15 @@ struct FlattenPass : toucan::impl::FlattenBase<FlattenPass> {
     return asClockOp.getResult();
   }
 
-  static Value createRegAndReturnSingleReadValue(size_t valueWidth, Location loc, OpBuilder &builder, StringAttr valueNewNameAttr) {
+  static Value createRegAndReturnSingleReadValue(size_t valueWidth, Location loc, OpBuilder &builder,
+                                                 StringAttr valueNewNameAttr) {
     SmallVector<Value> chunkValues;
 
-    for (auto [chunkId, chunkSize]: split_signal_4B(valueWidth)) {
+    for (auto [chunkId, chunkSize] : split_signal_4B(valueWidth)) {
       auto regType = builder.getIntegerType(chunkSize);
       auto regOp = builder.create<toucan::DefRegOp>(loc, regType);
 
       auto regReadOp = builder.create<toucan::RegReadOp>(loc, regOp.getHandle());
-
 
       auto idAttr = builder.getI32IntegerAttr(chunkId);
 
@@ -118,12 +118,11 @@ struct FlattenPass : toucan::impl::FlattenBase<FlattenPass> {
         setSVNameHintAttr(chunkDefiningOp, nextValueNameAttr);
         setSignalFragmentIDAttr(chunkDefiningOp, idAttr);
       }
-
     }
   }
 
-
-  static LogicalResult inlineExternalModule(hw::HWModuleOp parent, hw::InstanceOp inst, hw::HWModuleExternOp innerModule) {
+  static LogicalResult inlineExternalModule(hw::HWModuleOp parent, hw::InstanceOp inst,
+                                            hw::HWModuleExternOp innerModule) {
     auto instName = inst.getInstanceName();
 
     auto builder = OpBuilder(parent.getBodyBlock(), inst->getIterator());
@@ -132,10 +131,9 @@ struct FlattenPass : toucan::impl::FlattenBase<FlattenPass> {
 
     IRMapping mapping;
 
-
     // // Map all input signals
     // mapping.map(bodyBlock->getArguments(), inst->getOperands());
-    for (auto [inputVal, valName]: zip(inst.getInputs(), inst.getArgNames()) ) {
+    for (auto [inputVal, valName] : zip(inst.getInputs(), inst.getArgNames())) {
       // input values are transformed to a register with writer only
       auto valueNewName = instName + "." + valName.cast<StringAttr>().getValue();
       auto valueNewNameAttr = StringAttr::get(context, valueNewName);
@@ -147,9 +145,8 @@ struct FlattenPass : toucan::impl::FlattenBase<FlattenPass> {
       createRegAndWrite(inst, inputVal, rewriter, valueNewNameAttr);
     }
 
-
     // // Map all output signals
-    for (auto [outputVal, valName]: zip(inst.getResults(), inst.getResultNames()) ) {
+    for (auto [outputVal, valName] : zip(inst.getResults(), inst.getResultNames())) {
 
       // Dirty hack for seq.clock
       if (isa<seq::ClockType>(outputVal.getType())) {
@@ -168,16 +165,15 @@ struct FlattenPass : toucan::impl::FlattenBase<FlattenPass> {
       }
     }
 
-
     auto getMap = [&](mlir::Value x) {
-      while(mapping.contains(x)) {
+      while (mapping.contains(x)) {
         x = mapping.lookup(x);
       }
       return x;
     };
 
     // flatten
-    for(auto outval: inst.getResults()) {
+    for (auto outval : inst.getResults()) {
       outval.replaceAllUsesWith(getMap(outval));
     }
     assert(inst->getUses().empty());
@@ -185,7 +181,6 @@ struct FlattenPass : toucan::impl::FlattenBase<FlattenPass> {
 
     return success();
   }
-
 
   static LogicalResult inlineModule(hw::HWModuleOp parent, hw::InstanceOp inst, hw::HWModuleOp innerModule) {
     auto instName = inst.getInstanceName();
@@ -195,7 +190,7 @@ struct FlattenPass : toucan::impl::FlattenBase<FlattenPass> {
 
     IRMapping mapping;
 
-    SmallVector<Operation*> cloneOps;
+    SmallVector<Operation *> cloneOps;
     cloneOps.reserve(bodyBlock->getOperations().size());
 
     // Map all input signals
@@ -214,14 +209,14 @@ struct FlattenPass : toucan::impl::FlattenBase<FlattenPass> {
     });
 
     auto getMap = [&](mlir::Value x) {
-      while(mapping.contains(x)) {
+      while (mapping.contains(x)) {
         x = mapping.lookup(x);
       }
       return x;
     };
 
     // rename
-    for (auto val: bodyBlock->getArguments()) {
+    for (auto val : bodyBlock->getArguments()) {
       auto argId = val.getArgNumber();
       auto argName = innerModule.getArgName(argId).getValue();
       auto newVal = getMap(val);
@@ -233,7 +228,7 @@ struct FlattenPass : toucan::impl::FlattenBase<FlattenPass> {
         setIOSignalMarker(valDefOp);
       }
     }
-    for (auto val: inst.getResults()) {
+    for (auto val : inst.getResults()) {
       auto argId = val.getResultNumber();
       auto argName = inst.getResultName(argId).getValue();
       auto newVal = getMap(val);
@@ -248,14 +243,14 @@ struct FlattenPass : toucan::impl::FlattenBase<FlattenPass> {
 
     // flatten
     auto context = inst.getContext();
-    for(auto op: cloneOps) {
+    for (auto op : cloneOps) {
       flattenName(context, op, instName);
-      for(auto& opOperand: op->getOpOperands()) {
+      for (auto &opOperand : op->getOpOperands()) {
         opOperand.set(getMap(opOperand.get()));
       }
       builder.insert(op);
     }
-    for(auto outval: inst.getResults()) {
+    for (auto outval : inst.getResults()) {
       outval.replaceAllUsesWith(getMap(outval));
     }
     assert(inst->getUses().empty());
@@ -264,19 +259,20 @@ struct FlattenPass : toucan::impl::FlattenBase<FlattenPass> {
     return success();
   }
 
-
   static LogicalResult inlineChild(hw::HWModuleOp mod, hw::InstanceGraph &graph) {
     auto context = mod->getContext();
     auto block = mod.getBodyBlock();
     auto insts = to_vector(block->getOps<hw::InstanceOp>());
 
-    for(auto inst: insts) {
+    for (auto inst : insts) {
       auto innerNode = graph.lookup(StringAttr::get(context, inst.getModuleName()));
       auto modlike = innerNode->getModule();
       if (auto modop = dyn_cast<hw::HWModuleOp>(modlike.getOperation())) {
-        if (!succeeded(inlineModule(mod, inst, modop))) return failure();
+        if (!succeeded(inlineModule(mod, inst, modop)))
+          return failure();
       } else if (auto extmodOp = dyn_cast<hw::HWModuleExternOp>(modlike.getOperation())) {
-        if (!succeeded(inlineExternalModule(mod, inst, extmodOp))) return failure();
+        if (!succeeded(inlineExternalModule(mod, inst, extmodOp)))
+          return failure();
       }
     }
     return success();
@@ -292,7 +288,7 @@ struct FlattenPass : toucan::impl::FlattenBase<FlattenPass> {
 
     assert(bodyBlock->getNumArguments() == topMod.getNumInputPorts());
 
-    for (auto [argVal, portInfo]: zip(bodyBlock->getArguments(), topMod.getInputNames())) {
+    for (auto [argVal, portInfo] : zip(bodyBlock->getArguments(), topMod.getInputNames())) {
       if (isa<seq::ClockType>(argVal.getType())) {
         auto dummyClockVal = createDummpyClockValue(builder, loc);
 
@@ -311,11 +307,10 @@ struct FlattenPass : toucan::impl::FlattenBase<FlattenPass> {
 
     // Transform output to regwrite
     bodyBlock->walk([&](hw::OutputOp outputOp) {
-
       IRRewriter rewriter(builder);
       rewriter.setInsertionPoint(outputOp);
 
-      for (auto [outVal, valName]: zip(outputOp.getOutputs(), topMod.getOutputNames())) {
+      for (auto [outVal, valName] : zip(outputOp.getOutputs(), topMod.getOutputNames())) {
         auto argName = valName.cast<StringAttr>().getValue();
         auto valueNewNameAttr = rewriter.getStringAttr(argName);
 
@@ -323,12 +318,12 @@ struct FlattenPass : toucan::impl::FlattenBase<FlattenPass> {
       }
     });
 
-    SmallVector<Operation*> cloneOps;
+    SmallVector<Operation *> cloneOps;
     cloneOps.reserve(bodyBlock->getOperations().size());
 
     IRMapping mapping;
     auto getMap = [&](mlir::Value x) {
-      while(mapping.contains(x)) {
+      while (mapping.contains(x)) {
         x = mapping.lookup(x);
       }
       return x;
@@ -349,15 +344,14 @@ struct FlattenPass : toucan::impl::FlattenBase<FlattenPass> {
 
     auto context = topMod.getContext();
     auto modName = topMod.getSymName();
-    for(auto op: cloneOps) {
+    for (auto op : cloneOps) {
       flattenName(context, op, modName);
-      for(auto& opOperand: op->getOpOperands()) {
+      for (auto &opOperand : op->getOpOperands()) {
         opOperand.set(getMap(opOperand.get()));
       }
       builder.insert(op);
     }
     topMod.erase();
-
 
     return success();
   }
@@ -366,27 +360,23 @@ struct FlattenPass : toucan::impl::FlattenBase<FlattenPass> {
     auto modlist = getOperation();
 
     modlist->walk([&](Operation *op) {
-        numEdgesBeforeFlatten += op->getNumOperands();
-        numOpsBeforeFlatten += 1;
+      numEdgesBeforeFlatten += op->getNumOperands();
+      numOpsBeforeFlatten += 1;
     });
 
     hw::HWModuleOp topModule = nullptr;
     SmallVector<hw::HWModuleExternOp> externModules;
     SmallVector<hw::HWModuleOp> nodesToDelete;
 
-    modlist->walk([&](hw::HWModuleExternOp op) {
-      externModules.push_back(op);
-    });
+    modlist->walk([&](hw::HWModuleExternOp op) { externModules.push_back(op); });
 
     modlist->walk([&](hw::HWModuleOp op) {
-      if(op.isPrivate()) {
+      if (op.isPrivate()) {
         nodesToDelete.push_back(op);
-      }
-      else if(topModule) {
+      } else if (topModule) {
         modlist->emitError() << "multiple top module detected";
         return signalPassFailure();
-      }
-      else {
+      } else {
         topModule = op;
       }
     });
@@ -396,32 +386,33 @@ struct FlattenPass : toucan::impl::FlattenBase<FlattenPass> {
       return signalPassFailure();
     }
 
-    auto & instGraph = getAnalysis<hw::InstanceGraph>();
-    
-    for(auto modNode: post_order(&instGraph)) {
+    auto &instGraph = getAnalysis<hw::InstanceGraph>();
+
+    for (auto modNode : post_order(&instGraph)) {
       auto modop = modNode->getModule().getOperation();
-      if(!modop) continue;
-      if(auto mod = dyn_cast<hw::HWModuleOp>(modop)) {
+      if (!modop)
+        continue;
+      if (auto mod = dyn_cast<hw::HWModuleOp>(modop)) {
         // TODO: parallel
-        if (failed(inlineChild(mod, instGraph))) return signalPassFailure();
+        if (failed(inlineChild(mod, instGraph)))
+          return signalPassFailure();
       }
     }
-    for(auto mod: nodesToDelete) {
+    for (auto mod : nodesToDelete) {
       mod.erase();
     }
-    for (auto extmod: externModules) {
+    for (auto extmod : externModules) {
       extmod.erase();
     }
 
-    if (failed(flattenTopModule(topModule))) return signalPassFailure();
+    if (failed(flattenTopModule(topModule)))
+      return signalPassFailure();
 
     modlist->walk([&](Operation *op) {
-        numEdgesAfterFlatten += op->getNumOperands();
-        numOpsAfterFlatten += 1;
+      numEdgesAfterFlatten += op->getNumOperands();
+      numOpsAfterFlatten += 1;
     });
   }
 };
 
-std::unique_ptr<mlir::Pass> toucan::createFlattenPass() {
-  return std::make_unique<FlattenPass>();
-}
+std::unique_ptr<mlir::Pass> toucan::createFlattenPass() { return std::make_unique<FlattenPass>(); }

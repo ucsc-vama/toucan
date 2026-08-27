@@ -1,23 +1,23 @@
 
+#include "circt/Dialect/Comb/CombDialect.h"
+#include "circt/Dialect/Comb/CombOps.h"
 #include "circt/Dialect/HW/HWDialect.h"
 #include "circt/Dialect/HW/HWOps.h"
 #include "circt/Dialect/HW/HWTypes.h"
-#include "circt/Support/LLVM.h"
-#include "circt/Dialect/Comb/CombDialect.h"
-#include "circt/Dialect/Comb/CombOps.h"
 #include "circt/Dialect/Seq/SeqOps.h"
+#include "circt/Support/LLVM.h"
 
 #include "mlir/IR/Builders.h"
-#include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/Operation.h"
+#include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/Threading.h"
 #include "mlir/IR/ValueRange.h"
 #include "mlir/IR/Visitors.h"
 #include "mlir/Rewrite/FrozenRewritePatternSet.h"
 #include "mlir/Support/LLVM.h"
-#include "mlir/IR/Threading.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -26,20 +26,19 @@
 #include "toucan/ToucanDialect.h"
 #include "toucan/ToucanTypes.h"
 
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/STLExtras.h"
 
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/Format.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Support/Format.h"
 
-#include <memory>
 #include <atomic>
-
+#include <memory>
 
 #define GEN_PASS_DEF_LOWERHWVECTORTO4B
 #include "toucan/ToucanPassCommon.h"
@@ -61,13 +60,12 @@ static std::atomic<uint64_t> numSmallConstArrayInModule;
 static std::atomic<uint64_t> numHWArrayInModule;
 static std::atomic<uint64_t> numSmallHWArrayInModule;
 
-
-struct LowerConstArrayTo4B: OpRewritePattern<hw::AggregateConstantOp> {
+struct LowerConstArrayTo4B : OpRewritePattern<hw::AggregateConstantOp> {
   using OpRewritePattern<hw::AggregateConstantOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(hw::AggregateConstantOp constArrayOp, PatternRewriter &rewriter) const final {
     numConstArrayInModule++;
-    
+
     auto zeroConstOp = rewriter.create<hw::ConstantOp>(constArrayOp.getLoc(), rewriter.getI4Type(), 0);
     auto zeroConstValue = zeroConstOp.getResult();
 
@@ -87,7 +85,7 @@ struct LowerConstArrayTo4B: OpRewritePattern<hw::AggregateConstantOp> {
 
     if (useMux) {
       numSmallHWArrayInModule++;
-      for (auto &constArrayElem: constArrayValues) {
+      for (auto &constArrayElem : constArrayValues) {
         if (!isa<mlir::IntegerAttr>(constArrayElem)) {
           constArrayOp->emitError() << "Only supports integer arrays!";
           return failure();
@@ -98,7 +96,7 @@ struct LowerConstArrayTo4B: OpRewritePattern<hw::AggregateConstantOp> {
         array_const_vals.push_back(arrayElemConstOp.getResult());
       }
     } else {
-      for (auto &constArrayElem: constArrayValues) {
+      for (auto &constArrayElem : constArrayValues) {
         if (!isa<mlir::IntegerAttr>(constArrayElem)) {
           constArrayOp->emitError() << "Only supports integer arrays!";
           return failure();
@@ -107,9 +105,9 @@ struct LowerConstArrayTo4B: OpRewritePattern<hw::AggregateConstantOp> {
         auto constArrayElemVal = cast<mlir::IntegerAttr>(constArrayElem).getValue();
         auto constArrayElemValWidth = constArrayElemVal.getBitWidth();
 
-        int startPos = (numChunks-1) * 4;
-        for (auto [chunkId, chunkWidth]: (split_signal_4B(constArrayElemValWidth))) {
-          assert (startPos + chunkWidth <= static_cast<int>(constArrayElemValWidth));
+        int startPos = (numChunks - 1) * 4;
+        for (auto [chunkId, chunkWidth] : (split_signal_4B(constArrayElemValWidth))) {
+          assert(startPos + chunkWidth <= static_cast<int>(constArrayElemValWidth));
           auto val = constArrayElemVal.extractBits(chunkWidth, startPos);
           startPos -= 4;
           auto intAttr = rewriter.getIntegerAttr(rewriter.getIntegerType(val.getBitWidth()), val.getLimitedValue());
@@ -122,14 +120,14 @@ struct LowerConstArrayTo4B: OpRewritePattern<hw::AggregateConstantOp> {
         std::reverse(array_values.begin(), array_values.end());
       }
 
-      for (auto elems: array_values) {
+      for (auto elems : array_values) {
         auto arrayAttr = rewriter.getArrayAttr(elems);
         auto newDefVecOp = rewriter.create<toucan::DefConstVectorOp>(constArrayOp.getLoc(), arrayAttr);
         defVecHandles.push_back(newDefVecOp.getHandle());
       }
     }
 
-    for (auto userOp: constArrayOp->getUsers()) {
+    for (auto userOp : constArrayOp->getUsers()) {
       if (auto arrayGetOp = dyn_cast<hw::ArrayGetOp>(userOp)) {
         rewriter.setInsertionPointAfter(arrayGetOp);
 
@@ -138,7 +136,8 @@ struct LowerConstArrayTo4B: OpRewritePattern<hw::AggregateConstantOp> {
 
         auto maxIndexBits = llvm::Log2_64_Ceil(constArrayValues.size());
         if (arrayIndexBits > maxIndexBits) {
-          arrayGetOp.emitWarning() << "Too much index bits than necessary. (Expect index bits no more than " << maxIndexBits << ", but got " << arrayIndexBits;
+          arrayGetOp.emitWarning() << "Too much index bits than necessary. (Expect index bits no more than "
+                                   << maxIndexBits << ", but got " << arrayIndexBits;
         }
 
         if (useMux) {
@@ -149,8 +148,9 @@ struct LowerConstArrayTo4B: OpRewritePattern<hw::AggregateConstantOp> {
           auto indicies_4b = split_value_4B(userOp, arrayIndex, rewriter);
 
           SmallVector<Value> arrayGetResults;
-          for (auto vecHandle: defVecHandles) {
-            auto readOp = rewriter.create<toucan::VectorReadOp>(arrayGetOp.getLoc(), vecHandle, zeroConstValue, indicies_4b);
+          for (auto vecHandle : defVecHandles) {
+            auto readOp =
+                rewriter.create<toucan::VectorReadOp>(arrayGetOp.getLoc(), vecHandle, zeroConstValue, indicies_4b);
             arrayGetResults.push_back(readOp);
           }
 
@@ -177,13 +177,12 @@ struct LowerConstArrayTo4B: OpRewritePattern<hw::AggregateConstantOp> {
   }
 };
 
-
-struct LowerHWArrayTo4B: OpRewritePattern<hw::ArrayCreateOp> {
+struct LowerHWArrayTo4B : OpRewritePattern<hw::ArrayCreateOp> {
   using OpRewritePattern<hw::ArrayCreateOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(hw::ArrayCreateOp arrayCreateOp, PatternRewriter &rewriter) const final {
     numHWArrayInModule++;
-    
+
     auto zeroConstOp = rewriter.create<hw::ConstantOp>(arrayCreateOp.getLoc(), rewriter.getI4Type(), 0);
     auto zeroConstValue = zeroConstOp.getResult();
 
@@ -204,7 +203,7 @@ struct LowerHWArrayTo4B: OpRewritePattern<hw::ArrayCreateOp> {
       useMux = true;
       numSmallHWArrayInModule++;
     } else {
-      for (const auto &arrayElem: arrayInputs) {
+      for (const auto &arrayElem : arrayInputs) {
         // auto arrayElemWidth = hw::getBitWidth(arrayElem.getType());
         auto chunkValues = split_value_4B(arrayCreateOp.getOperation(), arrayElem, rewriter);
         for (size_t i = 0; i < chunkValues.size(); i++) {
@@ -212,20 +211,21 @@ struct LowerHWArrayTo4B: OpRewritePattern<hw::ArrayCreateOp> {
         }
       }
 
-      for (auto elems: array_values) {
+      for (auto elems : array_values) {
         auto newDefVecOp = rewriter.create<toucan::DefVectorOp>(arrayCreateOp.getLoc(), elems);
         defVecHandles.push_back(newDefVecOp.getHandle());
       }
     }
 
-    for (auto userOp: arrayCreateOp->getUsers()) {
+    for (auto userOp : arrayCreateOp->getUsers()) {
       if (auto arrayGetOp = dyn_cast<hw::ArrayGetOp>(userOp)) {
         auto arrayIndex = extractMinimumWidth(arrayGetOp.getIndex(), rewriter, userOp);
         auto arrayIndexBits = hw::getBitWidth(arrayIndex.getType());
 
         auto maxIndexBits = llvm::Log2_64_Ceil(arrayLength);
         if (arrayIndexBits > maxIndexBits) {
-          arrayGetOp.emitWarning() << "Too much index bits than necessary. (Expect index bits no more than " << maxIndexBits << ", but got " << arrayIndexBits;
+          arrayGetOp.emitWarning() << "Too much index bits than necessary. (Expect index bits no more than "
+                                   << maxIndexBits << ", but got " << arrayIndexBits;
         }
 
         if (useMux) {
@@ -236,8 +236,9 @@ struct LowerHWArrayTo4B: OpRewritePattern<hw::ArrayCreateOp> {
           auto indicies_4b = split_value_4B(userOp, arrayIndex, rewriter);
           SmallVector<Value> arrayGetResults;
 
-          for (auto vecHandle: defVecHandles) {
-            auto readOp = rewriter.create<toucan::VectorReadOp>(arrayGetOp.getLoc(), vecHandle, zeroConstValue, indicies_4b);
+          for (auto vecHandle : defVecHandles) {
+            auto readOp =
+                rewriter.create<toucan::VectorReadOp>(arrayGetOp.getLoc(), vecHandle, zeroConstValue, indicies_4b);
             arrayGetResults.push_back(readOp.getResult());
           }
 
@@ -257,15 +258,12 @@ struct LowerHWArrayTo4B: OpRewritePattern<hw::ArrayCreateOp> {
         return failure();
       }
     }
-    
+
     rewriter.eraseOp(arrayCreateOp);
 
     return success();
   }
 };
-
-
-
 
 struct LowerHWVectorTo4BPass : toucan::impl::LowerHWVectorTo4BBase<LowerHWVectorTo4BPass> {
   using LowerHWVectorTo4BBase<LowerHWVectorTo4BPass>::LowerHWVectorTo4BBase;
@@ -281,7 +279,7 @@ struct LowerHWVectorTo4BPass : toucan::impl::LowerHWVectorTo4BBase<LowerHWVector
     numSmallConstArray = 0;
 
     RewritePatternSet owningPatterns(context);
-    
+
     owningPatterns.add<LowerHWArrayTo4B>(context);
     owningPatterns.add<LowerConstArrayTo4B>(context);
 
@@ -296,23 +294,19 @@ struct LowerHWVectorTo4BPass : toucan::impl::LowerHWVectorTo4BBase<LowerHWVector
     // After lowering, following ops should no longer appear
     conversionTarget.addIllegalOp<hw::ArrayCreateOp>();
     conversionTarget.addIllegalOp<hw::AggregateConstantOp>();
-    target = std::make_shared<ConversionTarget>(std::move(
-    conversionTarget));
+    target = std::make_shared<ConversionTarget>(std::move(conversionTarget));
 
     return success();
   }
 
-
-  LogicalResult runOnModule(hw::HWModuleOp mod) {
-    return applyFullConversion(mod, *target, *patterns);
-  }
+  LogicalResult runOnModule(hw::HWModuleOp mod) { return applyFullConversion(mod, *target, *patterns); }
 
   void runOnOperation() final {
     auto mod = getOperation();
 
     SmallVector<hw::HWModuleOp> modulesToProcess;
-    for(auto & inner: mod.getOps()) {
-      if(auto mod = dyn_cast<hw::HWModuleOp>(&inner)) {
+    for (auto &inner : mod.getOps()) {
+      if (auto mod = dyn_cast<hw::HWModuleOp>(&inner)) {
         modulesToProcess.push_back(mod);
       }
     }
@@ -323,19 +317,16 @@ struct LowerHWVectorTo4BPass : toucan::impl::LowerHWVectorTo4BBase<LowerHWVector
     // }
 
     // Parallel
-    auto result = mlir::failableParallelForEach(&getContext(), modulesToProcess.begin(), modulesToProcess.end(), [&](auto mod) {
-      return runOnModule(mod);
-    });
-    if (failed(result)) return signalPassFailure();
+    auto result = mlir::failableParallelForEach(&getContext(), modulesToProcess.begin(), modulesToProcess.end(),
+                                                [&](auto mod) { return runOnModule(mod); });
+    if (failed(result))
+      return signalPassFailure();
 
     numConstArray = numConstArrayInModule;
     numHWArray = numHWArrayInModule;
     numSmallHWArray = numSmallHWArrayInModule;
     numSmallConstArray = numSmallConstArrayInModule;
   }
-
 };
 
-std::unique_ptr<mlir::Pass> toucan::createLowerHWVectorTo4BPass() {
-  return std::make_unique<LowerHWVectorTo4BPass>();
-}
+std::unique_ptr<mlir::Pass> toucan::createLowerHWVectorTo4BPass() { return std::make_unique<LowerHWVectorTo4BPass>(); }

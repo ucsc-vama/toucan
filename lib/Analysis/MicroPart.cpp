@@ -14,7 +14,6 @@
 #include <cstddef>
 #include <cstdint>
 
-
 using namespace toucan;
 
 void MicroPart::clear() {
@@ -37,7 +36,7 @@ void MicroPart::updateNodeToLevel() {
   nodeToLevel.clear();
 
   for (size_t levelId = 0; levelId < levels.size(); levelId++) {
-    for (auto &eachNode: levels[levelId]) {
+    for (auto &eachNode : levels[levelId]) {
       assert(!nodeToLevel.contains(eachNode));
       nodeToLevel[eachNode] = static_cast<uint32_t>(levelId);
     }
@@ -52,9 +51,9 @@ void MicroPart::buildRegularLUTPart(const mlir::SmallVector<mlir::SmallVector<ui
   assert(nodeToOpCount.empty());
 
   size_t totalNodeCount = 0;
-  for (const auto &eachLevelNodes: newNodesLevel) {
-    for (const auto &eachVtx: eachLevelNodes) {
-      totalNodeCount ++;
+  for (const auto &eachLevelNodes : newNodesLevel) {
+    for (const auto &eachVtx : eachLevelNodes) {
+      totalNodeCount++;
       nodes.insert(eachVtx);
       // For LUT part, each node is just 1 op
       nodeToOpCount[eachVtx] = 1;
@@ -69,8 +68,7 @@ void MicroPart::buildRegularLUTPart(const mlir::SmallVector<mlir::SmallVector<ui
   updateNodeToLevel();
 }
 
-
-void MicroPart::buildSpecialPart(const CGToucanOPName vtxOpName, const mlir::SmallVector<mlir::Operation*> &rawOps) {
+void MicroPart::buildSpecialPart(const CGToucanOPName vtxOpName, const mlir::SmallVector<mlir::Operation *> &rawOps) {
   partIsValid = true;
   isNOPPart = false;
   ioCollected = false;
@@ -80,7 +78,7 @@ void MicroPart::buildSpecialPart(const CGToucanOPName vtxOpName, const mlir::Sma
   totalOpCount = rawOps.size();
   levels.clear();
 
-  for (auto rawOp: rawOps) {
+  for (auto rawOp : rawOps) {
     specialOps.push_back(rawOp);
   }
 
@@ -90,8 +88,11 @@ void MicroPart::buildSpecialPart(const CGToucanOPName vtxOpName, const mlir::Sma
   assert(totalOpCount <= 32 && "Number of real ops in a special part cannot exceed hardware limit!");
 }
 
-
-bool MicroPart::checkAndCollectRegularPartIOValues(const PartitioningGraph &g, const mlir::DenseSet<uint32_t> &allNodes, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToDepNodeId, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToOriginalVecDeclId, const mlir::DenseMap<uint32_t, mlir::SmallVector<uint32_t>> &outputVectorNopMap) {
+bool MicroPart::checkAndCollectRegularPartIOValues(
+    const PartitioningGraph &g, const mlir::DenseSet<uint32_t> &allNodes,
+    const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToDepNodeId,
+    const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToOriginalVecDeclId,
+    const mlir::DenseMap<uint32_t, mlir::SmallVector<uint32_t>> &outputVectorNopMap) {
   assert(isRegularPart());
   assert(!levels.empty() && "Only check and collect IO values if it's loaded");
 
@@ -110,15 +111,14 @@ bool MicroPart::checkAndCollectRegularPartIOValues(const PartitioningGraph &g, c
 
     uint32_t i = 0;
     const auto &thisVecNewIds = outputVectorNopMap.at(vecDeclId);
-    for (;i < thisVecNewIds.size(); i++) {
-      if (thisVecNewIds[i] == dummyVtx) break;
+    for (; i < thisVecNewIds.size(); i++) {
+      if (thisVecNewIds[i] == dummyVtx)
+        break;
     }
     assert(i < thisVecNewIds.size());
 
     return vecOp.getInputs()[i];
   };
-
-
 
   // Check correctness and collect input value
   for (size_t levelId = 0; levelId < levels.size(); levelId++) {
@@ -126,10 +126,11 @@ bool MicroPart::checkAndCollectRegularPartIOValues(const PartitioningGraph &g, c
     const auto &currentLevelNodes = levels[levelId];
     valuesUsedByEachLevel.emplace_back();
 
-    for (auto eachVtx: currentLevelNodes) {
+    for (auto eachVtx : currentLevelNodes) {
       assert(nodes.contains(eachVtx));
       auto vtxIsDummyNop = newNodeIdToDepNodeId.contains(eachVtx);
-      if (vtxIsDummyNop) dummyNodes.insert(eachVtx);
+      if (vtxIsDummyNop)
+        dummyNodes.insert(eachVtx);
 
       if (!vtxIsDummyNop) {
         auto rawOp = g[eachVtx].op;
@@ -153,8 +154,6 @@ bool MicroPart::checkAndCollectRegularPartIOValues(const PartitioningGraph &g, c
           return false;
         }
       }
-
-
 
       // Check if is levelized correctly, also collect input val
 
@@ -187,7 +186,7 @@ bool MicroPart::checkAndCollectRegularPartIOValues(const PartitioningGraph &g, c
       } else {
         // regular node
         auto rawOp = g[eachVtx].op;
-        for (auto eachOperand: rawOp->getOperands()) {
+        for (auto eachOperand : rawOp->getOperands()) {
           assert(!isa<mlir::TypedValue<toucan::VecType>>(eachOperand));
           assert(!isa<mlir::TypedValue<toucan::RegType>>(eachOperand));
           assert(!isa<mlir::TypedValue<toucan::MemType>>(eachOperand));
@@ -231,16 +230,15 @@ bool MicroPart::checkAndCollectRegularPartIOValues(const PartitioningGraph &g, c
         assert(!nodeToOutputVal.contains(eachVtx));
         nodeToOutputVal[eachVtx] = resultVal;
 
-
         bool outputValueUsedOutsideThisPartition = false;
 
         mlir::SmallVector<uint32_t> allUserVtxes;
-        for (auto eachUserEdge: boost::make_iterator_range(boost::out_edges(eachVtx, g))) {
+        for (auto eachUserEdge : boost::make_iterator_range(boost::out_edges(eachVtx, g))) {
           auto eachUserVtx = boost::target(eachUserEdge, g);
           allUserVtxes.push_back(eachUserVtx);
         }
 
-        for (auto edgeTarget: allUserVtxes) {
+        for (auto edgeTarget : allUserVtxes) {
           // assert(!allPreviousLevelLUTNodes.contains(edgeTarget) && "Should follow topo order");
 
           // result used by outside of this partition
@@ -249,11 +247,12 @@ bool MicroPart::checkAndCollectRegularPartIOValues(const PartitioningGraph &g, c
             bool targetIsVecDecl = isa<toucan::DefVectorOp>(g[edgeTarget].op);
             bool targetInCurrentRepCutPartition = allNodes.contains(edgeTarget);
             if (targetIsVecDecl) {
-              if (!targetInCurrentRepCutPartition) continue;
+              if (!targetInCurrentRepCutPartition)
+                continue;
               assert(outputVectorNopMap.contains(edgeTarget));
 
               bool allUserDummyNopInThisMPart = true;
-              for (auto eachUserNop: outputVectorNopMap.at(edgeTarget)) {
+              for (auto eachUserNop : outputVectorNopMap.at(edgeTarget)) {
                 auto thisNopUseThisValue = newNodeIdToDepNodeId.at(eachUserNop) == eachVtx;
                 if (thisNopUseThisValue && !nodes.contains(eachUserNop)) {
                   allUserDummyNopInThisMPart = false;
@@ -288,25 +287,23 @@ bool MicroPart::checkAndCollectRegularPartIOValues(const PartitioningGraph &g, c
           assert(!isa<toucan::DefVectorOp>(g[eachVtx].op));
         }
       }
-
     }
-
   }
 
-mlir::DenseSet<mlir::Value> visitedInputVals;
-for (const auto &[_, vs]: nodeToInputVals) {
-  for (const auto &v: vs) {
-    visitedInputVals.insert(v);
+  mlir::DenseSet<mlir::Value> visitedInputVals;
+  for (const auto &[_, vs] : nodeToInputVals) {
+    for (const auto &v : vs) {
+      visitedInputVals.insert(v);
+    }
   }
-}
-for (const auto &val: inputValues) {
-  if (!visitedInputVals.contains(val)) {
-    llvm::dbgs() << "Value missing\n";
-    val.print(llvm::dbgs());
-    llvm::dbgs() << "\n";
+  for (const auto &val : inputValues) {
+    if (!visitedInputVals.contains(val)) {
+      llvm::dbgs() << "Value missing\n";
+      val.print(llvm::dbgs());
+      llvm::dbgs() << "\n";
+    }
+    assert(visitedInputVals.contains(val));
   }
-  assert(visitedInputVals.contains(val));
-}
   // if (allInputVals.size() != inputValues.size()) {
   //   llvm::dbgs() << "Incorrect input values\nallInputVals from nodeToInputVals:\n";
   //   for (const auto &v: allInputVals) {
@@ -323,7 +320,9 @@ for (const auto &val: inputValues) {
   return true;
 }
 
-bool MicroPart::checkAndCollectSpecialPartIOValues(const PartitioningGraph &g, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToDepNodeId, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToOriginalVecDeclId) {
+bool MicroPart::checkAndCollectSpecialPartIOValues(
+    const PartitioningGraph &g, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToDepNodeId,
+    const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToOriginalVecDeclId) {
   assert(!isRegularPart());
   assert(levels.empty() && "Special part should keep levels empty");
   assert(levels.size() == 0);
@@ -335,14 +334,12 @@ bool MicroPart::checkAndCollectSpecialPartIOValues(const PartitioningGraph &g, c
   nodeToOutputVal.clear();
 
   // Check correctness and collect input value
-  for (auto rawOp: specialOps) {
+  for (auto rawOp : specialOps) {
     // collect input values
-    for (auto eachOperand: rawOp->getOperands()) {
-      if (!(
-        isa<toucan::DefMemOp>(eachOperand.getDefiningOp()) ||
-        isa<toucan::ConstantOp>(eachOperand.getDefiningOp()) || 
-        isa<toucan::DefConstVectorOp>(eachOperand.getDefiningOp())
-      )) {
+    for (auto eachOperand : rawOp->getOperands()) {
+      if (!(isa<toucan::DefMemOp>(eachOperand.getDefiningOp()) ||
+            isa<toucan::ConstantOp>(eachOperand.getDefiningOp()) ||
+            isa<toucan::DefConstVectorOp>(eachOperand.getDefiningOp()))) {
         inputValues.insert(eachOperand);
       }
     }
@@ -351,7 +348,8 @@ bool MicroPart::checkAndCollectSpecialPartIOValues(const PartitioningGraph &g, c
     auto resultVal = getOpResultValue(rawOp);
 
     mlir::DenseSet<mlir::Value> dedupOutputValues;
-    for (auto v: outputValues) dedupOutputValues.insert(v);
+    for (auto v : outputValues)
+      dedupOutputValues.insert(v);
     assert(dedupOutputValues.size() == outputValues.size());
 
     outputValues.push_back(resultVal);
@@ -376,7 +374,7 @@ void MicroPart::mergeSpecialPartFromOtherParts(const mlir::SmallVector<std::shar
   assert(!otherMPs.empty());
 
   opType = otherMPs[0]->opType;
-  for (const auto &otherMP: otherMPs) {
+  for (const auto &otherMP : otherMPs) {
     assert(otherMP->partIsValid);
     assert(opType == otherMP->opType);
     assert(!otherMP->isRegularPart());
@@ -388,12 +386,11 @@ void MicroPart::mergeSpecialPartFromOtherParts(const mlir::SmallVector<std::shar
     outputValueSet.insert(otherMP->outputValueSet.begin(), otherMP->outputValueSet.end());
     outputValues.insert(outputValues.end(), otherMP->outputValues.begin(), otherMP->outputValues.end());
 
-    specialOps.insert(specialOps.end(),otherMP->specialOps.begin(), otherMP->specialOps.end());
+    specialOps.insert(specialOps.end(), otherMP->specialOps.begin(), otherMP->specialOps.end());
   }
 
   assert(specialOps.size() <= 32);
 }
-
 
 void MicroPart::buildNOPRegularLUTPart(mlir::SmallVector<toucan::LUTOp> &partNops) {
   partIsValid = true;
@@ -404,7 +401,7 @@ void MicroPart::buildNOPRegularLUTPart(mlir::SmallVector<toucan::LUTOp> &partNop
   size_t totalNodeCount = nops.size();
   nops.assign(partNops.begin(), partNops.end());
 
-  for (auto &op: partNops) {
+  for (auto &op : partNops) {
     auto opInputVals = op.getInputs();
     assert(opInputVals.size() == 1);
     auto opOutputVal = op.getResult();
@@ -418,12 +415,17 @@ void MicroPart::buildNOPRegularLUTPart(mlir::SmallVector<toucan::LUTOp> &partNop
   totalOpCount = totalNodeCount;
 }
 
-bool MicroPart::checkAndCollectIOValues(const PartitioningGraph &g, const mlir::DenseSet<uint32_t> &allNodes, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToDepNodeId, const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToOriginalVecDeclId, const mlir::DenseMap<uint32_t, mlir::SmallVector<uint32_t>> &outputVectorNopMap) {
+bool MicroPart::checkAndCollectIOValues(
+    const PartitioningGraph &g, const mlir::DenseSet<uint32_t> &allNodes,
+    const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToDepNodeId,
+    const mlir::DenseMap<uint32_t, uint32_t> &newNodeIdToOriginalVecDeclId,
+    const mlir::DenseMap<uint32_t, mlir::SmallVector<uint32_t>> &outputVectorNopMap) {
   ioCollected = true;
   bool ret;
   bool isRegularPart = this->isRegularPart();
   if (isRegularPart) {
-    ret = checkAndCollectRegularPartIOValues(g, allNodes, newNodeIdToDepNodeId, newNodeIdToOriginalVecDeclId, outputVectorNopMap);
+    ret = checkAndCollectRegularPartIOValues(g, allNodes, newNodeIdToDepNodeId, newNodeIdToOriginalVecDeclId,
+                                             outputVectorNopMap);
   } else {
     ret = checkAndCollectSpecialPartIOValues(g, newNodeIdToDepNodeId, newNodeIdToOriginalVecDeclId);
   }
@@ -431,7 +433,7 @@ bool MicroPart::checkAndCollectIOValues(const PartitioningGraph &g, const mlir::
   // double check. can be removed
   uint32_t numOpsAtFirstLevel = 0;
   if (isRegularPart) {
-    for (auto eachVtx: levels[0]) {
+    for (auto eachVtx : levels[0]) {
       auto vtxIsDummyNop = newNodeIdToDepNodeId.contains(eachVtx);
       if (vtxIsDummyNop) {
         numOpsAtFirstLevel += 1;
@@ -458,9 +460,9 @@ void MicroPart::print() const {
 
   if (isRegularPart) {
     size_t level_id = 0;
-    for (const auto &eachLevel: levels) {
+    for (const auto &eachLevel : levels) {
       llvm::dbgs() << "Level " << level_id << ":\n";
-      for (const auto &eachVtx: eachLevel) {
+      for (const auto &eachVtx : eachLevel) {
         if (dummyNodes.contains(eachVtx)) {
           llvm::dbgs() << "  Dummy NOP, read from: ";
           if (nodeToInputVals.contains(eachVtx)) {
@@ -483,7 +485,7 @@ void MicroPart::print() const {
     }
   } else {
     llvm::dbgs() << "Special part has " << nodes.size() << " nodes and " << specialOps.size() << " ops\n";
-    for (const auto eachOp: specialOps) {
+    for (const auto eachOp : specialOps) {
       eachOp->print(llvm::dbgs());
       llvm::dbgs() << "\n";
     }
@@ -491,7 +493,6 @@ void MicroPart::print() const {
 
   llvm::dbgs() << "----\n";
 }
-
 
 mlir::DenseMap<mlir::Value, MicroPartValLifeCycle> MicroPart::extractValueLifeTime() const {
   mlir::DenseMap<mlir::Value, MicroPartValLifeCycle> valueToLifeCycle;
@@ -503,7 +504,7 @@ mlir::DenseMap<mlir::Value, MicroPartValLifeCycle> MicroPart::extractValueLifeTi
 
   mlir::DenseSet<mlir::Value> visitedInputVals;
 
-  for (const auto &[vtx, outputVal]: nodeToOutputVal) {
+  for (const auto &[vtx, outputVal] : nodeToOutputVal) {
     auto vtxLevel = nodeToLevel.at(vtx);
     assert(vtxLevel < writeBackLevel);
     assert(!isa<toucan::ConstantOp>(outputVal.getDefiningOp()));
@@ -513,14 +514,14 @@ mlir::DenseMap<mlir::Value, MicroPartValLifeCycle> MicroPart::extractValueLifeTi
     }
     valueToLifeCycle[outputVal] = {vtxLevel, vtxLevel};
   }
-  for (const auto &[vtx, inputVals]: nodeToInputVals) {
+  for (const auto &[vtx, inputVals] : nodeToInputVals) {
     auto vtxLevel = nodeToLevel.at(vtx);
 
     if (vtxLevel == 0) {
       continue;
     }
 
-    for (const auto &eachVal: inputVals) {
+    for (const auto &eachVal : inputVals) {
       assert(!isa<toucan::ConstantOp>(eachVal.getDefiningOp()));
 
       visitedInputVals.insert(eachVal);
@@ -540,13 +541,13 @@ mlir::DenseMap<mlir::Value, MicroPartValLifeCycle> MicroPart::extractValueLifeTi
     }
   }
 
-  for (const auto &eachOutputVal: outputValueSet) {
+  for (const auto &eachOutputVal : outputValueSet) {
     assert(valueToLifeCycle.contains(eachOutputVal));
     // Extend life time to write back
     valueToLifeCycle[eachOutputVal].end = writeBackLevel;
   }
 
-  for (const auto &[val, lifetime]: valueToLifeCycle) {
+  for (const auto &[val, lifetime] : valueToLifeCycle) {
     assert(lifetime.start != lifetime.end);
     assert(!isa<toucan::ConstantOp>(val.getDefiningOp()));
   }
@@ -556,8 +557,10 @@ mlir::DenseMap<mlir::Value, MicroPartValLifeCycle> MicroPart::extractValueLifeTi
 
 // See MultiRegionMicroPartScheduler::scheduleRegularMicroPart for a complete version!
 int MicroPart::estimateMaxActiveVars() const {
-  if (opType != CGToucanOPName::LUT) return specialOps.size();
-  if (!nops.empty()) return nops.size();
+  if (opType != CGToucanOPName::LUT)
+    return specialOps.size();
+  if (!nops.empty())
+    return nops.size();
 
   assert(!levels.empty());
 
@@ -582,7 +585,7 @@ int MicroPart::estimateMaxActiveVars() const {
 
     topLevelResultVals.reserve(32);
 
-    for (auto eachVtx: levels.front()) {
+    for (auto eachVtx : levels.front()) {
       auto vtxIsDummyNop = isa<mlir::TypedValue<toucan::VecType>>(nodeToOutputVal.at(eachVtx));
 
       if (vtxIsDummyNop) {
@@ -640,16 +643,17 @@ int MicroPart::estimateMaxActiveVars() const {
     assert(valuesUsedByEachLevel.size() > 0);
     valuesOnlyUsedByFirstLevel.insert(valuesUsedByEachLevel.front().begin(), valuesUsedByEachLevel.front().end());
     for (size_t i = 1; i < valuesUsedByEachLevel.size(); i++) {
-      for (const auto &v: valuesUsedByEachLevel[i]) {
+      for (const auto &v : valuesUsedByEachLevel[i]) {
         if (valuesOnlyUsedByFirstLevel.contains(v)) {
           valuesOnlyUsedByFirstLevel.erase(v);
         }
       }
     }
 
-    for (auto &eachInputVal: inputValues) {
+    for (auto &eachInputVal : inputValues) {
       assert(!outputValueSet.contains(eachInputVal));
-      if (valuesOnlyUsedByFirstLevel.contains(eachInputVal)) continue;
+      if (valuesOnlyUsedByFirstLevel.contains(eachInputVal))
+        continue;
       if (!shuffleValueToId_next.contains(eachInputVal)) {
         // insert a dummy read op
 
@@ -687,9 +691,8 @@ int MicroPart::estimateMaxActiveVars() const {
     shuffleValueToId_next.clear();
     shuffleValueToId_next.reserve(32);
 
-
     // Create NOP for pass through values
-    for (const auto &[val, lifeTime]: valueToLifeCycle) {
+    for (const auto &[val, lifeTime] : valueToLifeCycle) {
       assert(lifeTime.end > lifeTime.start);
 
       if (isa<mlir::TypedValue<toucan::VecType>>(val)) {
@@ -698,7 +701,8 @@ int MicroPart::estimateMaxActiveVars() const {
       }
 
       // future value, ignore
-      if (lifeTime.start > levelId) continue;
+      if (lifeTime.start > levelId)
+        continue;
       if (lifeTime.start == levelId) {
         // value created by this level
         // valuesOutputOfThisLevel.insert(val);
@@ -722,7 +726,7 @@ int MicroPart::estimateMaxActiveVars() const {
     assert(opIndex <= 32);
 
     // Create NOP for pass through values that reads from outside (and thus not in valueLifeTime)
-    for (const auto &val: pendingWriteBackValue) {
+    for (const auto &val : pendingWriteBackValue) {
       assert(shuffleValueToId.contains(val));
       if (!shuffleValueToId_next.contains(val)) {
 
@@ -736,7 +740,7 @@ int MicroPart::estimateMaxActiveVars() const {
 
     assert(opIndex <= 32);
 
-    for (auto &val: pendingWriteBackValue) {
+    for (auto &val : pendingWriteBackValue) {
       if (valueToLifeCycle.contains(val)) {
         if (valueToLifeCycle[val].start <= levelId) {
           // Double check
@@ -745,9 +749,7 @@ int MicroPart::estimateMaxActiveVars() const {
       }
     }
 
-
-
-    for (const auto eachVtx: levels[levelId]) {
+    for (const auto eachVtx : levels[levelId]) {
       auto vtxIsDummyNop = isa<mlir::TypedValue<toucan::VecType>>(nodeToOutputVal.at(eachVtx));
 
       if (vtxIsDummyNop) {
@@ -799,7 +801,6 @@ int MicroPart::estimateMaxActiveVars() const {
     assert(opIndex <= 32);
     maxActiveVars = std::max(maxActiveVars, static_cast<size_t>(shuffleValueToId_next.size()));
   }
-
 
   {
     // last level

@@ -25,22 +25,22 @@
 #include <optional>
 
 #include "mlir/Support/LogicalResult.h"
+#include "toucan/MicroPartLocalValueAllocator.h"
+#include "toucan/PartitioningGraph.h"
 #include "toucan/ToucanAttributes.h"
+#include "toucan/ToucanCodeGenInfo.h"
+#include "toucan/ToucanConfigs.h"
 #include "toucan/ToucanDialect.h"
 #include "toucan/ToucanOps.h"
 #include "toucan/ToucanTypes.h"
-#include "toucan/PartitioningGraph.h"
-#include "toucan/MicroPartLocalValueAllocator.h"
-#include "toucan/ToucanCodeGenInfo.h"
-#include "toucan/ToucanConfigs.h"
 
 #include "toucan/MicroPartitioner.h"
 
 #include <boost/graph/adjacency_list.hpp>
 
+#include <filesystem>
 #include <string>
 #include <unordered_map>
-#include <filesystem>
 #include <vector>
 
 #define DESIGNGRAPH_EXGREAD_WEIGHT 1
@@ -51,75 +51,72 @@
 
 namespace toucan {
 
+class IsLegalToucan4B {
 
+public:
+  bool isToucanOnly;
+  bool is4BOnly;
+  bool isLegalToucan4B;
 
+  IsLegalToucan4B(mlir::Operation *op);
 
-  class IsLegalToucan4B {
+private:
+  uint32_t chunkSize = 20000;
+};
 
-  public:
-    bool isToucanOnly;
-    bool is4BOnly;
-    bool isLegalToucan4B;
+size_t getExtraAlignmentSpace(size_t valSize, size_t alignment);
 
-    IsLegalToucan4B(mlir::Operation *op);
-  private:
-    uint32_t chunkSize = 20000;
+class DesignGraph {
+public:
+  PartitioningGraph g;
+  mlir::DenseMap<mlir::Operation *, uint32_t> opToId;
+  mlir::DenseSet<mlir::TypedValue<toucan::RegType>> regs;
+
+  DesignGraph(mlir::Operation *op, mlir::AnalysisManager &am);
+
+  static bool opShouldRemoveInGraph(mlir::Operation *op);
+
+private:
+};
+
+class LocalValueAllocator {
+public:
+  size_t numTotalValSize;
+  // numConsts = compactConstValPool.size()
+  size_t numConsts;
+  size_t numOutputVals;
+  size_t numInputVals;
+
+  mlir::DenseMap<mlir::Value, uint32_t> valToValId;
+  // Use this as the real const pool
+  // still, val 0 is always 0
+  mlir::SmallVector<uint8_t> compactConstValPool;
+
+  void allocateLocalValues();
+
+  // uint32_t getValId(mlir::Value);
+
+  void collectValueLifetime(PartitioningGraph &regionGraph,
+                            const mlir::SmallVector<mlir::SmallVector<uint32_t>> &partLevels,
+                            const mlir::SmallVector<CGExchangeValueMetaInfo> &exchangePool);
+
+  // Populate const vals and RegWrite/ExchangeWrite. Those values are pinned
+  void populateInitialPinnedVals(PartitioningGraph &regionGraph,
+                                 const mlir::DenseMap<mlir::Value, uint32_t> constValToRawValue,
+                                 const mlir::SmallVector<mlir::SmallVector<uint32_t>> &partLevels,
+                                 const mlir::SmallVector<CGExchangeValueMetaInfo> &exchangePool);
+
+private:
+  struct ValueLifeTime {
+    uint32_t start;
+    uint32_t end;
   };
 
-  size_t getExtraAlignmentSpace(size_t valSize, size_t alignment);
+  mlir::DenseSet<mlir::Value> pinnedInputVals, pinnedOutputVals, constVals;
 
+  mlir::DenseMap<mlir::Value, ValueLifeTime> valToLifeTime;
+  mlir::DenseMap<mlir::Value, uint32_t> vecValToLength;
 
-  class DesignGraph {
-  public:
-    PartitioningGraph g;
-    mlir::DenseMap<mlir::Operation*, uint32_t> opToId;
-    mlir::DenseSet<mlir::TypedValue<toucan::RegType>> regs;
-    
-    DesignGraph(mlir::Operation *op, mlir::AnalysisManager &am);
-
-    static bool opShouldRemoveInGraph(mlir::Operation *op);
-  private:
-  
-  };
-
-
-
-  class LocalValueAllocator {
-    public:
-    size_t numTotalValSize;
-    // numConsts = compactConstValPool.size()
-    size_t numConsts;
-    size_t numOutputVals;
-    size_t numInputVals;
-
-    mlir::DenseMap<mlir::Value, uint32_t> valToValId;
-    // Use this as the real const pool
-    // still, val 0 is always 0
-    mlir::SmallVector<uint8_t> compactConstValPool;
-
-    void allocateLocalValues();
-    
-
-    // uint32_t getValId(mlir::Value);
-
-    void collectValueLifetime(PartitioningGraph &regionGraph, const mlir::SmallVector<mlir::SmallVector<uint32_t>> &partLevels, const mlir::SmallVector<CGExchangeValueMetaInfo> &exchangePool);
-
-    // Populate const vals and RegWrite/ExchangeWrite. Those values are pinned
-    void populateInitialPinnedVals(PartitioningGraph &regionGraph, const mlir::DenseMap<mlir::Value, uint32_t> constValToRawValue, const mlir::SmallVector<mlir::SmallVector<uint32_t>> &partLevels, const mlir::SmallVector<CGExchangeValueMetaInfo> &exchangePool);
-
-
-    private:
-    struct ValueLifeTime {
-      uint32_t start;
-      uint32_t end;
-    };
-
-    mlir::DenseSet<mlir::Value> pinnedInputVals, pinnedOutputVals, constVals;
-
-    mlir::DenseMap<mlir::Value, ValueLifeTime> valToLifeTime;
-    mlir::DenseMap<mlir::Value, uint32_t> vecValToLength;
-
-    size_t totalLevels;
-
-  };
-}
+  size_t totalLevels;
+};
+} // namespace toucan

@@ -1,25 +1,25 @@
 
-#include "circt/Dialect/HW/HWOps.h"
-#include "circt/Dialect/HW/HWTypes.h"
-#include "circt/Support/LLVM.h"
 #include "circt/Dialect/Comb/CombDialect.h"
 #include "circt/Dialect/Comb/CombOps.h"
+#include "circt/Dialect/HW/HWOps.h"
+#include "circt/Dialect/HW/HWTypes.h"
 #include "circt/Dialect/Seq/SeqOps.h"
+#include "circt/Support/LLVM.h"
 
 #include "mlir/IR/Builders.h"
 // #include "mlir/IR/BuiltinAttributes.h"
-#include "mlir/IR/Diagnostics.h"
-#include "mlir/IR/Location.h"
-#include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Diagnostics.h"
+#include "mlir/IR/Location.h"
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/Operation.h"
+#include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/Threading.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/ValueRange.h"
 #include "mlir/IR/Visitors.h"
 #include "mlir/Support/LLVM.h"
-#include "mlir/IR/Threading.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -28,21 +28,20 @@
 #include "toucan/ToucanTypes.h"
 
 #include "llvm/ADT/APInt.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/STLExtras.h"
 
 #include "llvm/ADT/iterator_range.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/PrettyStackTrace.h"
+#include "llvm/Support/raw_ostream.h"
 
 #include <memory>
 #include <numeric>
 #include <type_traits>
-
 
 #define GEN_PASS_DEF_FACTORCONCATEXTRACT
 #include "toucan/ToucanPassCommon.h"
@@ -57,16 +56,18 @@ using namespace llvm;
 
 #define DEBUG_TYPE "FactorConcatExtractPass"
 
-
 struct BitsOperations {
-
 
   static LUTOpName getShlNameUsingShamt(size_t shamt) {
     switch (shamt) {
-      case 1: return LUTOpName::LUT_Shl1;
-      case 2: return LUTOpName::LUT_Shl2;
-      case 3: return LUTOpName::LUT_Shl3;
-      default: llvm_unreachable("shl shamt out of range");
+      case 1:
+        return LUTOpName::LUT_Shl1;
+      case 2:
+        return LUTOpName::LUT_Shl2;
+      case 3:
+        return LUTOpName::LUT_Shl3;
+      default:
+        llvm_unreachable("shl shamt out of range");
     }
   }
 
@@ -74,14 +75,19 @@ struct BitsOperations {
   // shr3 has same truth table with shl1. Shr opNames are just symbol and should not appear in output.
   static LUTOpName getShrNameUsingShamt(size_t shamt) {
     switch (shamt) {
-      case 1: return LUTOpName::LUT_Shl3;
-      case 2: return LUTOpName::LUT_Shl2;
-      case 3: return LUTOpName::LUT_Shl1;
-      default: llvm_unreachable("shr shamt out of range");
+      case 1:
+        return LUTOpName::LUT_Shl3;
+      case 2:
+        return LUTOpName::LUT_Shl2;
+      case 3:
+        return LUTOpName::LUT_Shl1;
+      default:
+        llvm_unreachable("shr shamt out of range");
     }
   }
 
-  static Value extractLowNBitsAndShiftToMSB(RewriterBase &rewriter, Location loc, Value val, Value constZero4B, size_t n) {
+  static Value extractLowNBitsAndShiftToMSB(RewriterBase &rewriter, Location loc, Value val, Value constZero4B,
+                                            size_t n) {
     auto inputWidth = static_cast<size_t>(hw::getBitWidth(val.getType()));
     assert(inputWidth <= 4);
     assert(n < inputWidth);
@@ -93,7 +99,8 @@ struct BitsOperations {
   }
 
   static Value bitsShlByNAndFill(RewriterBase &rewriter, Location loc, Value val, Value constZero4B, size_t shamt) {
-    if (shamt == 0) return val;
+    if (shamt == 0)
+      return val;
     auto inputValWidth = hw::getBitWidth(val.getType());
     auto expectedWidth = std::min(static_cast<uint64_t>(4), static_cast<uint64_t>(inputValWidth + shamt));
     auto resultType = rewriter.getIntegerType(expectedWidth);
@@ -102,9 +109,10 @@ struct BitsOperations {
     return shlOp.getResult();
   }
 
-  // static Value 
+  // static Value
   static Value bitsShrByN(RewriterBase &rewriter, Location loc, Value lhs, Value rhs, size_t shamt) {
-    if (shamt == 0) return rhs;
+    if (shamt == 0)
+      return rhs;
     auto lhsValWidth = static_cast<size_t>(hw::getBitWidth(lhs.getType()));
     auto rhsValWidth = static_cast<size_t>(hw::getBitWidth(rhs.getType()));
     assert(rhsValWidth > shamt);
@@ -117,7 +125,8 @@ struct BitsOperations {
   }
 
   static Value bitsShrByNAndFill(RewriterBase &rewriter, Location loc, Value val, Value constZero4B, size_t shamt) {
-    if (shamt == 0) return val;
+    if (shamt == 0)
+      return val;
     auto inputValWidth = static_cast<size_t>(hw::getBitWidth(val.getType()));
     assert(inputValWidth > shamt);
     auto expectedWidth = inputValWidth - shamt;
@@ -128,10 +137,12 @@ struct BitsOperations {
     return shlOp.getResult();
   }
 
-  static Value extractHighNBitsAndShiftToLSB(RewriterBase &rewriter, Location loc, Value val, Value constZero4B, size_t n) {
+  static Value extractHighNBitsAndShiftToLSB(RewriterBase &rewriter, Location loc, Value val, Value constZero4B,
+                                             size_t n) {
     auto inputWidth = static_cast<size_t>(hw::getBitWidth(val.getType()));
     assert(inputWidth <= 4);
-    if (n == inputWidth) return val;
+    if (n == inputWidth)
+      return val;
     assert(n < inputWidth);
 
     size_t shamt = inputWidth - n;
@@ -141,7 +152,8 @@ struct BitsOperations {
   static Value concatBitByOr(RewriterBase &rewriter, Location loc, SmallVector<Value> &vals) {
     assert(!vals.empty());
 
-    if (vals.size() == 1) return vals.front();
+    if (vals.size() == 1)
+      return vals.front();
     auto elem_2nd = std::next(vals.begin());
     Value lastVal = *vals.begin();
     for (auto i = elem_2nd; i != vals.end(); i++) {
@@ -153,11 +165,8 @@ struct BitsOperations {
   }
 };
 
-
-
-struct LowerCombConcatOp: OpRewritePattern<comb::ConcatOp>, BitsOperations {
+struct LowerCombConcatOp : OpRewritePattern<comb::ConcatOp>, BitsOperations {
   using OpRewritePattern<comb::ConcatOp>::OpRewritePattern;
-
 
   LogicalResult handleNestedConcat(PatternRewriter &rewriter, comb::ConcatOp &op) const {
     auto catInputs = op.getInputs();
@@ -165,7 +174,7 @@ struct LowerCombConcatOp: OpRewritePattern<comb::ConcatOp>, BitsOperations {
 
     // If any value inside catInputs is also a result of concat
     SmallVector<Value> newCatInputs;
-    for (auto val: catInputs) {
+    for (auto val : catInputs) {
       auto valDefiningOp = val.getDefiningOp();
       if (auto valCatOp = dyn_cast<comb::ConcatOp>(valDefiningOp)) {
         auto pCatInputs = valCatOp.getInputs();
@@ -197,7 +206,7 @@ struct LowerCombConcatOp: OpRewritePattern<comb::ConcatOp>, BitsOperations {
     size_t currentSegmentBits = 0;
     SmallVector<Value> currentSegments;
 
-    for (auto val: llvm::reverse(catInputs)) {
+    for (auto val : llvm::reverse(catInputs)) {
       // do this from LSB
       auto valWidth = static_cast<size_t>(hw::getBitWidth(val.getType()));
 
@@ -261,7 +270,7 @@ struct LowerCombConcatOp: OpRewritePattern<comb::ConcatOp>, BitsOperations {
       copyCustomizedAttrs(op, alignedElems[0].getDefiningOp());
       auto resultValWidth = hw::getBitWidth(alignedElems[0].getType());
       if (resultValWidth != outputValWidth) {
-        emitError(loc) << "real " << resultValWidth <<", expect " << outputValWidth << "\n";
+        emitError(loc) << "real " << resultValWidth << ", expect " << outputValWidth << "\n";
       }
       assert(resultValWidth == outputValWidth);
       rewriter.replaceOp(op, alignedElems[0]);
@@ -281,12 +290,14 @@ struct LowerCombConcatOp: OpRewritePattern<comb::ConcatOp>, BitsOperations {
     auto catInputs = op.getInputs();
     auto catResult = op.getResult();
 
-    for (const auto &eachInput: catInputs) {
+    for (const auto &eachInput : catInputs) {
       auto inputDefOp = eachInput.getDefiningOp();
-      if (inputDefOp == nullptr || isa<hw::InstanceOp>(inputDefOp)) return failure();
+      if (inputDefOp == nullptr || isa<hw::InstanceOp>(inputDefOp))
+        return failure();
     }
-    for (const auto &eachResultUser: catResult.getUsers()) {
-      if (isa<hw::OutputOp>(eachResultUser)) return failure();
+    for (const auto &eachResultUser : catResult.getUsers()) {
+      if (isa<hw::OutputOp>(eachResultUser))
+        return failure();
     }
 
     if (catInputs.size() == 1) {
@@ -299,9 +310,10 @@ struct LowerCombConcatOp: OpRewritePattern<comb::ConcatOp>, BitsOperations {
 
     // remove nested
     bool anyInputDefinedByConcat = false;
-    for (auto val: catInputs) {
+    for (auto val : catInputs) {
       auto valDefiningOp = val.getDefiningOp();
-      if (valDefiningOp == nullptr) return failure();
+      if (valDefiningOp == nullptr)
+        return failure();
       if (isa<comb::ConcatOp>(valDefiningOp)) {
         anyInputDefinedByConcat = true;
       }
@@ -312,7 +324,8 @@ struct LowerCombConcatOp: OpRewritePattern<comb::ConcatOp>, BitsOperations {
 
     // Align
     if (!isElementsFullWidth(catInputs)) {
-      if (!all_of(catInputs, [&](Value val){return hw::getBitWidth(val.getType()) <= 4;})) return failure();
+      if (!all_of(catInputs, [&](Value val) { return hw::getBitWidth(val.getType()) <= 4; }))
+        return failure();
 
       return alignInputs(rewriter, op);
     }
@@ -321,11 +334,11 @@ struct LowerCombConcatOp: OpRewritePattern<comb::ConcatOp>, BitsOperations {
   }
 };
 
-
-struct LowerCombExtractOp: OpRewritePattern<comb::ExtractOp>, BitsOperations {
+struct LowerCombExtractOp : OpRewritePattern<comb::ExtractOp>, BitsOperations {
   using OpRewritePattern<comb::ExtractOp>::OpRewritePattern;
 
-  LogicalResult handleNestedExtract(PatternRewriter &rewriter, comb::ExtractOp &extractOp, comb::ExtractOp &currentExtractOp, Value constZeroVal) const {
+  LogicalResult handleNestedExtract(PatternRewriter &rewriter, comb::ExtractOp &extractOp,
+                                    comb::ExtractOp &currentExtractOp, Value constZeroVal) const {
     auto lowBit = currentExtractOp.getLowBit();
     auto loc = currentExtractOp->getLoc();
     auto outputValWidth = hw::getBitWidth(currentExtractOp.getResult().getType());
@@ -340,7 +353,8 @@ struct LowerCombExtractOp: OpRewritePattern<comb::ExtractOp>, BitsOperations {
     return success();
   }
 
-  LogicalResult handleRegularConcatWithSingleOutput(PatternRewriter &rewriter, comb::ConcatOp &concatOp, comb::ExtractOp &currentExtractOp, Value constZeroVal) const {
+  LogicalResult handleRegularConcatWithSingleOutput(PatternRewriter &rewriter, comb::ConcatOp &concatOp,
+                                                    comb::ExtractOp &currentExtractOp, Value constZeroVal) const {
     auto outputValWidth = hw::getBitWidth(currentExtractOp.getResult().getType());
     auto lowBit = currentExtractOp.getLowBit();
     auto loc = currentExtractOp->getLoc();
@@ -394,7 +408,9 @@ struct LowerCombExtractOp: OpRewritePattern<comb::ExtractOp>, BitsOperations {
     }
   }
 
-  LogicalResult handleRegularConcatWithMultipleOutputSections(PatternRewriter &rewriter, comb::ConcatOp &concatOp, comb::ExtractOp &currentExtractOp, Value constZeroVal) const {
+  LogicalResult handleRegularConcatWithMultipleOutputSections(PatternRewriter &rewriter, comb::ConcatOp &concatOp,
+                                                              comb::ExtractOp &currentExtractOp,
+                                                              Value constZeroVal) const {
     auto outputValWidth = hw::getBitWidth(currentExtractOp.getResult().getType());
     auto lowBit = currentExtractOp.getLowBit();
     auto loc = currentExtractOp->getLoc();
@@ -417,7 +433,7 @@ struct LowerCombExtractOp: OpRewritePattern<comb::ExtractOp>, BitsOperations {
         intermediateResults.push_back(catInputs[pos]);
       } else {
         auto rhs = catInputs[pos];
-        auto lhs = (pos != 0) ? catInputs[pos-1] : constZeroVal;
+        auto lhs = (pos != 0) ? catInputs[pos - 1] : constZeroVal;
 
         auto shiftResult = bitsShrByN(rewriter, loc, lhs, rhs, shamt);
 
@@ -440,17 +456,16 @@ struct LowerCombExtractOp: OpRewritePattern<comb::ExtractOp>, BitsOperations {
     rewriter.replaceOp(currentExtractOp, bitConcatOp);
 
     return success();
-
   }
 
-  LogicalResult handleNormalExtract(PatternRewriter &rewriter, comb::ExtractOp &currentExtractOp, Value constZeroVal) const {
+  LogicalResult handleNormalExtract(PatternRewriter &rewriter, comb::ExtractOp &currentExtractOp,
+                                    Value constZeroVal) const {
     auto lowBit = currentExtractOp.getLowBit();
     auto loc = currentExtractOp->getLoc();
     auto outputValWidth = hw::getBitWidth(currentExtractOp.getResult().getType());
 
     auto inputVal = currentExtractOp.getInput();
     auto inputValWidth = hw::getBitWidth(inputVal.getType());
-
 
     auto valAlignedRight = extractHighNBitsAndShiftToLSB(rewriter, loc, inputVal, constZeroVal, inputValWidth - lowBit);
     auto valMaskTop = removeHighBits(rewriter, loc, valAlignedRight, outputValWidth);
@@ -475,9 +490,11 @@ struct LowerCombExtractOp: OpRewritePattern<comb::ExtractOp>, BitsOperations {
 
     auto inputVal = op.getInput();
     auto outputVal = op.getResult();
-    if (inputVal.getDefiningOp() == nullptr || isa<hw::InstanceOp>(inputVal.getDefiningOp())) return failure();
-    for (const auto &eachResultUser: outputVal.getUsers()) {
-      if (isa<hw::OutputOp>(eachResultUser)) return failure();
+    if (inputVal.getDefiningOp() == nullptr || isa<hw::InstanceOp>(inputVal.getDefiningOp()))
+      return failure();
+    for (const auto &eachResultUser : outputVal.getUsers()) {
+      if (isa<hw::OutputOp>(eachResultUser))
+        return failure();
     }
 
     size_t inputValWidth = static_cast<size_t>(hw::getBitWidth(inputVal.getType()));
@@ -490,21 +507,25 @@ struct LowerCombExtractOp: OpRewritePattern<comb::ExtractOp>, BitsOperations {
     auto constZeroVal = constZeroOp.getResult();
 
     auto inputDefiningOp = inputVal.getDefiningOp();
-    if (inputDefiningOp == nullptr) return failure();
+    if (inputDefiningOp == nullptr)
+      return failure();
 
     if (auto extractOp = dyn_cast<comb::ExtractOp>(inputDefiningOp)) {
       // Nested extract
-      // Dont' handle nested extract with multiple output 4b sections. they should be handled by previous canonicalizer.
-      if (outputValWidth > 4) return failure();
+      // Dont' handle nested extract with multiple output 4b sections. they should be handled by previous
+      // canonicalizer.
+      if (outputValWidth > 4)
+        return failure();
 
       return handleNestedExtract(rewriter, extractOp, op, constZeroVal);
 
     } else if (auto concatOp = dyn_cast<comb::ConcatOp>(inputDefiningOp)) {
       // input is defined by concat
       auto catInputs = concatOp.getInputs();
-      for (const auto &eachInput: catInputs) {
+      for (const auto &eachInput : catInputs) {
         auto inputDefOp = eachInput.getDefiningOp();
-        if (inputDefOp == nullptr || isa<hw::InstanceOp>(inputDefOp)) return failure();
+        if (inputDefOp == nullptr || isa<hw::InstanceOp>(inputDefOp))
+          return failure();
       }
 
       // Require full aligned inputs
@@ -520,7 +541,8 @@ struct LowerCombExtractOp: OpRewritePattern<comb::ExtractOp>, BitsOperations {
       }
     } else {
       // Not defined by concat
-      if (inputValWidth > 4) return failure();
+      if (inputValWidth > 4)
+        return failure();
       return handleNormalExtract(rewriter, op, constZeroVal);
     }
 
@@ -528,7 +550,7 @@ struct LowerCombExtractOp: OpRewritePattern<comb::ExtractOp>, BitsOperations {
   }
 };
 
-struct RemoveSeqToClockOp: OpRewritePattern<seq::ToClockOp> {
+struct RemoveSeqToClockOp : OpRewritePattern<seq::ToClockOp> {
   using OpRewritePattern<seq::ToClockOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(seq::ToClockOp op, PatternRewriter &rewriter) const final {
@@ -537,7 +559,7 @@ struct RemoveSeqToClockOp: OpRewritePattern<seq::ToClockOp> {
   }
 };
 
-struct LowerHWConstantOp: OpRewritePattern<hw::ConstantOp> {
+struct LowerHWConstantOp : OpRewritePattern<hw::ConstantOp> {
   using OpRewritePattern<hw::ConstantOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(hw::ConstantOp op, PatternRewriter &rewriter) const final {
@@ -548,7 +570,7 @@ struct LowerHWConstantOp: OpRewritePattern<hw::ConstantOp> {
 
     if (constValueWidth > 4) {
       auto chunks = split_signal_4B(constValueWidth);
-      for (auto [chunkId, chunkWidth]: chunks) {
+      for (auto [chunkId, chunkWidth] : chunks) {
         auto newValue = op.getValue().extractBits(chunkWidth, chunkId * 4);
 
         auto newConstOp = rewriter.create<toucan::ConstantOp>(op->getLoc(), newValue);
@@ -567,12 +589,8 @@ struct LowerHWConstantOp: OpRewritePattern<hw::ConstantOp> {
   }
 };
 
-
-
-
 struct FactorConcatExtractPass : toucan::impl::FactorConcatExtractBase<FactorConcatExtractPass> {
   using FactorConcatExtractBase<FactorConcatExtractPass>::FactorConcatExtractBase;
-
 
   std::shared_ptr<FrozenRewritePatternSet> patterns;
   // std::shared_ptr<ConversionTarget> target;
@@ -580,7 +598,7 @@ struct FactorConcatExtractPass : toucan::impl::FactorConcatExtractBase<FactorCon
   LogicalResult initialize(MLIRContext *context) override {
     RewritePatternSet owningPatterns(context);
     // ConversionTarget conversionTarget(*context);
-    
+
     owningPatterns.add<LowerCombConcatOp>(context);
     owningPatterns.add<LowerCombExtractOp>(context);
     owningPatterns.add<RemoveSeqToClockOp>(context);
@@ -606,8 +624,6 @@ struct FactorConcatExtractPass : toucan::impl::FactorConcatExtractBase<FactorCon
     return success();
   }
 
-
-
   LogicalResult runOnModule(hw::HWModuleOp mod) {
     // Run this pass module by module may not converge (cannot handle module IO before flatten).
     // Ignore return status
@@ -622,8 +638,8 @@ struct FactorConcatExtractPass : toucan::impl::FactorConcatExtractBase<FactorCon
     auto mod = getOperation();
 
     SmallVector<hw::HWModuleOp> modulesToProcess;
-    for(auto & inner: mod.getOps()) {
-      if(auto mod = dyn_cast<hw::HWModuleOp>(&inner)) {
+    for (auto &inner : mod.getOps()) {
+      if (auto mod = dyn_cast<hw::HWModuleOp>(&inner)) {
         modulesToProcess.push_back(mod);
       }
     }
@@ -633,15 +649,16 @@ struct FactorConcatExtractPass : toucan::impl::FactorConcatExtractBase<FactorCon
       // Don't applyFullConversion, as some case requires multiple iteration
       auto ret = applyPatternsAndFoldGreedily(mod, *patterns);
       if (failed(ret)) {
-        llvm::errs() << "Fail to remove all comb::concat and comb::extract. This is likely due to some IRs not correctly removed/converted. Keep going to let it crash.\n";
+        llvm::errs() << "Fail to remove all comb::concat and comb::extract. This is likely due to some IRs not "
+                        "correctly removed/converted. Keep going to let it crash.\n";
       }
       return;
     } else {
       // Unflatten
-      auto result = mlir::failableParallelForEach(&getContext(), modulesToProcess.begin(), modulesToProcess.end(), [&](auto submodule) {
-        return runOnModule(submodule);
-      });
-      if (failed(result)) return signalPassFailure();
+      auto result = mlir::failableParallelForEach(&getContext(), modulesToProcess.begin(), modulesToProcess.end(),
+                                                  [&](auto submodule) { return runOnModule(submodule); });
+      if (failed(result))
+        return signalPassFailure();
     }
   }
 };

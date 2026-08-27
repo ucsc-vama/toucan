@@ -1,17 +1,17 @@
 
 #include "toucan/PartitioningManager.h"
-#include "toucan/CGToucanOpName.h"
-#include "toucan/RepCutPartitioner.h"
-#include "toucan/ToucanConfigs.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
+#include "toucan/CGToucanOpName.h"
 #include "toucan/MicroPartitioner.h"
 #include "toucan/PartitioningGraph.h"
+#include "toucan/RepCutPartitioner.h"
 #include "toucan/ToucanAnalysis.h"
 #include "toucan/ToucanAttributes.h"
+#include "toucan/ToucanConfigs.h"
 #include "toucan/ToucanOps.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
@@ -33,11 +33,11 @@
 using namespace toucan;
 using namespace mlir;
 
-
-static bool are_ids_consecutive(const PartitioningGraph& g) {
+static bool are_ids_consecutive(const PartitioningGraph &g) {
   auto [begin, end] = vertices(g);
   for (size_t i = 0; begin != end; ++begin, ++i) {
-    if (*begin != i) return false;
+    if (*begin != i)
+      return false;
   }
   return true;
 }
@@ -50,9 +50,10 @@ static bool createDirectoryIfNotExists(const std::string dir) {
 }
 
 template <typename T>
-static mlir::DenseMap<uint32_t, mlir::SmallVector<mlir::Value>> collectGraphVtxToInputVals(PartitioningGraph &g, const boost::iterator_range<T>& rng) {
+static mlir::DenseMap<uint32_t, mlir::SmallVector<mlir::Value>>
+collectGraphVtxToInputVals(PartitioningGraph &g, const boost::iterator_range<T> &rng) {
   mlir::DenseMap<uint32_t, mlir::SmallVector<mlir::Value>> inputValMap;
-  for (const auto &vtx: rng) {
+  for (const auto &vtx : rng) {
     auto tOpName = g[vtx].toucanOpName;
 
     switch (tOpName) {
@@ -70,13 +71,14 @@ static mlir::DenseMap<uint32_t, mlir::SmallVector<mlir::Value>> collectGraphVtxT
       }
       case CGToucanOPName::Print:
       case CGToucanOPName::Stop:
-      case CGToucanOPName::RegWrite:{
+      case CGToucanOPName::RegWrite: {
         const auto op = g[vtx].op;
         assert(op != nullptr);
         inputValMap[vtx] = {};
-        for (const auto &eachVal: op->getOperands()) {
+        for (const auto &eachVal : op->getOperands()) {
           auto valDefiningOp = eachVal.getDefiningOp();
-          if (!(isa<toucan::ConstantOp>(valDefiningOp) || isa<toucan::DefRegOp>(valDefiningOp) || isa<toucan::DefMemOp>(valDefiningOp))) {
+          if (!(isa<toucan::ConstantOp>(valDefiningOp) || isa<toucan::DefRegOp>(valDefiningOp) ||
+                isa<toucan::DefMemOp>(valDefiningOp))) {
             // vtxInputVals_r1.insert(eachVal);
             inputValMap[vtx].push_back(eachVal);
           }
@@ -91,11 +93,12 @@ static mlir::DenseMap<uint32_t, mlir::SmallVector<mlir::Value>> collectGraphVtxT
         auto memVal = cast<toucan::MemWriteOp>(op).getMem();
         inputValMap[vtx] = {};
 
-        for (auto eachUserOp: memVal.getUsers()) {
+        for (auto eachUserOp : memVal.getUsers()) {
           if (auto mwOp = dyn_cast<toucan::MemWriteOp>(eachUserOp)) {
-            for (const auto &eachVal: mwOp->getOperands()) {
+            for (const auto &eachVal : mwOp->getOperands()) {
               auto valDefiningOp = eachVal.getDefiningOp();
-              if (!(isa<toucan::ConstantOp>(valDefiningOp) || isa<toucan::DefRegOp>(valDefiningOp) || isa<toucan::DefMemOp>(valDefiningOp))) {
+              if (!(isa<toucan::ConstantOp>(valDefiningOp) || isa<toucan::DefRegOp>(valDefiningOp) ||
+                    isa<toucan::DefMemOp>(valDefiningOp))) {
                 // vtxInputVals_r1.insert(eachVal);
                 inputValMap[vtx].push_back(eachVal);
               }
@@ -120,12 +123,12 @@ static mlir::DenseMap<uint32_t, mlir::SmallVector<mlir::Value>> collectGraphVtxT
   return inputValMap;
 }
 
-
 // Note: This function doesn't collect output value for exchange read
 template <typename T>
-static mlir::DenseMap<uint32_t, mlir::SmallVector<mlir::Value>> collectGraphVtxToOutputVals_NoExchangeRead(PartitioningGraph &g, const boost::iterator_range<T>& rng) {
+static mlir::DenseMap<uint32_t, mlir::SmallVector<mlir::Value>>
+collectGraphVtxToOutputVals_NoExchangeRead(PartitioningGraph &g, const boost::iterator_range<T> &rng) {
   mlir::DenseMap<uint32_t, mlir::SmallVector<mlir::Value>> outputValMap;
-  for (const auto &vtx: rng) {
+  for (const auto &vtx : rng) {
     auto tOpName = g[vtx].toucanOpName;
 
     switch (tOpName) {
@@ -155,8 +158,6 @@ static mlir::DenseMap<uint32_t, mlir::SmallVector<mlir::Value>> collectGraphVtxT
         break;
       }
 
-
-
       default: {
         llvm::errs() << stringifyCGToucanOPName(tOpName) << "\n";
         llvm_unreachable("Op that should not appear here");
@@ -166,21 +167,20 @@ static mlir::DenseMap<uint32_t, mlir::SmallVector<mlir::Value>> collectGraphVtxT
   return outputValMap;
 }
 
-
 template <typename T>
-static mlir::DenseSet<mlir::Operation*> collectGraphRawOps(PartitioningGraph &g, const boost::iterator_range<T>& rng) {
-  mlir::DenseSet<mlir::Operation*> rawOps;
+static mlir::DenseSet<mlir::Operation *> collectGraphRawOps(PartitioningGraph &g, const boost::iterator_range<T> &rng) {
+  mlir::DenseSet<mlir::Operation *> rawOps;
 
-  for (auto vtx: rng) {
+  for (auto vtx : rng) {
 
     auto tOpName = g[vtx].toucanOpName;
 
     switch (tOpName) {
-      case CGToucanOPName::MPart_Regular:{
+      case CGToucanOPName::MPart_Regular: {
         const auto mPart = g[vtx].mp;
         assert(mPart != nullptr);
 
-        for (const auto &[_, outputVal]: mPart->nodeToOutputVal) {
+        for (const auto &[_, outputVal] : mPart->nodeToOutputVal) {
           // For now, each value can have only 1 writer
           rawOps.insert(outputVal.getDefiningOp());
         }
@@ -192,7 +192,7 @@ static mlir::DenseSet<mlir::Operation*> collectGraphRawOps(PartitioningGraph &g,
         const auto mPart = g[vtx].mp;
         assert(mPart != nullptr);
 
-        for (const auto &op: mPart->specialOps) {
+        for (const auto &op : mPart->specialOps) {
           rawOps.insert(op);
         }
         break;
@@ -215,7 +215,7 @@ static mlir::DenseSet<mlir::Operation*> collectGraphRawOps(PartitioningGraph &g,
         assert(isa<toucan::MemWriteOp>(op));
         auto memVal = cast<toucan::MemWriteOp>(op).getMem();
 
-        for (auto eachUserOp: memVal.getUsers()) {
+        for (auto eachUserOp : memVal.getUsers()) {
           if (auto mwOp = dyn_cast<toucan::MemWriteOp>(eachUserOp)) {
             rawOps.insert(mwOp);
           }
@@ -251,7 +251,7 @@ mlir::LogicalResult PartitioningManager::init(std::filesystem::path outputDirect
     std::string dirName = oss.str();
     auto workDir = outputDirectory / dirName;
     regionWorkDirectory.push_back(workDir);
-    
+
     auto created = createDirectoryIfNotExists(workDir);
     if (!created) {
       llvm::errs() << "Fail to create directory: " << workDir << "\n";
@@ -272,13 +272,12 @@ mlir::LogicalResult PartitioningManager::init(std::filesystem::path outputDirect
   return success();
 }
 
-
 mlir::LogicalResult PartitioningManager::runStage1MicroPartitioner(const PartitioningGraph &rawGraph) {
   llvm::outs() << "=============== Micro partitioning ===============\n";
 
   mlir::SmallVector<uint32_t> allNodesInEntireGraph;
   allNodesInEntireGraph.reserve(boost::num_vertices(rawGraph));
-  for (auto vtx: boost::make_iterator_range((boost::vertices(rawGraph)))) {
+  for (auto vtx : boost::make_iterator_range((boost::vertices(rawGraph)))) {
     allNodesInEntireGraph.push_back(vtx);
   }
 
@@ -294,7 +293,6 @@ mlir::LogicalResult PartitioningManager::runStage1MicroPartitioner(const Partiti
   if (failed(dumpGraphSucc)) {
     return failure();
   }
-
 
   mp = std::make_unique<MicroPartitioner>();
 
@@ -322,17 +320,18 @@ mlir::LogicalResult PartitioningManager::runStage1MicroPartitioner(const Partiti
   return success();
 }
 
-static void updateValProducingVtxForVecSegmentRead(mlir::DenseMap<mlir::Value, mlir::SmallVector<uint32_t>> &valToProducingVtxes) {
+static void
+updateValProducingVtxForVecSegmentRead(mlir::DenseMap<mlir::Value, mlir::SmallVector<uint32_t>> &valToProducingVtxes) {
   mlir::SmallVector<mlir::TypedValue<toucan::VecType>> allVecVals;
 
-  for (const auto &[val, _]: valToProducingVtxes) {
+  for (const auto &[val, _] : valToProducingVtxes) {
     if (auto vecVal = dyn_cast<mlir::TypedValue<toucan::VecType>>(val)) {
       allVecVals.push_back(vecVal);
     }
   }
 
-  for (auto &vecVal: allVecVals) {
-    for (auto userOp: vecVal.getUsers()) {
+  for (auto &vecVal : allVecVals) {
+    for (auto userOp : vecVal.getUsers()) {
       if (auto segReadOp = dyn_cast<toucan::StaticVectorSegmentReadOp>(userOp)) {
         assert(valToProducingVtxes.contains(vecVal));
         auto segmentVal = segReadOp.getResult();
@@ -351,8 +350,8 @@ mlir::LogicalResult PartitioningManager::buildMicroPartGraph(const PartitioningG
   mlir::DenseMap<mlir::Value, mlir::SmallVector<uint32_t>> mpGraphValueToProducingVtx;
 
   // Add all micro parts
-  for (const auto &eachLevel: mp->partLevels) {
-    for (auto &mPart: eachLevel) {
+  for (const auto &eachLevel : mp->partLevels) {
+    for (auto &mPart : eachLevel) {
       PartitioningGraphNodeProperty vp;
       vp.op = nullptr;
       // Don't assign weight for now. Region 0 and region 1 has different weight
@@ -364,7 +363,7 @@ mlir::LogicalResult PartitioningManager::buildMicroPartGraph(const PartitioningG
       auto newVertex = boost::add_vertex(vp, *microPartGraph);
 
       // track producing values
-      for (const auto &eachVal: mPart->outputValueSet) {
+      for (const auto &eachVal : mPart->outputValueSet) {
         if (mpGraphValueToProducingVtx.contains(eachVal)) {
           // could be vector
           mpGraphValueToProducingVtx[eachVal].push_back(newVertex);
@@ -373,12 +372,10 @@ mlir::LogicalResult PartitioningManager::buildMicroPartGraph(const PartitioningG
         }
       }
     }
-
-
   }
 
   // Add all reg reads
-  for (auto oldVtxId: mp->allRegReads) {
+  for (auto oldVtxId : mp->allRegReads) {
     auto newVertex = boost::add_vertex(rawGraph[oldVtxId], *microPartGraph);
     assert(!mpGraph_idToRawGraphId.contains(newVertex));
     mpGraph_idToRawGraphId[newVertex] = oldVtxId;
@@ -393,10 +390,9 @@ mlir::LogicalResult PartitioningManager::buildMicroPartGraph(const PartitioningG
     mpGraphValueToProducingVtx[resultVal] = {static_cast<uint32_t>(newVertex)};
   }
 
-
   updateValProducingVtxForVecSegmentRead(mpGraphValueToProducingVtx);
   // At this point we have all producer visited. Create edges for all MParts
-  for (auto vtx: boost::make_iterator_range((boost::vertices(*microPartGraph)))) {
+  for (auto vtx : boost::make_iterator_range((boost::vertices(*microPartGraph)))) {
     auto tOpName = (*microPartGraph)[vtx].toucanOpName;
     if (!(tOpName == CGToucanOPName::MPart_Regular || tOpName == CGToucanOPName::MPart_Special)) {
       // Not a MPart
@@ -406,11 +402,11 @@ mlir::LogicalResult PartitioningManager::buildMicroPartGraph(const PartitioningG
     auto mPart = (*microPartGraph)[vtx].mp;
     assert(mPart != nullptr);
 
-    for (const auto &eachVal: mPart->inputValues) {
+    for (const auto &eachVal : mPart->inputValues) {
       assert(!isa<toucan::ConstantOp>(eachVal.getDefiningOp()));
       assert(mpGraphValueToProducingVtx.contains(eachVal));
 
-      for (const auto &eachSrcVtx: mpGraphValueToProducingVtx[eachVal]) {
+      for (const auto &eachSrcVtx : mpGraphValueToProducingVtx[eachVal]) {
         auto dstVtx = vtx;
         boost::add_edge(eachSrcVtx, dstVtx, *microPartGraph);
       }
@@ -430,7 +426,7 @@ mlir::LogicalResult PartitioningManager::buildMicroPartGraph(const PartitioningG
     assert(rawOp != nullptr);
     assert(vp.opCount > 0);
 
-    mlir::SmallVector<mlir::Operation*> allOps;
+    mlir::SmallVector<mlir::Operation *> allOps;
     if (tOpName == CGToucanOPName::MemWrite && vp.opCount != 1) {
       assert(isa<toucan::MemWriteOp>(rawOp));
       // mem write could be merged nodes
@@ -439,7 +435,7 @@ mlir::LogicalResult PartitioningManager::buildMicroPartGraph(const PartitioningG
       auto oneMWOp = cast<toucan::MemWriteOp>(rawOp);
       auto memVal = oneMWOp.getMem();
 
-      for (auto eachUserOp: memVal.getUsers()) {
+      for (auto eachUserOp : memVal.getUsers()) {
         if (auto mwOp = dyn_cast<toucan::MemWriteOp>(eachUserOp)) {
           realOpCount += 1;
           allOps.push_back(mwOp);
@@ -450,12 +446,13 @@ mlir::LogicalResult PartitioningManager::buildMicroPartGraph(const PartitioningG
       allOps.push_back(rawOp);
     }
 
-    for (const auto &eachOp: allOps) {
-      for (const auto &eachVal: eachOp->getOperands()) {
+    for (const auto &eachOp : allOps) {
+      for (const auto &eachVal : eachOp->getOperands()) {
         auto valDefiningOp = eachVal.getDefiningOp();
-        if (!(isa<toucan::ConstantOp>(valDefiningOp) || isa<toucan::DefRegOp>(valDefiningOp) || isa<toucan::DefMemOp>(valDefiningOp))) {
+        if (!(isa<toucan::ConstantOp>(valDefiningOp) || isa<toucan::DefRegOp>(valDefiningOp) ||
+              isa<toucan::DefMemOp>(valDefiningOp))) {
           assert(mpGraphValueToProducingVtx.contains(eachVal));
-          for (const auto &eachSrcVtx: mpGraphValueToProducingVtx[eachVal]) {
+          for (const auto &eachSrcVtx : mpGraphValueToProducingVtx[eachVal]) {
             auto dstVtx = newVertex;
             boost::add_edge(eachSrcVtx, dstVtx, *microPartGraph);
           }
@@ -463,24 +460,24 @@ mlir::LogicalResult PartitioningManager::buildMicroPartGraph(const PartitioningG
       }
     }
   };
-  
-  for (auto oldVtxId: mp->allRegWrites) {
+
+  for (auto oldVtxId : mp->allRegWrites) {
     createVtxAndConnectEdge(oldVtxId);
   }
-  for (auto oldVtxId: mp->allMemWrites) {
+  for (auto oldVtxId : mp->allMemWrites) {
     createVtxAndConnectEdge(oldVtxId);
   }
-  for (auto oldVtxId: mp->allPrints) {
+  for (auto oldVtxId : mp->allPrints) {
     createVtxAndConnectEdge(oldVtxId);
   }
-  for (auto oldVtxId: mp->allStops) {
+  for (auto oldVtxId : mp->allStops) {
     createVtxAndConnectEdge(oldVtxId);
   }
 
   // levelize
   levelizeGraph(*microPartGraph, microPartGraph_levels);
 
-  for (auto vtx: boost::make_iterator_range(boost::vertices(*microPartGraph))) {
+  for (auto vtx : boost::make_iterator_range(boost::vertices(*microPartGraph))) {
     if ((*microPartGraph)[vtx].toucanOpName == CGToucanOPName::RegRead) {
       assert(boost::out_degree(vtx, *microPartGraph) != 0 && "RegRead result must have a user!");
     }
@@ -488,16 +485,15 @@ mlir::LogicalResult PartitioningManager::buildMicroPartGraph(const PartitioningG
   return success();
 }
 
-
 int PartitioningManager::findCutPoint() {
 
   // count expected parts
   std::vector<uint32_t> estimateMPartsPerLevel;
   size_t levelId = 0;
-  for (const auto &eachLevel: microPartGraph_levels) {
+  for (const auto &eachLevel : microPartGraph_levels) {
     uint32_t thisLevelMPartCntEst = 0;
 
-    for (const auto &vtx: eachLevel) {
+    for (const auto &vtx : eachLevel) {
       auto tOpName = (*microPartGraph)[vtx].toucanOpName;
       auto mPart = (*microPartGraph)[vtx].mp;
 
@@ -505,13 +501,14 @@ int PartitioningManager::findCutPoint() {
 
       switch (tOpName) {
         case CGToucanOPName::RegRead: {
-          assert(levelId == 0 && "RegRead can only appear in first level. If this happends, ensure this register is NOT a sink vtx (dead register)");
+          assert(levelId == 0 && "RegRead can only appear in first level. If this happends, ensure this register "
+                                 "is NOT a sink vtx (dead register)");
           numOpWidth += 1;
           break;
         }
         case CGToucanOPName::MPart_Regular: {
           uint32_t maxParallelOps = 0;
-          for (const auto &el: mPart->levels) {
+          for (const auto &el : mPart->levels) {
             maxParallelOps = std::max(maxParallelOps, static_cast<uint32_t>(el.size()));
           }
 
@@ -549,11 +546,10 @@ int PartitioningManager::findCutPoint() {
 
   float region0VtxTarget = PARTITIONING_MANAGER_CUT_TARGET;
 
-
   int totalNumVtxes = 0;
   int maxLevels = estimateMPartsPerLevel.size();
 
-  for (const auto &eachLevelEst: estimateMPartsPerLevel) {
+  for (const auto &eachLevelEst : estimateMPartsPerLevel) {
     totalNumVtxes += eachLevelEst;
   }
 
@@ -561,13 +557,13 @@ int PartitioningManager::findCutPoint() {
   int cutPoint = 0;
 
   size_t level_id = 0;
-  for (const auto &eachLevel: estimateMPartsPerLevel) {
+  for (const auto &eachLevel : estimateMPartsPerLevel) {
     llvm::outs() << "Graph level " << level_id << " has " << eachLevel << " estimated MPart nodes\n";
     level_id++;
   }
-  for (const auto &eachLevelEstMP: estimateMPartsPerLevel) {
+  for (const auto &eachLevelEstMP : estimateMPartsPerLevel) {
     region0NumVtxes += eachLevelEstMP;
-    cutPoint ++;
+    cutPoint++;
     if (region0NumVtxes >= (totalNumVtxes * region0VtxTarget)) {
       break;
     }
@@ -578,7 +574,6 @@ int PartitioningManager::findCutPoint() {
   return cutPoint;
 }
 
-
 void PartitioningManager::cutGraph(int cutPoint) {
 
   microPartGraph_r0 = std::make_shared<PartitioningGraph>();
@@ -588,12 +583,8 @@ void PartitioningManager::cutGraph(int cutPoint) {
 
   // Note: Move all terminus vtx to region 2
   auto isTerminusVtx = [](CGToucanOPName tOpName) {
-    return (
-      tOpName == CGToucanOPName::RegWrite
-       || tOpName == CGToucanOPName::MemWrite
-       || tOpName == CGToucanOPName::Stop
-       || tOpName == CGToucanOPName::Print
-    );
+    return (tOpName == CGToucanOPName::RegWrite || tOpName == CGToucanOPName::MemWrite ||
+            tOpName == CGToucanOPName::Stop || tOpName == CGToucanOPName::Print);
   };
   mlir::SmallVector<uint32_t> terminusVtxesBeforeCutPoint;
 
@@ -601,7 +592,7 @@ void PartitioningManager::cutGraph(int cutPoint) {
     const auto &eachLevel = microPartGraph_levels[level_id];
 
     if (level_id <= cutPoint) {
-      for (auto &eachVtx: eachLevel) {
+      for (auto &eachVtx : eachLevel) {
         auto tOpName = (*microPartGraph)[eachVtx].toucanOpName;
         if (isTerminusVtx(tOpName)) {
           terminusVtxesBeforeCutPoint.push_back(eachVtx);
@@ -617,10 +608,8 @@ void PartitioningManager::cutGraph(int cutPoint) {
   llvm::outs() << terminusVtxesBeforeCutPoint.size() << " terminus vtxes moved from region 0 to region 1\n";
   region1Vtxes.append(terminusVtxesBeforeCutPoint.begin(), terminusVtxesBeforeCutPoint.end());
 
-
-  
-  llvm::outs() << "Cut micropart graph at level " << cutPoint << ", region 0 has " << region0Vtxes.size() << " vertices, region 1 has " << region1Vtxes.size() << "\n";
-
+  llvm::outs() << "Cut micropart graph at level " << cutPoint << ", region 0 has " << region0Vtxes.size()
+               << " vertices, region 1 has " << region1Vtxes.size() << "\n";
 
   mlir::DenseSet<mlir::Value> vtxInputVals_r0, vtxOutputVals_r0;
   mlir::DenseSet<mlir::Value> vtxInputVals_r1, vtxOutputVals_r1;
@@ -629,35 +618,36 @@ void PartitioningManager::cutGraph(int cutPoint) {
 
     // 1. collect r0 io values
     auto vtxToInputVals_r0 = collectGraphVtxToInputVals(*microPartGraph, boost::make_iterator_range(region0Vtxes));
-    auto vtxToOutputVals_r0 = collectGraphVtxToOutputVals_NoExchangeRead(*microPartGraph, boost::make_iterator_range(region0Vtxes));
-    for (const auto &kv: vtxToInputVals_r0) {
-      for (const auto &v: kv.second) {
+    auto vtxToOutputVals_r0 =
+        collectGraphVtxToOutputVals_NoExchangeRead(*microPartGraph, boost::make_iterator_range(region0Vtxes));
+    for (const auto &kv : vtxToInputVals_r0) {
+      for (const auto &v : kv.second) {
         vtxInputVals_r0.insert(v);
       }
     }
-    for (const auto &kv: vtxToOutputVals_r0) {
-      for (const auto &v: kv.second) {
+    for (const auto &kv : vtxToOutputVals_r0) {
+      for (const auto &v : kv.second) {
         vtxOutputVals_r0.insert(v);
       }
     }
 
     // 2. collect r1 io values
     auto vtxToInputVals_r1 = collectGraphVtxToInputVals(*microPartGraph, boost::make_iterator_range(region1Vtxes));
-    auto vtxToOutputVals_r1 = collectGraphVtxToOutputVals_NoExchangeRead(*microPartGraph, boost::make_iterator_range(region1Vtxes));
-    for (const auto &kv: vtxToInputVals_r1) {
-      for (const auto &v: kv.second) {
+    auto vtxToOutputVals_r1 =
+        collectGraphVtxToOutputVals_NoExchangeRead(*microPartGraph, boost::make_iterator_range(region1Vtxes));
+    for (const auto &kv : vtxToInputVals_r1) {
+      for (const auto &v : kv.second) {
         vtxInputVals_r1.insert(v);
       }
     }
-    for (const auto &kv: vtxToOutputVals_r1) {
-      for (const auto &v: kv.second) {
+    for (const auto &kv : vtxToOutputVals_r1) {
+      for (const auto &v : kv.second) {
         vtxOutputVals_r1.insert(v);
       }
     }
 
-
     // 3. collect exchange values
-    for (const auto &eachVal: vtxInputVals_r1) {
+    for (const auto &eachVal : vtxInputVals_r1) {
 
       bool isExchangeVal = false;
       mlir::Value exgVal = eachVal;
@@ -675,7 +665,8 @@ void PartitioningManager::cutGraph(int cutPoint) {
           exgVal = vecVal;
         }
       } else {
-        if (vtxOutputVals_r0.contains(eachVal)) isExchangeVal = true;
+        if (vtxOutputVals_r0.contains(eachVal))
+          isExchangeVal = true;
       }
 
       if (isExchangeVal) {
@@ -686,30 +677,31 @@ void PartitioningManager::cutGraph(int cutPoint) {
         exchangeValPool.push_back(exgVal);
       }
     }
-
   }
-
 
   // build graph
   mlir::SmallVector<uint32_t> r0VtxToOldId, r1VtxToOldId;
 
-  auto createNewSubGraph = [&](PartitioningGraph &newGraph, const PartitioningGraph &oldGraph, mlir::SmallVector<uint32_t> &newVtxToOldVtx, const mlir::SmallVector<uint32_t> &oldVtxesInNewGraph, const mlir::DenseMap<mlir::Value, uint32_t> &exgReadVals, const mlir::DenseMap<mlir::Value, uint32_t> &exgWriteVals) {
+  auto createNewSubGraph = [&](PartitioningGraph &newGraph, const PartitioningGraph &oldGraph,
+                               mlir::SmallVector<uint32_t> &newVtxToOldVtx,
+                               const mlir::SmallVector<uint32_t> &oldVtxesInNewGraph,
+                               const mlir::DenseMap<mlir::Value, uint32_t> &exgReadVals,
+                               const mlir::DenseMap<mlir::Value, uint32_t> &exgWriteVals) {
     newVtxToOldVtx.clear();
     newVtxToOldVtx.reserve(oldVtxesInNewGraph.size() * 2);
     assert(boost::num_vertices(newGraph) == 0);
 
     // Add all normal nodes
-    for (const auto eachOldVtx: oldVtxesInNewGraph) {
+    for (const auto eachOldVtx : oldVtxesInNewGraph) {
       auto newVtx = boost::add_vertex(oldGraph[eachOldVtx], newGraph);
       assert(newVtx == newVtxToOldVtx.size());
       newVtxToOldVtx.push_back(eachOldVtx);
     }
 
-
     mlir::DenseMap<mlir::Value, mlir::SmallVector<uint32_t>> valToProducingVtxes;
 
     // Add exchange read nodes, collect output values
-    for (const auto &kv: exgReadVals) {
+    for (const auto &kv : exgReadVals) {
       const auto &eachVal = kv.getFirst();
       const auto &exgValId = kv.getSecond();
 
@@ -732,13 +724,13 @@ void PartitioningManager::cutGraph(int cutPoint) {
     mlir::DenseMap<uint32_t, mlir::SmallVector<mlir::Value>> vtxToOutputVals, vtxToInputVals;
     {
       vtxToInputVals = collectGraphVtxToInputVals(newGraph, boost::make_iterator_range(boost::vertices(newGraph)));
-      vtxToOutputVals = collectGraphVtxToOutputVals_NoExchangeRead(newGraph, boost::make_iterator_range(boost::vertices(newGraph)));
+      vtxToOutputVals =
+          collectGraphVtxToOutputVals_NoExchangeRead(newGraph, boost::make_iterator_range(boost::vertices(newGraph)));
     }
 
-
     // update val producing map
-    for (auto &[vtx, outputVals]: vtxToOutputVals) {
-      for (auto &val: outputVals) {
+    for (auto &[vtx, outputVals] : vtxToOutputVals) {
+      for (auto &val : outputVals) {
         if (!valToProducingVtxes.contains(val)) {
           valToProducingVtxes[val] = {};
         }
@@ -747,20 +739,19 @@ void PartitioningManager::cutGraph(int cutPoint) {
     }
     updateValProducingVtxForVecSegmentRead(valToProducingVtxes);
 
-
-    for (auto vtx: boost::make_iterator_range((boost::vertices(newGraph)))) {
+    for (auto vtx : boost::make_iterator_range((boost::vertices(newGraph)))) {
       auto &vtxInputVals = vtxToInputVals[vtx];
 
-      for (const auto &eachVal: vtxInputVals) {
+      for (const auto &eachVal : vtxInputVals) {
         assert(valToProducingVtxes.contains(eachVal) && "Input value not found. Is it missing in exchange?");
-        for (const auto valProducingVtx: valToProducingVtxes[eachVal]) {
+        for (const auto valProducingVtx : valToProducingVtxes[eachVal]) {
           boost::add_edge(valProducingVtx, vtx, newGraph);
         }
       }
     }
 
     // Add exchange write and connect edges
-    for (const auto &kv: exgWriteVals) {
+    for (const auto &kv : exgWriteVals) {
       const auto &eachVal = kv.getFirst();
       const auto &exgValId = kv.getSecond();
 
@@ -776,12 +767,11 @@ void PartitioningManager::cutGraph(int cutPoint) {
       auto newVertex = boost::add_vertex(vp, newGraph);
 
       assert(valToProducingVtxes.contains(eachVal));
-      for (const auto valProducingVtx: valToProducingVtxes[eachVal]) {
+      for (const auto valProducingVtx : valToProducingVtxes[eachVal]) {
         boost::add_edge(valProducingVtx, newVertex, newGraph);
       }
     }
   };
-
 
   // build r0
   llvm::outs() << "Build micro part graph for region 0\n";
@@ -791,13 +781,7 @@ void PartitioningManager::cutGraph(int cutPoint) {
   mlir::SmallVector<uint32_t> newVtxToOldVtx_r0;
 
   // r0: has only exchange write but no read
-  createNewSubGraph(
-    *microPartGraph_r0, 
-    *microPartGraph, 
-    newVtxToOldVtx_r0, 
-    region0Vtxes, 
-    emptyMap, 
-    exchangeValues);
+  createNewSubGraph(*microPartGraph_r0, *microPartGraph, newVtxToOldVtx_r0, region0Vtxes, emptyMap, exchangeValues);
 
   // build r1
 
@@ -805,23 +789,15 @@ void PartitioningManager::cutGraph(int cutPoint) {
   mlir::SmallVector<uint32_t> newVtxToOldVtx_r1;
 
   // r1: has only exchange read but no write
-  createNewSubGraph(
-    *microPartGraph_r1, 
-    *microPartGraph, 
-    newVtxToOldVtx_r1, 
-    region1Vtxes, 
-    exchangeValues, 
-    emptyMap);
-
+  createNewSubGraph(*microPartGraph_r1, *microPartGraph, newVtxToOldVtx_r1, region1Vtxes, exchangeValues, emptyMap);
 }
-
 
 void PartitioningManager::breakDirectIOConnection(const PartitioningGraph &rawGraph) {
   valToUserOpsDoNotReplace.clear();
 
   // collect raw ops in region 1
-  auto rawOpsInRegion1 = collectGraphRawOps(*microPartGraph_r1, boost::make_iterator_range((boost::vertices(*microPartGraph_r1))));
-
+  auto rawOpsInRegion1 =
+      collectGraphRawOps(*microPartGraph_r1, boost::make_iterator_range((boost::vertices(*microPartGraph_r1))));
 
   newNOPVtxes_r0 = breakDirectIOConnectionWorker(*microPartGraph_r0, rawOpsInRegion1);
   newNOPVtxes_r1 = breakDirectIOConnectionWorker(*microPartGraph_r1, {});
@@ -835,28 +811,20 @@ void PartitioningManager::breakDirectIOConnection(const PartitioningGraph &rawGr
   valToUserOpsDoNotReplace.shrink_and_clear();
 }
 
-mlir::SmallVector<uint32_t> PartitioningManager::breakDirectIOConnectionWorker(PartitioningGraph &g, const mlir::DenseSet<mlir::Operation*> &rawOpsInFollowingRegions) {
+mlir::SmallVector<uint32_t>
+PartitioningManager::breakDirectIOConnectionWorker(PartitioningGraph &g,
+                                                   const mlir::DenseSet<mlir::Operation *> &rawOpsInFollowingRegions) {
   mlir::SmallVector<uint32_t> newNOPVtxes;
 
   auto tOpIsInput = [](CGToucanOPName tOpName) {
-    return (
-      tOpName == CGToucanOPName::ExchangeRead 
-      || tOpName == CGToucanOPName::RegRead
-    );
+    return (tOpName == CGToucanOPName::ExchangeRead || tOpName == CGToucanOPName::RegRead);
   };
 
   auto tOpIsOutput = [](CGToucanOPName tOpName) {
-    return (
-      tOpName == CGToucanOPName::ExchangeWrite
-      || tOpName == CGToucanOPName::RegWrite
-    );
+    return (tOpName == CGToucanOPName::ExchangeWrite || tOpName == CGToucanOPName::RegWrite);
   };
 
-  auto opIsOutput = [](mlir::Operation *op) {
-    return (
-      isa<toucan::RegWriteOp>(op)
-    );
-  };
+  auto opIsOutput = [](mlir::Operation *op) { return (isa<toucan::RegWriteOp>(op)); };
 
   mlir::SmallVector<std::pair<uint32_t, uint32_t>> edgesToBreak;
 
@@ -880,7 +848,9 @@ mlir::SmallVector<uint32_t> PartitioningManager::breakDirectIOConnectionWorker(P
             bool srcVtxIsExgRead = (srcTOpName == CGToucanOPName::ExchangeRead);
             bool dstVtxIsExgWrite = (dstTOpName == CGToucanOPName::ExchangeWrite);
             // Not for correctness, but direct connection from exgread to exgWrite is unnecessary
-            assert(!(srcVtxIsExgRead && dstVtxIsExgWrite) && "Remove this assertion should still work. However a direct edge from ExgRead to ExgWrite is unnecessary.");
+            assert(!(srcVtxIsExgRead && dstVtxIsExgWrite) &&
+                   "Remove this assertion should still work. However a direct edge from ExgRead to "
+                   "ExgWrite is unnecessary.");
           }
         }
       }
@@ -901,12 +871,10 @@ mlir::SmallVector<uint32_t> PartitioningManager::breakDirectIOConnectionWorker(P
   OpBuilder builder(anyOp);
   mlir::IRRewriter rewriter(builder);
 
-  
-
   {
     // find user op that inside this graph/region. Do not replace them in later stage
     mlir::DenseMap<uint32_t, mlir::Value> allSrcVtxInEdgesToBreak;
-    for (auto [srcVtx, dstVtx]: edgesToBreak) {
+    for (auto [srcVtx, dstVtx] : edgesToBreak) {
       auto dstTOpName = g[dstVtx].toucanOpName;
       bool dstVtxIsExgWrite = (dstTOpName == CGToucanOPName::ExchangeWrite);
       bool dstVtxIsRegWrite = (dstTOpName == CGToucanOPName::RegWrite);
@@ -932,9 +900,8 @@ mlir::SmallVector<uint32_t> PartitioningManager::breakDirectIOConnectionWorker(P
       } else {
         assert(allSrcVtxInEdgesToBreak[srcVtx] == srcVal);
       }
-
     }
-    for (auto [srcVtx, srcVal]: allSrcVtxInEdgesToBreak) {
+    for (auto [srcVtx, srcVal] : allSrcVtxInEdgesToBreak) {
       if (!valToUserOpsDoNotReplace.contains(srcVal)) {
         valToUserOpsDoNotReplace[srcVal] = {};
       }
@@ -950,10 +917,10 @@ mlir::SmallVector<uint32_t> PartitioningManager::breakDirectIOConnectionWorker(P
             assert(mp != nullptr);
             assert(mp->inputValues.contains(srcVal));
 
-            for (auto &[_, v]: mp->nodeToOutputVal) {
+            for (auto &[_, v] : mp->nodeToOutputVal) {
               auto op = v.getDefiningOp();
               // valToUserOpsDoNotReplace[srcVal].insert(op);
-              for (const auto &operand: op->getOperands()) {
+              for (const auto &operand : op->getOperands()) {
                 if (operand == srcVal) {
                   valToUserOpsDoNotReplace[srcVal].insert(op);
                   break;
@@ -970,9 +937,9 @@ mlir::SmallVector<uint32_t> PartitioningManager::breakDirectIOConnectionWorker(P
             assert(mp != nullptr);
             assert(mp->inputValues.contains(srcVal));
 
-            for (const auto &op: mp->specialOps) {
+            for (const auto &op : mp->specialOps) {
               // valToUserOpsDoNotReplace[srcVal].insert(op);
-              for (const auto &operand: op->getOperands()) {
+              for (const auto &operand : op->getOperands()) {
                 if (operand == srcVal) {
                   valToUserOpsDoNotReplace[srcVal].insert(op);
                   break;
@@ -1007,10 +974,9 @@ mlir::SmallVector<uint32_t> PartitioningManager::breakDirectIOConnectionWorker(P
     }
   }
 
-
   // mlir::DenseMap<uint32_t, uint32_t> regToNewReader;
   mlir::DenseMap<mlir::Value, uint32_t> valToNewReader;
-  for (auto [srcVtx, dstVtx]: edgesToBreak) {
+  for (auto [srcVtx, dstVtx] : edgesToBreak) {
     auto dstTOpName = g[dstVtx].toucanOpName;
     bool dstVtxIsExgWrite = (dstTOpName == CGToucanOPName::ExchangeWrite);
     bool dstVtxIsRegWrite = (dstTOpName == CGToucanOPName::RegWrite);
@@ -1033,7 +999,6 @@ mlir::SmallVector<uint32_t> PartitioningManager::breakDirectIOConnectionWorker(P
       llvm_unreachable("Unexpected break edge end point");
     }
 
-
     if (!valToNewReader.contains(srcVal)) {
       // create a nop
       auto newNop = rewriter.create<toucan::LUTOp>(loc, toucan::LUTOpName::LUT_Nop, srcVal);
@@ -1049,7 +1014,6 @@ mlir::SmallVector<uint32_t> PartitioningManager::breakDirectIOConnectionWorker(P
 
       auto nopVtxId = boost::add_vertex(vp, g);
       newNOPVtxes.push_back(nopVtxId);
-
 
       srcVal.replaceUsesWithIf(newNop.getResult(), [&](const OpOperand &operand) {
         auto userOp = operand.getOwner();
@@ -1068,7 +1032,6 @@ mlir::SmallVector<uint32_t> PartitioningManager::breakDirectIOConnectionWorker(P
       boost::add_edge(srcVtx, nopVtxId, g);
       assert(!valToNewReader.contains(srcVal));
       valToNewReader[srcVal] = nopVtxId;
-
     }
 
     // add edge that use the nop
@@ -1094,11 +1057,11 @@ mlir::SmallVector<uint32_t> PartitioningManager::breakDirectIOConnectionWorker(P
     }
   }
 
-  llvm::outs() << "Insert " << valToNewReader.size() << " extra NOP verticies to break " << edgesToBreak.size() << " direct IO edges\n";
+  llvm::outs() << "Insert " << valToNewReader.size() << " extra NOP verticies to break " << edgesToBreak.size()
+               << " direct IO edges\n";
 
   return newNOPVtxes;
 }
-
 
 void PartitioningManager::updateGraphWeight_r0() {
   // region 0: optimize for throughput
@@ -1106,7 +1069,7 @@ void PartitioningManager::updateGraphWeight_r0() {
   assert(!microPartGraph_r0_levels.empty());
   mpGraphTotalWeight_r0 = 0;
 
-  for (auto vtx: boost::make_iterator_range((boost::vertices(r0Graph)))) {
+  for (auto vtx : boost::make_iterator_range((boost::vertices(r0Graph)))) {
     auto tOpName = r0Graph[vtx].toucanOpName;
     auto mPart = r0Graph[vtx].mp;
     auto exchangeValId = r0Graph[vtx].exchangeValId;
@@ -1181,7 +1144,7 @@ void PartitioningManager::updateGraphWeight_r1() {
   mpGraphTotalWeight_r1 = 0;
 
   for (uint32_t level_id = 0; level_id < microPartGraph_r1_levels.size(); level_id++) {
-    for (const auto eachVtx: microPartGraph_r1_levels[level_id]) {
+    for (const auto eachVtx : microPartGraph_r1_levels[level_id]) {
       uint32_t weight = 0;
       auto mPart = r1Graph[eachVtx].mp;
       auto rawOp = r1Graph[eachVtx].op;
@@ -1259,11 +1222,9 @@ void PartitioningManager::updateGraphWeight_r1() {
   }
 }
 
-
 mlir::LogicalResult PartitioningManager::runStage2RepCutPartitioner(float partSizeRatio, float ibFactor) {
   assert(regionWorkDirectory.size() == 2);
   // r0: optimize for throughput
-
 
   llvm::outs() << "=============== RepCut partitioning for region 0 ===============\n";
 
@@ -1275,7 +1236,8 @@ mlir::LogicalResult PartitioningManager::runStage2RepCutPartitioner(float partSi
 
   p_r0.setPartitionTarget(partSizeRatio);
   auto ret_r0 = p_r0._partition(context);
-  if (failed(ret_r0)) return ret_r0;
+  if (failed(ret_r0))
+    return ret_r0;
 
   // r1 optimize for latency
 
@@ -1294,7 +1256,8 @@ mlir::LogicalResult PartitioningManager::runStage2RepCutPartitioner(float partSi
   p_r1.setPartitionTarget(partSizeRatio);
 
   auto ret_r1 = p_r1._partition(context);
-  if (failed(ret_r1)) return ret_r1;
+  if (failed(ret_r1))
+    return ret_r1;
 
   assert(p_r0.repcutPartitions.size() != 0);
   assert(p_r1.repcutPartitions.size() != 0);
@@ -1304,17 +1267,12 @@ mlir::LogicalResult PartitioningManager::runStage2RepCutPartitioner(float partSi
   return success();
 }
 
-
 void PartitioningManager::collectRepCutPartitionCodeGenData() {
 
-
-  auto getCodeGenData = [&](
-    RepCutPartitionCodeGenData &info, 
-    PartitioningGraph &partGraph, 
-    const mlir::SmallVector<uint32_t> &repcutNodes, 
-    const mlir::SmallVector<mlir::SmallVector<uint32_t>>& graphLevels, 
-    const mlir::SmallVector<mlir::Value> &exchangeValPool
-  ) {
+  auto getCodeGenData = [&](RepCutPartitionCodeGenData &info, PartitioningGraph &partGraph,
+                            const mlir::SmallVector<uint32_t> &repcutNodes,
+                            const mlir::SmallVector<mlir::SmallVector<uint32_t>> &graphLevels,
+                            const mlir::SmallVector<mlir::Value> &exchangeValPool) {
     // copy existing MP
     // merge special MP
     // build NOP MP
@@ -1338,29 +1296,26 @@ void PartitioningManager::collectRepCutPartitionCodeGenData() {
         assert(activeVals.contains(v));
       }
     };
-    auto insertActiveVal = [&activeVals](const mlir::Value &val) {
-      activeVals.insert(val);
-    };
+    auto insertActiveVal = [&activeVals](const mlir::Value &val) { activeVals.insert(val); };
 
     mlir::SmallVector<mlir::SmallVector<uint32_t>> graphLevelOfThisPart;
     for (uint32_t level_id = 0; level_id < graphLevels.size(); level_id++) {
       graphLevelOfThisPart.emplace_back();
 
-      for (const auto vtx: graphLevels[level_id]) {
+      for (const auto vtx : graphLevels[level_id]) {
         if (repcutNodeSet.contains(vtx)) {
           graphLevelOfThisPart.back().push_back(vtx);
         };
       }
     }
 
-
     mlir::SmallVector<std::shared_ptr<MicroPart>> specialMPartsInThisLevel;
     mlir::SmallVector<toucan::LUTOp> nopsInThisLevel;
 
-
     info.mpartLevels.reserve(graphLevelOfThisPart.size());
     for (uint32_t level_id = 0; level_id < graphLevelOfThisPart.size(); level_id++) {
-      if (graphLevelOfThisPart[level_id].empty()) continue;
+      if (graphLevelOfThisPart[level_id].empty())
+        continue;
 
       // llvm::dbgs() << "Scanning at level " << level_id << "\n";
 
@@ -1369,7 +1324,7 @@ void PartitioningManager::collectRepCutPartitionCodeGenData() {
 
       specialMPartsInThisLevel.clear();
       nopsInThisLevel.clear();
-      for (const auto vtx: graphLevelOfThisPart[level_id]) {
+      for (const auto vtx : graphLevelOfThisPart[level_id]) {
         assert(repcutNodeSet.contains(vtx));
 
         auto tOpName = partGraph[vtx].toucanOpName;
@@ -1384,7 +1339,7 @@ void PartitioningManager::collectRepCutPartitionCodeGenData() {
             assert(mPart->partIsValid);
             mpsThisLevel.push_back(mPart);
 
-            for (const auto &eachVal: mPart->inputValues) {
+            for (const auto &eachVal : mPart->inputValues) {
               // assertValExist(eachVal);
               auto v = eachVal;
               if (auto segReadOp = dyn_cast<toucan::StaticVectorSegmentReadOp>(eachVal.getDefiningOp())) {
@@ -1393,7 +1348,7 @@ void PartitioningManager::collectRepCutPartitionCodeGenData() {
               }
               assert(activeVals.contains(v));
             }
-            for (const auto &eachVal: mPart->outputValueSet) {
+            for (const auto &eachVal : mPart->outputValueSet) {
               insertActiveVal(eachVal);
             }
             break;
@@ -1405,10 +1360,10 @@ void PartitioningManager::collectRepCutPartitionCodeGenData() {
             assert(mPart->specialOps.size() == 1);
             specialMPartsInThisLevel.push_back(mPart);
 
-            for (const auto &eachVal: mPart->inputValues) {
+            for (const auto &eachVal : mPart->inputValues) {
               assertValExist(eachVal);
             }
-            for (const auto &eachVal: mPart->outputValueSet) {
+            for (const auto &eachVal : mPart->outputValueSet) {
               insertActiveVal(eachVal);
             }
             break;
@@ -1477,7 +1432,7 @@ void PartitioningManager::collectRepCutPartitionCodeGenData() {
             auto oneMWOp = cast<toucan::MemWriteOp>(op);
             auto memVal = oneMWOp.getMem();
 
-            for (auto eachUserOp: memVal.getUsers()) {
+            for (auto eachUserOp : memVal.getUsers()) {
               if (auto mwOp = dyn_cast<toucan::MemWriteOp>(eachUserOp)) {
                 realOpCount += 1;
                 info.allMemWrites.push_back(mwOp);
@@ -1523,13 +1478,13 @@ void PartitioningManager::collectRepCutPartitionCodeGenData() {
       // Merge inserted NOPs into mParts
       if (!nopsInThisLevel.empty()) {
         assert(level_id == 1);
-        
+
         mlir::SmallVector<toucan::LUTOp> nopsInThisPart;
 
         for (size_t i = 0; i < nopsInThisLevel.size(); i++) {
           nopsInThisPart.push_back(nopsInThisLevel[i]);
 
-          if (nopsInThisPart.size() >= 32 || (i+1) == nopsInThisLevel.size()) {
+          if (nopsInThisPart.size() >= 32 || (i + 1) == nopsInThisLevel.size()) {
             auto newMP = std::make_shared<MicroPart>();
             newMP->buildNOPRegularLUTPart(nopsInThisPart);
             mpsThisLevel.push_back(newMP);
@@ -1547,24 +1502,25 @@ void PartitioningManager::collectRepCutPartitionCodeGenData() {
 
         mpartGroupByType.resize(getMaxEnumValForCGToucanOPName() + 1);
 
-        for (auto &eachMp: specialMPartsInThisLevel) {
+        for (auto &eachMp : specialMPartsInThisLevel) {
           auto opType = eachMp->opType;
           auto opTypeInInt = static_cast<int>(opType);
 
           mpartGroupByType[opTypeInInt].push_back(eachMp);
         }
-        
+
         for (uint32_t i = 0; i < mpartGroupByType.size(); i++) {
           // auto opType = static_cast<CGToucanOPName>(i);
           auto mParts = mpartGroupByType[i];
-          if (mParts.empty()) continue;
+          if (mParts.empty())
+            continue;
 
           mPartToMerge.clear();
 
           for (size_t i = 0; i < mParts.size(); i++) {
             mPartToMerge.push_back(mParts[i]);
 
-            if (mPartToMerge.size() >= 32 || (i+1) == mParts.size()) {
+            if (mPartToMerge.size() >= 32 || (i + 1) == mParts.size()) {
               auto newMP = std::make_shared<MicroPart>();
               newMP->mergeSpecialPartFromOtherParts(mPartToMerge);
               mpsThisLevel.push_back(newMP);
@@ -1580,11 +1536,11 @@ void PartitioningManager::collectRepCutPartitionCodeGenData() {
       }
     }
 
-    for (auto &regReadOp: info.allRegReads) {
+    for (auto &regReadOp : info.allRegReads) {
       info.readRegs.push_back(regReadOp.getReg());
     }
 
-    for (auto &regWriteOp: info.allRegWrites) {
+    for (auto &regWriteOp : info.allRegWrites) {
       info.writeRegs.push_back(regWriteOp.getReg());
     }
 
@@ -1606,19 +1562,13 @@ void PartitioningManager::collectRepCutPartitionCodeGenData() {
     assert(valSet.size() == info.writeRegs.size());
   };
 
-
   partCodeGenData_r0.clear();
   partCodeGenData_r0.resize(repcutPartitions_r0.size());
   for (size_t i = 0; i < repcutPartitions_r0.size(); i++) {
     // llvm::dbgs() << "Working on region 0 part " << i << "\n";
     // parallel?
-    getCodeGenData(
-      partCodeGenData_r0[i], 
-      *microPartGraph_r0, 
-      repcutPartitions_r0[i], 
-      microPartGraph_r0_levels, 
-      exchangeValPool
-    );
+    getCodeGenData(partCodeGenData_r0[i], *microPartGraph_r0, repcutPartitions_r0[i], microPartGraph_r0_levels,
+                   exchangeValPool);
   }
 
   partCodeGenData_r1.clear();
@@ -1626,23 +1576,17 @@ void PartitioningManager::collectRepCutPartitionCodeGenData() {
   for (size_t i = 0; i < repcutPartitions_r1.size(); i++) {
     // llvm::dbgs() << "Working on region 1 part " << i << "\n";
     // parallel?
-    getCodeGenData(
-      partCodeGenData_r1[i], 
-      *microPartGraph_r1, 
-      repcutPartitions_r1[i], 
-      microPartGraph_r1_levels, 
-      exchangeValPool
-    );
+    getCodeGenData(partCodeGenData_r1[i], *microPartGraph_r1, repcutPartitions_r1[i], microPartGraph_r1_levels,
+                   exchangeValPool);
   }
 }
 
-
-
-mlir::DenseMap<uint32_t, mlir::SmallVector<uint32_t>> PartitioningManager::collectGraphVectorDeclInfoToFile(const PartitioningGraph &rawGraph) {
+mlir::DenseMap<uint32_t, mlir::SmallVector<uint32_t>>
+PartitioningManager::collectGraphVectorDeclInfoToFile(const PartitioningGraph &rawGraph) {
 
   mlir::DenseMap<uint32_t, mlir::SmallVector<uint32_t>> originalVectorElementsMap;
 
-  for (auto vtx: boost::make_iterator_range((boost::vertices(rawGraph)))) {
+  for (auto vtx : boost::make_iterator_range((boost::vertices(rawGraph)))) {
     auto vtxOpName = rawGraph[vtx].toucanOpName;
 
     if (vtxOpName == CGToucanOPName::VecDecl) {
@@ -1662,7 +1606,7 @@ mlir::DenseMap<uint32_t, mlir::SmallVector<uint32_t>> PartitioningManager::colle
         if (inputNodeOpName == CGToucanOPName::VecRead) {
           // May be a bunch of VecRead
           auto inputVector = cast<toucan::VectorReadOp>(inputNodeOp).getHandle();
-          for (auto userOp: inputVector.getUsers()) {
+          for (auto userOp : inputVector.getUsers()) {
             auto mergedVecReadOp = cast<toucan::VectorReadOp>(userOp);
             auto resultVal = mergedVecReadOp.getResult();
 
@@ -1674,7 +1618,7 @@ mlir::DenseMap<uint32_t, mlir::SmallVector<uint32_t>> PartitioningManager::colle
             vecInputValToOpId[resultVal] = inputNodeId;
           }
         } else if (inputNodeOpName == CGToucanOPName::VecArith) {
-          for (auto userOp: inputNodeOp->getUsers()) {
+          for (auto userOp : inputNodeOp->getUsers()) {
             // Each user should be StaticVectorSegmentReadOp
             auto segReadOp = cast<toucan::StaticVectorSegmentReadOp>(userOp);
             auto resultVal = segReadOp.getResult();
@@ -1702,7 +1646,7 @@ mlir::DenseMap<uint32_t, mlir::SmallVector<uint32_t>> PartitioningManager::colle
 
       assert(!originalVectorElementsMap.contains(vtx));
       originalVectorElementsMap[vtx] = {};
-      for (auto inputVal: vecDeclOp.getInputs()) {
+      for (auto inputVal : vecDeclOp.getInputs()) {
         assert(vecInputValToOpId.contains(inputVal));
         auto sourceVtx = vecInputValToOpId[inputVal];
         originalVectorElementsMap[vtx].push_back(sourceVtx);
@@ -1713,10 +1657,8 @@ mlir::DenseMap<uint32_t, mlir::SmallVector<uint32_t>> PartitioningManager::colle
   return originalVectorElementsMap;
 }
 
-
-
-
-LogicalResult PartitioningManager::dumpGraphVectorDeclInfoToFile(std::string fileName, const mlir::DenseMap<uint32_t, mlir::SmallVector<uint32_t>> &originalVectorElementsMap) {
+LogicalResult PartitioningManager::dumpGraphVectorDeclInfoToFile(
+    std::string fileName, const mlir::DenseMap<uint32_t, mlir::SmallVector<uint32_t>> &originalVectorElementsMap) {
 
   auto ofs = std::ofstream(fileName, std::ios::out | std::ios::trunc);
 
@@ -1727,13 +1669,13 @@ LogicalResult PartitioningManager::dumpGraphVectorDeclInfoToFile(std::string fil
 
   ofs << "Format:\nVecDecl_node_id Vector_element_id_0 Vector_element_id_1 ...\n";
 
-  for (auto &kv: originalVectorElementsMap) {
+  for (auto &kv : originalVectorElementsMap) {
     auto vtx = kv.first;
     auto elems = kv.second;
     assert(elems.size() != 0);
 
     ofs << vtx;
-    for (auto sourceVtx: kv.second) {
+    for (auto sourceVtx : kv.second) {
       ofs << " " << sourceVtx;
     }
     ofs << "\n";
@@ -1743,25 +1685,22 @@ LogicalResult PartitioningManager::dumpGraphVectorDeclInfoToFile(std::string fil
   return success();
 }
 
-
-
-
 // Dump graph for MicroPartitioner use
 // Note: Different from dumpGraphToFile!!!
 // Partially allow parallel edge: parallel edge from VecRead/VecArith implies
 //    multiple value read from a merged node
-LogicalResult PartitioningManager::dumpGraphToFileForMicroPartitioner(const PartitioningGraph &g, mlir::SmallVector<uint32_t> partNodes, std::string fileName) {
+LogicalResult PartitioningManager::dumpGraphToFileForMicroPartitioner(const PartitioningGraph &g,
+                                                                      mlir::SmallVector<uint32_t> partNodes,
+                                                                      std::string fileName) {
   mlir::DenseSet<uint32_t> partNodeSet;
-  for (auto n: partNodes) {
+  for (auto n : partNodes) {
     partNodeSet.insert(n);
   }
 
-  
   std::ostringstream oss;
   size_t numValidVtxes = 0, numValidEdges = 0;
 
-
-  for (auto vtx: boost::make_iterator_range((boost::vertices(g)))) {
+  for (auto vtx : boost::make_iterator_range((boost::vertices(g)))) {
     if (partNodeSet.contains(vtx)) {
       // valid node
       numValidVtxes++;
@@ -1780,7 +1719,7 @@ LogicalResult PartitioningManager::dumpGraphToFileForMicroPartitioner(const Part
           assert(tOpName == CGToucanOPName::VecRead);
           auto vecVal = vecReadOp.getHandle();
 
-          for (auto userOp: vecVal.getUsers()) {
+          for (auto userOp : vecVal.getUsers()) {
             if (auto vecReadOp = dyn_cast<toucan::VectorReadOp>(userOp)) {
               allResultValueOfThisNode.insert(vecReadOp.getResult());
             }
@@ -1789,7 +1728,7 @@ LogicalResult PartitioningManager::dumpGraphToFileForMicroPartitioner(const Part
           assert(tOpName == CGToucanOPName::VecArith);
           auto vecArithOp = cast<toucan::VectorArithOp>(rawOp);
           auto vecVal = vecArithOp.getResult();
-          for (auto userOp: vecVal.getUsers()) {
+          for (auto userOp : vecVal.getUsers()) {
             if (auto staticReadOp = dyn_cast<toucan::StaticVectorSegmentReadOp>(userOp)) {
               allResultValueOfThisNode.insert(staticReadOp.getResult());
             }
@@ -1810,7 +1749,7 @@ LogicalResult PartitioningManager::dumpGraphToFileForMicroPartitioner(const Part
           // This allows MicroPartitioner correctly track read count
           uint32_t readCount = 0;
 
-          mlir::SmallVector<mlir::Operation*> targetRawOps;
+          mlir::SmallVector<mlir::Operation *> targetRawOps;
           auto _targetRawOp = g[v].op;
           switch (g[v].toucanOpName) {
             case toucan::CGToucanOPName::VecRead: {
@@ -1818,7 +1757,7 @@ LogicalResult PartitioningManager::dumpGraphToFileForMicroPartitioner(const Part
               auto vecReadOp = cast<toucan::VectorReadOp>(_targetRawOp);
               auto vecVal = vecReadOp.getHandle();
 
-              for (auto userOp: vecVal.getUsers()) {
+              for (auto userOp : vecVal.getUsers()) {
                 if (isa<toucan::VectorReadOp>(userOp)) {
                   targetRawOps.push_back(userOp);
                   thisNodeOpCount++;
@@ -1835,7 +1774,7 @@ LogicalResult PartitioningManager::dumpGraphToFileForMicroPartitioner(const Part
               auto mwOp = cast<toucan::MemWriteOp>(_targetRawOp);
               auto memVal = mwOp.getMem();
 
-              for (auto userOp: memVal.getUsers()) {
+              for (auto userOp : memVal.getUsers()) {
                 if (isa<toucan::MemWriteOp>(userOp)) {
                   targetRawOps.push_back(userOp);
                   thisNodeOpCount++;
@@ -1846,16 +1785,17 @@ LogicalResult PartitioningManager::dumpGraphToFileForMicroPartitioner(const Part
               break;
             }
             default: {
-              // Note: do nothing for VecArith following VecStaticSegRead, as they only read from producing result of VecArith
+              // Note: do nothing for VecArith following VecStaticSegRead, as they only read from producing
+              // result of VecArith
               targetRawOps.push_back(_targetRawOp);
             }
           }
 
-          for (auto targetRawOp: targetRawOps) {
+          for (auto targetRawOp : targetRawOps) {
             if (targetRawOp == nullptr) {
               readCount = 1;
             } else {
-              for (const auto eachOperand: targetRawOp->getOperands()) {
+              for (const auto eachOperand : targetRawOp->getOperands()) {
                 if (allResultValueOfThisNode.contains(eachOperand)) {
                   readCount += 1;
                 }
@@ -1878,9 +1818,8 @@ LogicalResult PartitioningManager::dumpGraphToFileForMicroPartitioner(const Part
         outNeighs.assign(outNeighsSet.begin(), outNeighsSet.end());
       }
 
-
       mlir::SmallVector<uint32_t> validOutNeighs;
-      for (auto &target: outNeighs) {
+      for (auto &target : outNeighs) {
         if (partNodeSet.contains(target)) {
           validOutNeighs.push_back(target);
         }
@@ -1891,7 +1830,7 @@ LogicalResult PartitioningManager::dumpGraphToFileForMicroPartitioner(const Part
       oss << vtx << ' ';
       oss << stringifyCGToucanOPName(tOpName);
       oss << ' ' << g[vtx].weight;
-      for (const auto v: validOutNeighs) {
+      for (const auto v : validOutNeighs) {
         oss << ' ' << v;
       }
       oss << "\n";
@@ -1899,7 +1838,6 @@ LogicalResult PartitioningManager::dumpGraphToFileForMicroPartitioner(const Part
   }
 
   assert(numValidVtxes == partNodeSet.size());
-
 
   auto ofs = std::ofstream(fileName, std::ios::out | std::ios::trunc);
   if (!ofs.is_open()) {
@@ -1913,8 +1851,6 @@ LogicalResult PartitioningManager::dumpGraphToFileForMicroPartitioner(const Part
 
   return success();
 }
-
-
 
 static void getVtxToLevel(const PartitioningGraph &g, mlir::SmallVector<uint32_t> &levels, uint32_t maxVtxId) {
   std::vector<uint32_t> topo_order;
@@ -1951,23 +1887,23 @@ static void getVtxToLevel(const PartitioningGraph &g, mlir::SmallVector<uint32_t
   assert(!sinkVtxes.empty());
 
   // move all sinkVtx to last level
-  for (auto v: sinkVtxes) {
+  for (auto v : sinkVtxes) {
     levels[v] = maxLevel + 1;
   }
 }
 
-void PartitioningManager::levelizeGraph(const PartitioningGraph &g, mlir::SmallVector<mlir::SmallVector<uint32_t>> &graphLevels) const {
+void PartitioningManager::levelizeGraph(const PartitioningGraph &g,
+                                        mlir::SmallVector<mlir::SmallVector<uint32_t>> &graphLevels) const {
 
   uint32_t maxVtxId = 0;
-  for (uint32_t vtx: boost::make_iterator_range(boost::vertices(g))) {
+  for (uint32_t vtx : boost::make_iterator_range(boost::vertices(g))) {
     maxVtxId = std::max(maxVtxId, vtx);
   }
 
   mlir::SmallVector<uint32_t> levels;
   getVtxToLevel(g, levels, boost::num_vertices(g));
 
-
-  for (auto vtx: boost::make_iterator_range(boost::vertices(g))) {
+  for (auto vtx : boost::make_iterator_range(boost::vertices(g))) {
     assert(vtx < levels.size());
     uint32_t vtxLevel = levels[vtx];
     assert(vtxLevel != UINT32_MAX);
@@ -1978,8 +1914,7 @@ void PartitioningManager::levelizeGraph(const PartitioningGraph &g, mlir::SmallV
   }
 
   // Every level should have at least 1 nodes
-  for (const auto &eachLevel: graphLevels) {
+  for (const auto &eachLevel : graphLevels) {
     assert(!eachLevel.empty());
   }
-
 }

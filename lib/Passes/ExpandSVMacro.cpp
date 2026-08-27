@@ -13,9 +13,9 @@
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/Operation.h"
+#include "mlir/IR/Threading.h"
 #include "mlir/IR/Visitors.h"
 #include "mlir/Support/LLVM.h"
-#include "mlir/IR/Threading.h"
 #include "mlir/Support/LogicalResult.h"
 
 #include "llvm/ADT/STLExtras.h"
@@ -26,13 +26,11 @@
 #include "llvm/ADT/iterator_range.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/Format.h"
+#include "llvm/Support/raw_ostream.h"
 
-#include <memory>
 #include <atomic>
-
-
+#include <memory>
 
 #define GEN_PASS_DEF_EXPANDSVMACRO
 #include "toucan/ToucanPassCommon.h"
@@ -48,20 +46,16 @@ using namespace llvm;
 
 struct SVMacroContext {
   StringMap<StringRef> macroTable;
-  SmallVector<Operation*> toRemove;
+  SmallVector<Operation *> toRemove;
 
   void updateWithGlobalTable(StringMap<StringRef> &globalTable) {
-    for (auto key: globalTable.keys()) {
+    for (auto key : globalTable.keys()) {
       macroTable.insert_or_assign(key, globalTable.lookup(key));
     }
   }
 };
 
-
-static StringRef getEmptyStringRef() {
-  return "";
-}
-
+static StringRef getEmptyStringRef() { return ""; }
 
 static std::atomic<uint64_t> removedOpsInModules;
 static std::atomic<uint64_t> printOpsInModules;
@@ -72,16 +66,13 @@ struct ExpandSVMacro : toucan::impl::ExpandSVMacroBase<ExpandSVMacro> {
 
   SVMacroContext globalMC;
 
-
-  static void removeOps(SmallVector<Operation*> &toRemove) {
-    for(auto op: llvm::reverse(toRemove)) {
+  static void removeOps(SmallVector<Operation *> &toRemove) {
+    for (auto op : llvm::reverse(toRemove)) {
       op->erase();
     }
   }
 
-  void markAsUnused(Operation *op) {
-    op->setAttr("unused", BoolAttr::get(&getContext(), true));
-  }
+  void markAsUnused(Operation *op) { op->setAttr("unused", BoolAttr::get(&getContext(), true)); }
 
   bool isUnused(Operation *op) {
     if (op->hasAttr("unused")) {
@@ -91,7 +82,7 @@ struct ExpandSVMacro : toucan::impl::ExpandSVMacroBase<ExpandSVMacro> {
   }
 
   LogicalResult moveBlockStmtsOutsideThenTraverse(SVMacroContext &mc, Operation *currentOp, Block *block) {
-    SmallVector<Operation*> newOps;
+    SmallVector<Operation *> newOps;
 
     // Insert after currentOp
     OpBuilder builder(currentOp);
@@ -108,14 +99,15 @@ struct ExpandSVMacro : toucan::impl::ExpandSVMacroBase<ExpandSVMacro> {
     for (mlir::Operation *op : newOps) {
       if (isa_and_nonnull<sv::SVDialect>(op->getDialect())) {
         auto ret = onSVStmt(mc, op);
-        if (failed(ret)) return ret;
+        if (failed(ret))
+          return ret;
       }
     }
 
     return success();
   }
 
-  LogicalResult onIfDef(SVMacroContext& mc, sv::IfDefOp &ifDefOp) {
+  LogicalResult onIfDef(SVMacroContext &mc, sv::IfDefOp &ifDefOp) {
     auto macroName = ifDefOp.getCond().getIdent();
 
     auto validBlock = (mc.macroTable.contains(macroName) ? ifDefOp.getThenBlock() : ifDefOp.getElseBlock());
@@ -123,7 +115,7 @@ struct ExpandSVMacro : toucan::impl::ExpandSVMacroBase<ExpandSVMacro> {
     return moveBlockStmtsOutsideThenTraverse(mc, ifDefOp, validBlock);
   }
 
-  LogicalResult onMacroRef(SVMacroContext& mc, sv::MacroRefExprOp &macroRefOp) {
+  LogicalResult onMacroRef(SVMacroContext &mc, sv::MacroRefExprOp &macroRefOp) {
     auto macroName = macroRefOp.getMacroName();
     auto macroValue = mc.macroTable.lookup(macroName);
 
@@ -137,30 +129,29 @@ struct ExpandSVMacro : toucan::impl::ExpandSVMacroBase<ExpandSVMacro> {
     auto failed = macroValue.empty() || macroValue.getAsInteger(10, macroIntValue);
 
     if (failed) {
-      macroRefOp.emitError() << "Macro " << macroName << " has a value [ " << macroValue.str() << " ] and cannot be converted to int";
+      macroRefOp.emitError() << "Macro " << macroName << " has a value [ " << macroValue.str()
+                             << " ] and cannot be converted to int";
       return failure();
     }
-    
+
     auto builder = OpBuilder(macroRefOp);
-    auto constantOp = builder.create<hw::ConstantOp>(macroRefOp.getLoc(),
-                                                macroRefOp.getType(),
-                                                builder.getIntegerAttr(macroRefOp.getType(), macroIntValue));
-    // builder.insert(constantOp); 
+    auto constantOp = builder.create<hw::ConstantOp>(macroRefOp.getLoc(), macroRefOp.getType(),
+                                                     builder.getIntegerAttr(macroRefOp.getType(), macroIntValue));
+    // builder.insert(constantOp);
     macroRefOp.replaceAllUsesWith(constantOp.getResult());
 
     markAsUnused(macroRefOp);
     return success();
   }
 
-
-  LogicalResult onAlways(SVMacroContext& mc, sv::AlwaysOp &alwaysOp) {
+  LogicalResult onAlways(SVMacroContext &mc, sv::AlwaysOp &alwaysOp) {
     // Note: Drop all clocks, we don't support multiple clock domain. Simply pull out body statements.
     auto block = alwaysOp.getBodyBlock();
     auto ret = moveBlockStmtsOutsideThenTraverse(mc, alwaysOp, block);
     return ret;
   }
 
-  LogicalResult onIfOp(SVMacroContext& mc, sv::IfOp &ifOp) {
+  LogicalResult onIfOp(SVMacroContext &mc, sv::IfOp &ifOp) {
     // Note: Only consideres assertion and stop
     auto enSignal = ifOp.getCond();
 
@@ -168,7 +159,7 @@ struct ExpandSVMacro : toucan::impl::ExpandSVMacroBase<ExpandSVMacro> {
       ifOp->emitError() << "sv.if with else is not supported";
       return failure();
     }
-    
+
     auto thenBlock = ifOp.getThenBlock();
     if (thenBlock->getOperations().size() != 1) {
       ifOp->emitError() << "sv.if is not fully supported";
@@ -194,17 +185,16 @@ struct ExpandSVMacro : toucan::impl::ExpandSVMacroBase<ExpandSVMacro> {
       }
 
       auto printOpMsg = fwriteOp.getFormatString();
-      auto printOp = builder.create<toucan::PrintOp>(ifOp->getLoc(),
-                                                              enSignal, printOpMsg);
+      auto printOp = builder.create<toucan::PrintOp>(ifOp->getLoc(), enSignal, printOpMsg);
       // builder.insert(printOp);
       ifOp->replaceAllUsesWith(printOp);
-      printOpsInModules ++;
+      printOpsInModules++;
     } else if (auto fatalOp = dyn_cast<sv::FatalOp>(stmt)) {
       // ignore message and verbosity
       auto stopOp = builder.create<toucan::StopOp>(ifOp->getLoc(), enSignal);
-      
+
       ifOp->replaceAllUsesWith(stopOp);
-      stopOpsInModules ++;
+      stopOpsInModules++;
     } else {
       stmt->emitError() << "Unsupported Op";
       return failure();
@@ -214,8 +204,7 @@ struct ExpandSVMacro : toucan::impl::ExpandSVMacroBase<ExpandSVMacro> {
     return success();
   }
 
-
-  LogicalResult onMacroDeclOp(SVMacroContext& mc, sv::MacroDeclOp &declOp) {
+  LogicalResult onMacroDeclOp(SVMacroContext &mc, sv::MacroDeclOp &declOp) {
     auto macroName = declOp.getSymNameAttr().getValue();
     // If this macro has never been defined, define it as empty string
     if (!mc.macroTable.contains(macroName)) {
@@ -225,7 +214,7 @@ struct ExpandSVMacro : toucan::impl::ExpandSVMacroBase<ExpandSVMacro> {
     return success();
   }
 
-  LogicalResult onMacroDefOp(SVMacroContext& mc, sv::MacroDefOp &defOp) {
+  LogicalResult onMacroDefOp(SVMacroContext &mc, sv::MacroDefOp &defOp) {
     auto macroName = defOp.getMacroName();
     auto macroValue = defOp.getFormatString();
 
@@ -237,7 +226,7 @@ struct ExpandSVMacro : toucan::impl::ExpandSVMacroBase<ExpandSVMacro> {
     return success();
   }
 
-  LogicalResult onSVStmt(SVMacroContext& mc, Operation *op) {
+  LogicalResult onSVStmt(SVMacroContext &mc, Operation *op) {
     if (isUnused(op)) {
       LLVM_DEBUG(llvm::dbgs() << "Traversing into unused op.\n");
       return success();
@@ -265,15 +254,15 @@ struct ExpandSVMacro : toucan::impl::ExpandSVMacroBase<ExpandSVMacro> {
     SVMacroContext mc;
     mc.updateWithGlobalTable(globalMC.macroTable);
 
-    for(auto &op: mod.getOps()) {
+    for (auto &op : mod.getOps()) {
       if (isa_and_nonnull<sv::SVDialect>(op.getDialect())) {
         auto ret = onSVStmt(mc, &op);
         if (failed(ret))
-        return failure();
+          return failure();
       }
     }
 
-    for(auto &op: mod.getOps()) {
+    for (auto &op : mod.getOps()) {
       if (isUnused(&op)) {
         mc.toRemove.push_back(&op);
       }
@@ -293,12 +282,13 @@ struct ExpandSVMacro : toucan::impl::ExpandSVMacroBase<ExpandSVMacro> {
     printOpsInModules = 0;
     stopOpsInModules = 0;
 
-    for(auto & inner: mod.getOps()) {
-      if(auto mod = dyn_cast<hw::HWModuleOp>(&inner)) {
+    for (auto &inner : mod.getOps()) {
+      if (auto mod = dyn_cast<hw::HWModuleOp>(&inner)) {
         modulesToProcess.push_back(mod);
-      } else if(isa_and_nonnull<sv::SVDialect>(inner.getDialect())) {
+      } else if (isa_and_nonnull<sv::SVDialect>(inner.getDialect())) {
         auto ret = onSVStmt(globalMC, &inner);
-        if (failed(ret)) return signalPassFailure();
+        if (failed(ret))
+          return signalPassFailure();
       }
     }
 
@@ -308,13 +298,13 @@ struct ExpandSVMacro : toucan::impl::ExpandSVMacroBase<ExpandSVMacro> {
     //   if (failed(ret)) return signalPassFailure();
     // }
 
-    auto result = mlir::failableParallelForEach(&getContext(), modulesToProcess.begin(), modulesToProcess.end(), [&](auto mod) {
-      return runOnModule(mod);
-    });
-    if (failed(result)) return signalPassFailure();
+    auto result = mlir::failableParallelForEach(&getContext(), modulesToProcess.begin(), modulesToProcess.end(),
+                                                [&](auto mod) { return runOnModule(mod); });
+    if (failed(result))
+      return signalPassFailure();
 
-    for(auto & inner: mod.getOps()) {
-      if(isUnused(&inner)) {
+    for (auto &inner : mod.getOps()) {
+      if (isUnused(&inner)) {
         globalMC.toRemove.push_back(&inner);
       }
     }
@@ -328,6 +318,4 @@ struct ExpandSVMacro : toucan::impl::ExpandSVMacroBase<ExpandSVMacro> {
   }
 };
 
-std::unique_ptr<mlir::Pass> toucan::createExpandSVMacroPass() {
-  return std::make_unique<ExpandSVMacro>();
-}
+std::unique_ptr<mlir::Pass> toucan::createExpandSVMacroPass() { return std::make_unique<ExpandSVMacro>(); }

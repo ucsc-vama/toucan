@@ -1,25 +1,25 @@
 
+#include "circt/Dialect/Comb/CombDialect.h"
+#include "circt/Dialect/Comb/CombOps.h"
 #include "circt/Dialect/HW/HWDialect.h"
 #include "circt/Dialect/HW/HWOps.h"
 #include "circt/Dialect/HW/HWTypes.h"
-#include "circt/Support/LLVM.h"
-#include "circt/Dialect/Comb/CombDialect.h"
-#include "circt/Dialect/Comb/CombOps.h"
 #include "circt/Dialect/Seq/SeqOps.h"
+#include "circt/Support/LLVM.h"
 
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
-#include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/Operation.h"
+#include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/Threading.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/ValueRange.h"
 #include "mlir/IR/Visitors.h"
 #include "mlir/Rewrite/FrozenRewritePatternSet.h"
 #include "mlir/Support/LLVM.h"
-#include "mlir/IR/Threading.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -29,21 +29,20 @@
 #include "toucan/ToucanTypes.h"
 #include "toucan/ToucanVecOpLimits.h"
 
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/STLExtras.h"
 
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/Format.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Support/Format.h"
 
-#include <memory>
 #include <atomic>
+#include <memory>
 #include <mutex>
-
 
 #define GEN_PASS_DEF_LOWERCOMBTO4B_2
 #include "toucan/ToucanPassCommon.h"
@@ -62,16 +61,12 @@ static std::atomic<uint64_t> numCombAddInModules;
 static std::atomic<uint64_t> numCombSubInModules;
 static std::atomic<uint64_t> numCombMuxInModules;
 
-
 struct AddSubCore {
-  public:
-  enum AddOrSub {
-    Add,
-    Sub
-  };
+public:
+  enum AddOrSub { Add, Sub };
 
-
-  Value addSubCore(AddOrSub addOrSub, Operation *op, PatternRewriter &rewriter, Value lhsValue, Value rhsValue, std::optional<StringAttr> namehint) const {
+  Value addSubCore(AddOrSub addOrSub, Operation *op, PatternRewriter &rewriter, Value lhsValue, Value rhsValue,
+                   std::optional<StringAttr> namehint) const {
     auto inputValWidth = hw::getBitWidth(lhsValue.getType());
     assert(hw::getBitWidth(rhsValue.getType()) == inputValWidth);
     assert(inputValWidth <= TOUCAN_VEC_OP_MAX_WIDTH);
@@ -140,12 +135,9 @@ struct AddSubCore {
       return resultVal;
     }
   }
-
 };
 
-
-
-struct LowerCombAddOp: OpRewritePattern<comb::AddOp>, AddSubCore {
+struct LowerCombAddOp : OpRewritePattern<comb::AddOp>, AddSubCore {
   using OpRewritePattern<comb::AddOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(comb::AddOp op, PatternRewriter &rewriter) const final {
@@ -163,7 +155,8 @@ struct LowerCombAddOp: OpRewritePattern<comb::AddOp>, AddSubCore {
     auto inputValWidth = hw::getBitWidth(lhs.getType());
 
     if (inputValWidth <= TOUCAN_VEC_OP_MAX_WIDTH) {
-      auto optionalNameHint = getSVNameHintAttr(op);;
+      auto optionalNameHint = getSVNameHintAttr(op);
+      ;
       auto addResult = addSubCore(AddOrSub::Add, op.getOperation(), rewriter, lhs, rhs, optionalNameHint);
 
       assert(hw::getBitWidth(addResult.getType()) == hw::getBitWidth(lhs.getType()));
@@ -192,12 +185,14 @@ struct LowerCombAddOp: OpRewritePattern<comb::AddOp>, AddSubCore {
 
         auto addResult = addSubCore(AddOrSub::Add, op.getOperation(), rewriter, newPaddingLhs, newPaddingRhs, nullptr);
         if (carryVal != constZero4BVal) {
-          auto padding = rewriter.create<hw::ConstantOp>(op->getLoc(), rewriter.getIntegerType(bitsInThisSlice), 0).getResult();
+          auto padding =
+              rewriter.create<hw::ConstantOp>(op->getLoc(), rewriter.getIntegerType(bitsInThisSlice), 0).getResult();
           auto fullBitCarry = rewriter.create<comb::ConcatOp>(op->getLoc(), padding, carryVal).getResult();
           addResult = addSubCore(AddOrSub::Add, op.getOperation(), rewriter, addResult, fullBitCarry, nullptr);
         }
 
-        auto resultSectionVal = rewriter.create<comb::ExtractOp>(op->getLoc(), addResult, 0, bitsInThisSlice).getResult();
+        auto resultSectionVal =
+            rewriter.create<comb::ExtractOp>(op->getLoc(), addResult, 0, bitsInThisSlice).getResult();
         carryVal = rewriter.create<comb::ExtractOp>(op->getLoc(), addResult, bitsInThisSlice, 4).getResult();
         assert(hw::getBitWidth(resultSectionVal.getType()) == bitsInThisSlice);
 
@@ -206,7 +201,8 @@ struct LowerCombAddOp: OpRewritePattern<comb::AddOp>, AddSubCore {
 
       std::reverse(resultSections.begin(), resultSections.end());
 
-      auto optionalNameHint = getSVNameHintAttr(op);;
+      auto optionalNameHint = getSVNameHintAttr(op);
+      ;
       auto addResult = rewriter.create<comb::ConcatOp>(op->getLoc(), resultSections).getResult();
       attachNameHintAndFragmentId(rewriter, addResult, optionalNameHint);
 
@@ -219,7 +215,7 @@ struct LowerCombAddOp: OpRewritePattern<comb::AddOp>, AddSubCore {
   }
 };
 
-struct LowerCombSubOp: OpRewritePattern<comb::SubOp>, AddSubCore {
+struct LowerCombSubOp : OpRewritePattern<comb::SubOp>, AddSubCore {
   using OpRewritePattern<comb::SubOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(comb::SubOp op, PatternRewriter &rewriter) const final {
@@ -230,7 +226,8 @@ struct LowerCombSubOp: OpRewritePattern<comb::SubOp>, AddSubCore {
     assert(hw::getBitWidth(lhs.getType()) == hw::getBitWidth(rhs.getType()));
     assert(hw::getBitWidth(rhs.getType()) < TOUCAN_VEC_OP_MAX_WIDTH);
 
-    auto optionalNameHint = getSVNameHintAttr(op);;
+    auto optionalNameHint = getSVNameHintAttr(op);
+    ;
     auto subResult = addSubCore(AddOrSub::Sub, op.getOperation(), rewriter, lhs, rhs, optionalNameHint);
 
     assert(hw::getBitWidth(subResult.getType()) == hw::getBitWidth(lhs.getType()));
@@ -241,7 +238,7 @@ struct LowerCombSubOp: OpRewritePattern<comb::SubOp>, AddSubCore {
   }
 };
 
-struct LowerCombMuxOp: OpRewritePattern<comb::MuxOp> {
+struct LowerCombMuxOp : OpRewritePattern<comb::MuxOp> {
   using OpRewritePattern<comb::MuxOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(comb::MuxOp op, PatternRewriter &rewriter) const final {
@@ -259,7 +256,7 @@ struct LowerCombMuxOp: OpRewritePattern<comb::MuxOp> {
       auto fValValues = split_value_4B(op.getOperation(), fValValue, rewriter);
 
       SmallVector<Value> results;
-      for (auto [tval, fval]: zip(tValValues, fValValues)) {
+      for (auto [tval, fval] : zip(tValValues, fValValues)) {
 
         auto muxOp = rewriter.create<toucan::LUTOp>(op->getLoc(), toucan::LUTOpName::LUT_Mux, condVal, tval, fval);
         results.push_back(muxOp.getResult());
@@ -271,20 +268,16 @@ struct LowerCombMuxOp: OpRewritePattern<comb::MuxOp> {
 
       rewriter.replaceOp(op, concatOp);
     } else {
-      auto muxOp = rewriter.create<toucan::LUTOp>(op->getLoc(), toucan::LUTOpName::LUT_Mux, condVal, tValValue, fValValue);
+      auto muxOp =
+          rewriter.create<toucan::LUTOp>(op->getLoc(), toucan::LUTOpName::LUT_Mux, condVal, tValValue, fValValue);
 
       attachNameHintAndFragmentId(rewriter, muxOp, optionalNameHint);
       rewriter.replaceOp(op, muxOp);
     }
-    
+
     return success();
   }
 };
-
-
-
-
-
 
 struct LowerCombTo4B_2Pass : toucan::impl::LowerCombTo4B_2Base<LowerCombTo4B_2Pass> {
   using LowerCombTo4B_2Base<LowerCombTo4B_2Pass>::LowerCombTo4B_2Base;
@@ -297,14 +290,12 @@ struct LowerCombTo4B_2Pass : toucan::impl::LowerCombTo4B_2Base<LowerCombTo4B_2Pa
     numCombSubInModules = 0;
     numCombMuxInModules = 0;
 
-
     RewritePatternSet owningPatterns(context);
     ConversionTarget conversionTarget(*context);
-    
+
     owningPatterns.add<LowerCombAddOp>(context);
     owningPatterns.add<LowerCombSubOp>(context);
     owningPatterns.add<LowerCombMuxOp>(context);
-
 
     conversionTarget.addLegalDialect<toucan::ToucanDialect>();
     conversionTarget.addLegalDialect<hw::HWDialect>();
@@ -327,26 +318,23 @@ struct LowerCombTo4B_2Pass : toucan::impl::LowerCombTo4B_2Base<LowerCombTo4B_2Pa
     // conversionTarget.addIllegalOp<comb::ModSOp>();
 
     patterns = std::make_shared<FrozenRewritePatternSet>(std::move(owningPatterns));
-    target = std::make_shared<ConversionTarget>(std::move(
-    conversionTarget));
+    target = std::make_shared<ConversionTarget>(std::move(conversionTarget));
 
     return success();
   }
 
-
   LogicalResult runOnModule(hw::HWModuleOp mod) {
-    SmallVector<Operation*> toRemove;
+    SmallVector<Operation *> toRemove;
 
     return applyFullConversion(mod, *target, *patterns);
-
   }
 
   void runOnOperation() final {
     auto mod = getOperation();
 
     SmallVector<hw::HWModuleOp> modulesToProcess;
-    for(auto & inner: mod.getOps()) {
-      if(auto mod = dyn_cast<hw::HWModuleOp>(&inner)) {
+    for (auto &inner : mod.getOps()) {
+      if (auto mod = dyn_cast<hw::HWModuleOp>(&inner)) {
         modulesToProcess.push_back(mod);
       }
     }
@@ -357,18 +345,15 @@ struct LowerCombTo4B_2Pass : toucan::impl::LowerCombTo4B_2Base<LowerCombTo4B_2Pa
     // }
 
     // Parallel
-    auto result = mlir::failableParallelForEach(&getContext(), modulesToProcess.begin(), modulesToProcess.end(), [&](auto mod) {
-      return runOnModule(mod);
-    });
-    if (failed(result)) return signalPassFailure();
+    auto result = mlir::failableParallelForEach(&getContext(), modulesToProcess.begin(), modulesToProcess.end(),
+                                                [&](auto mod) { return runOnModule(mod); });
+    if (failed(result))
+      return signalPassFailure();
 
     numCombAdd = numCombAddInModules;
     numCombSub = numCombSubInModules;
     numCombMux = numCombMuxInModules;
   }
-
 };
 
-std::unique_ptr<mlir::Pass> toucan::createLowerCombTo4B_2Pass() {
-  return std::make_unique<LowerCombTo4B_2Pass>();
-}
+std::unique_ptr<mlir::Pass> toucan::createLowerCombTo4B_2Pass() { return std::make_unique<LowerCombTo4B_2Pass>(); }

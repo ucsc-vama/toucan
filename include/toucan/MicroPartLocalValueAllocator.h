@@ -15,77 +15,73 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 
-
 #include <cstdint>
 #include <optional>
 
 #include "mlir/Support/LogicalResult.h"
+#include "toucan/PartitioningGraph.h"
 #include "toucan/ToucanAttributes.h"
 #include "toucan/ToucanDialect.h"
 #include "toucan/ToucanOps.h"
 #include "toucan/ToucanTypes.h"
-#include "toucan/PartitioningGraph.h"
 
 #include "toucan/MicroPartitioner.h"
 
 #include <boost/graph/adjacency_list.hpp>
 
-#include <unordered_map>
 #include <filesystem>
+#include <unordered_map>
 #include <vector>
 
 #include "toucan/PartitioningManager.h"
 
 namespace toucan {
-  class MicroPartLocalValueAllocator {
-    public:
-    size_t numTotalValSize;
-    // numConsts = compactConstValPool.size()
-    size_t numConsts;
-    size_t numOutputVals;
-    size_t numInputVals;
+class MicroPartLocalValueAllocator {
+public:
+  size_t numTotalValSize;
+  // numConsts = compactConstValPool.size()
+  size_t numConsts;
+  size_t numOutputVals;
+  size_t numInputVals;
 
-    // Value pool:
-    // const values, input values, output values, tempories 
-    mlir::DenseMap<mlir::Value, uint32_t> valToValId;
-    mlir::SmallVector<mlir::Value> valuePool;
-    // Use this as the real const pool
-    // still, val 0 is always 0
-    mlir::SmallVector<uint8_t> compactConstValPool;
+  // Value pool:
+  // const values, input values, output values, tempories
+  mlir::DenseMap<mlir::Value, uint32_t> valToValId;
+  mlir::SmallVector<mlir::Value> valuePool;
+  // Use this as the real const pool
+  // still, val 0 is always 0
+  mlir::SmallVector<uint8_t> compactConstValPool;
 
-    mlir::DenseSet<mlir::Value> activeValuesAtLast;
+  mlir::DenseSet<mlir::Value> activeValuesAtLast;
 
-    void allocateLocalValuesWithoutReclaim();
+  void allocateLocalValuesWithoutReclaim();
 
-    void allocateLocalValues();
-    
+  void allocateLocalValues();
 
-    // uint32_t getValId(mlir::Value);
+  // uint32_t getValId(mlir::Value);
 
-    void collectValueLifetime(RepCutPartitionCodeGenData &partData);
+  void collectValueLifetime(RepCutPartitionCodeGenData &partData);
 
-    // Populate const vals and RegWrite/ExchangeWrite. Those values are pinned
-    void populateInitialPinnedVals(RepCutPartitionCodeGenData &partData, const mlir::DenseMap<mlir::Value, uint32_t> &constValToRawValue);
+  // Populate const vals and RegWrite/ExchangeWrite. Those values are pinned
+  void populateInitialPinnedVals(RepCutPartitionCodeGenData &partData,
+                                 const mlir::DenseMap<mlir::Value, uint32_t> &constValToRawValue);
 
-
-    private:
-    struct ValueLifeTime {
-      uint32_t start;
-      uint32_t end;
-    };
-
-
-    mlir::DenseSet<mlir::Value> pinnedInputVals, pinnedOutputVals, constVals;
-
-    mlir::DenseMap<mlir::Value, ValueLifeTime> valToLifeTime;
-    // mlir::DenseMap<mlir::Value, uint32_t> vecValToLength;
-    mlir::DenseMap<mlir::Value, uint32_t> vecValToLength;
-
-    mlir::DenseMap<mlir::Value, mlir::Value> vecSegmentsToVecArith;
-    mlir::DenseMap<mlir::Value, mlir::SmallVector<mlir::Value>> vecArithResultToSegments;
-    mlir::DenseSet<mlir::Value> vecArithAndSegmentValues;
-
-    size_t totalLevels;
-
+private:
+  struct ValueLifeTime {
+    uint32_t start;
+    uint32_t end;
   };
-}
+
+  mlir::DenseSet<mlir::Value> pinnedInputVals, pinnedOutputVals, constVals;
+
+  mlir::DenseMap<mlir::Value, ValueLifeTime> valToLifeTime;
+  // mlir::DenseMap<mlir::Value, uint32_t> vecValToLength;
+  mlir::DenseMap<mlir::Value, uint32_t> vecValToLength;
+
+  mlir::DenseMap<mlir::Value, mlir::Value> vecSegmentsToVecArith;
+  mlir::DenseMap<mlir::Value, mlir::SmallVector<mlir::Value>> vecArithResultToSegments;
+  mlir::DenseSet<mlir::Value> vecArithAndSegmentValues;
+
+  size_t totalLevels;
+};
+} // namespace toucan

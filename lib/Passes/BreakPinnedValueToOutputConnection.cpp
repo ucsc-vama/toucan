@@ -1,7 +1,7 @@
 
 #include "circt/Dialect/HW/HWOps.h"
-#include "circt/Dialect/SV/SVDialect.h"
 #include "circt/Dialect/OM/OMDialect.h"
+#include "circt/Dialect/SV/SVDialect.h"
 #include "circt/Dialect/Seq/SeqDialect.h"
 #include "circt/Support/LLVM.h"
 
@@ -12,26 +12,24 @@
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/Threading.h"
 #include "mlir/IR/Visitors.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/Support/LLVM.h"
-#include "mlir/IR/Threading.h"
 #include "mlir/Support/LogicalResult.h"
 
 #include "llvm/ADT/APInt.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/STLExtras.h"
 
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/Mutex.h"
+#include "llvm/Support/raw_ostream.h"
 
 #include <cassert>
 #include <memory>
-
-
 
 #define GEN_PASS_DEF_BREAKPINNEDVALUETOOUTPUTCONNECTION
 #include "toucan/ToucanPassCommon.h"
@@ -47,8 +45,10 @@ using namespace llvm;
 
 #define DEBUG_TYPE "BreakPinnedValueToOutputConnectionPass"
 
-struct BreakPinnedValueToOutputConnectionPass : toucan::impl::BreakPinnedValueToOutputConnectionBase<BreakPinnedValueToOutputConnectionPass> {
-  using BreakPinnedValueToOutputConnectionBase<BreakPinnedValueToOutputConnectionPass>::BreakPinnedValueToOutputConnectionBase;
+struct BreakPinnedValueToOutputConnectionPass
+    : toucan::impl::BreakPinnedValueToOutputConnectionBase<BreakPinnedValueToOutputConnectionPass> {
+  using BreakPinnedValueToOutputConnectionBase<
+      BreakPinnedValueToOutputConnectionPass>::BreakPinnedValueToOutputConnectionBase;
 
   static bool isPinnedEdgeSource(mlir::Operation *op) {
     return isa<toucan::RegReadOp>(op) || isa<toucan::StaticVectorSegmentReadOp>(op);
@@ -62,17 +62,16 @@ struct BreakPinnedValueToOutputConnectionPass : toucan::impl::BreakPinnedValueTo
     // mlir::DenseSet<APInt> constVecs;
     mlir::DenseSet<mlir::Value> valuesNeedAddNOP;
 
-
-    getOperation()->walk([&](toucan::RegReadOp op){
-      for (const auto &user: op->getUsers()) {
+    getOperation()->walk([&](toucan::RegReadOp op) {
+      for (const auto &user : op->getUsers()) {
         if (isPinnedEdgeTarget(user)) {
           valuesNeedAddNOP.insert(op.getResult());
           return;
         }
       }
     });
-    getOperation()->walk([&](toucan::StaticVectorSegmentReadOp op){
-      for (const auto &user: op->getUsers()) {
+    getOperation()->walk([&](toucan::StaticVectorSegmentReadOp op) {
+      for (const auto &user : op->getUsers()) {
         if (isPinnedEdgeTarget(user)) {
           valuesNeedAddNOP.insert(op.getResult());
           return;
@@ -83,7 +82,7 @@ struct BreakPinnedValueToOutputConnectionPass : toucan::impl::BreakPinnedValueTo
     insertedNOPs = valuesNeedAddNOP.size();
     breakedEdges = 0;
 
-    for (auto &eachVal: valuesNeedAddNOP) {
+    for (auto &eachVal : valuesNeedAddNOP) {
       OpBuilder builder(eachVal.getDefiningOp());
       // IRRewriter rewriter(builder);
 
@@ -94,7 +93,7 @@ struct BreakPinnedValueToOutputConnectionPass : toucan::impl::BreakPinnedValueTo
       // eachVal.print(dbgs());
       // dbgs() << "\nUsers:\n";
 
-      for (auto &eachUse: eachVal.getUses()) {
+      for (auto &eachUse : eachVal.getUses()) {
         // eachUse.getOwner()->print(dbgs());
         // dbgs() << "\n";
         if (isPinnedEdgeTarget(eachUse.getOwner())) {
@@ -107,7 +106,6 @@ struct BreakPinnedValueToOutputConnectionPass : toucan::impl::BreakPinnedValueTo
 
       assert(nopUseCount != 0);
     }
-
   }
 };
 

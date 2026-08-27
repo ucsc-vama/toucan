@@ -1,6 +1,6 @@
 
-#include "circt/Dialect/SV/SVDialect.h"
 #include "circt/Dialect/OM/OMDialect.h"
+#include "circt/Dialect/SV/SVDialect.h"
 #include "circt/Dialect/Seq/SeqDialect.h"
 #include "circt/Support/LLVM.h"
 
@@ -9,10 +9,10 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/Operation.h"
+#include "mlir/IR/Threading.h"
 #include "mlir/IR/Visitors.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/Support/LLVM.h"
-#include "mlir/IR/Threading.h"
 #include "mlir/Support/LogicalResult.h"
 #include "toucan/MicroPartitioner.h"
 #include "toucan/MultiRegionMicroPartScheduler.h"
@@ -22,9 +22,9 @@
 #include "toucan/ToucanCodeGenInfo.h"
 
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/STLExtras.h"
 
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/Casting.h"
@@ -32,25 +32,24 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
-#include <algorithm>
 #include <cstdlib>
-#include <iterator>
-#include <memory>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
+#include <memory>
 #include <sstream>
 #include <tuple>
 #include <vector>
 
-
 #define GEN_PASS_DEF_GPUCODEGEN
 #include "toucan/ToucanPassCommon.h"
 
-#include "toucan/MicroPartitioner.h"
-#include "toucan/CodeGenCommon.h"
 #include "ToucanGPUSim/ToucanGPUGenDataTypes.h"
+#include "toucan/CodeGenCommon.h"
+#include "toucan/MicroPartitioner.h"
 
 #include "toucan/PartitioningManager.h"
 
@@ -60,7 +59,6 @@ using namespace mlir;
 using namespace llvm;
 
 #define DEBUG_TYPE "GPUCodeGenPass"
-
 
 struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHelper {
   using GPUCodeGenBase<GPUCodeGenPass>::GPUCodeGenBase;
@@ -72,12 +70,12 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     int totalMPCount = 0;
     int totalMPSize = 0;
     int totalMPLevels = 0;
-    for (const auto &eachPart: designInfo.parts) {
-      for (const auto &eachMPLevel: eachPart.exec_mParts) {
-        for (const auto &eachMP: eachMPLevel) {
+    for (const auto &eachPart : designInfo.parts) {
+      for (const auto &eachMPLevel : eachPart.exec_mParts) {
+        for (const auto &eachMP : eachMPLevel) {
           totalMPSize += eachMP.topLevel.size();
           totalMPSize += eachMP.lastLevel.size();
-          for (const auto &el: eachMP.middleLevels) {
+          for (const auto &el : eachMP.middleLevels) {
             totalMPSize += el.size();
           }
 
@@ -89,16 +87,16 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
 
     llvm::dbgs() << "Statistic: design has " << totalMPCount << " MPs\n";
     llvm::dbgs() << "Statistic: design MP has " << (totalMPSize / totalMPCount) << " average size\n";
-    llvm::dbgs() << "Statistic: design MP has " << (static_cast<float>(totalMPLevels) / totalMPCount) << " average levels\n";
+    llvm::dbgs() << "Statistic: design MP has " << (static_cast<float>(totalMPLevels) / totalMPCount)
+                 << " average levels\n";
   }
 
   void populateMicroPartInfo(const CGMicroPartInfo &mp, toucanGPUSim::CGMicroPartInfo &cmp) {
 
-
     switch (mp.opType) {
       case CGToucanOPName::LUT: {
         cmp.isLUTPart = true;
-        for (const auto &eachTopOp: mp.topLevel) {
+        for (const auto &eachTopOp : mp.topLevel) {
           toucanGPUSim::CGMicroPartLUTTopLevelOp op;
           op.lutIndex = lutPos.at(static_cast<uint32_t>(eachTopOp.opName));
           op.op0 = eachTopOp.op0;
@@ -107,26 +105,22 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
 
           cmp.topLevel.push_back(op);
         }
-        for (const auto &eachMiddleLevel: mp.middleLevels) {
+        for (const auto &eachMiddleLevel : mp.middleLevels) {
           cmp.middleLevels.emplace_back();
-          for (const auto &eachMiddleOp: eachMiddleLevel) {
+          for (const auto &eachMiddleOp : eachMiddleLevel) {
             // ensure values does not exceed expectation
             assert(lutPos.at(static_cast<uint32_t>(eachMiddleOp.opName)) < (1 << 14));
             assert(eachMiddleOp.op0 < (1 << 6));
             assert(eachMiddleOp.op1 < (1 << 6));
             assert(eachMiddleOp.op2 < (1 << 6));
 
-            toucanGPUSim::CGMicroPartLUTMiddleLevelOp op(
-              lutPos.at(static_cast<uint32_t>(eachMiddleOp.opName)),
-              eachMiddleOp.op0,
-              eachMiddleOp.op1,
-              eachMiddleOp.op2
-            );
+            toucanGPUSim::CGMicroPartLUTMiddleLevelOp op(lutPos.at(static_cast<uint32_t>(eachMiddleOp.opName)),
+                                                         eachMiddleOp.op0, eachMiddleOp.op1, eachMiddleOp.op2);
 
             cmp.middleLevels.back().push_back(op);
           }
         }
-        for (const auto &eachLastOp: mp.lastLevel) {
+        for (const auto &eachLastOp : mp.lastLevel) {
           toucanGPUSim::CGMicroPartLUTLastLevelWriteBack op;
           op.shuffleId = eachLastOp.shuffleId;
           op.result = eachLastOp.result;
@@ -139,7 +133,7 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
         cmp.isLUTPart = false;
         assert(mp.vecRead.size() > 0);
 
-        for (const auto &eachOp: mp.vecRead) {
+        for (const auto &eachOp : mp.vecRead) {
           toucanGPUSim::CGMicroPartVecRead op;
 
           op.vecBase = eachOp.vecBase;
@@ -162,7 +156,7 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
         cmp.isLUTPart = false;
         assert(mp.memRead.size() > 0);
 
-        for (const auto &eachOp: mp.memRead) {
+        for (const auto &eachOp : mp.memRead) {
           toucanGPUSim::CGMicroPartMemRead op;
 
           op.hasMultipleWriter = eachOp.hasMultipleWriter;
@@ -175,7 +169,7 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
         }
         break;
       }
-      case CGToucanOPName::VecLogic: 
+      case CGToucanOPName::VecLogic:
       case CGToucanOPName::VecArith: {
         llvm_unreachable("VecLogic and VecArith is not expected to appear here!");
       }
@@ -185,14 +179,18 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     }
   }
 
-  void populateVecArithAndVecLogicMicroParts(mlir::SmallVector<toucanGPUSim::CGMicroPartInfo> &newMps, const mlir::SmallVector<CGMicroPartVecArith> &allVecArithOps, const mlir::SmallVector<CGMicroPartVecLogic> &allVecLogicOps) {
+  void populateVecArithAndVecLogicMicroParts(mlir::SmallVector<toucanGPUSim::CGMicroPartInfo> &newMps,
+                                             const mlir::SmallVector<CGMicroPartVecArith> &allVecArithOps,
+                                             const mlir::SmallVector<CGMicroPartVecLogic> &allVecLogicOps) {
     mlir::SmallVector<toucanGPUSim::CGMicroPartVecArithOrLogic> allOps;
 
-    for (const auto &eachVecArithOp: allVecArithOps) {
+    for (const auto &eachVecArithOp : allVecArithOps) {
       toucanGPUSim::CGMicroPartVecArithOrLogic op;
       op.isV1V2Const = 0;
-      if (eachVecArithOp.isVec1Const) op.isV1V2Const |= 0b10;
-      if (eachVecArithOp.isVec2Const) op.isV1V2Const |= 1;
+      if (eachVecArithOp.isVec1Const)
+        op.isV1V2Const |= 0b10;
+      if (eachVecArithOp.isVec2Const)
+        op.isV1V2Const |= 1;
       op.vec1Base = eachVecArithOp.vec1Base;
       op.vec2Base = eachVecArithOp.vec2Base;
       // For now, vecLength is limited by TOUCAN_VEC_OP_MAX_WIDTH
@@ -205,25 +203,27 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
           op.opName = VEC_ARITH_ADD;
           break;
         }
-        case VecArithOpName::VecArith_Sub:{
+        case VecArithOpName::VecArith_Sub: {
           op.opName = VEC_ARITH_SUB;
           break;
         }
-        case VecArithOpName::VecArith_Mul:{
+        case VecArithOpName::VecArith_Mul: {
           op.opName = VEC_ARITH_MUL;
           break;
         }
-        // default: llvm_unreachable("Whats this");
+          // default: llvm_unreachable("Whats this");
       }
 
       allOps.push_back(op);
     }
 
-    for (const auto &eachVecLogicOp: allVecLogicOps) {
+    for (const auto &eachVecLogicOp : allVecLogicOps) {
       toucanGPUSim::CGMicroPartVecArithOrLogic op;
       op.isV1V2Const = 0;
-      if (eachVecLogicOp.isVec1Const) op.isV1V2Const |= 0b10;
-      if (eachVecLogicOp.isVec2Const) op.isV1V2Const |= 1;
+      if (eachVecLogicOp.isVec1Const)
+        op.isV1V2Const |= 0b10;
+      if (eachVecLogicOp.isVec2Const)
+        op.isV1V2Const |= 1;
       op.vec1Base = eachVecLogicOp.vec1Base;
       op.vec2Base = eachVecLogicOp.vec2Base;
       // For now, vecLength is limited by TOUCAN_VEC_OP_MAX_WIDTH
@@ -244,7 +244,7 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
           op.opName = VEC_LOGIC_LE;
           break;
         }
-        // default: llvm_unreachable("Whats this");
+          // default: llvm_unreachable("Whats this");
       }
 
       allOps.push_back(op);
@@ -265,9 +265,7 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
       pos += newPartSize;
     }
     assert(pos == allOps.size());
-
   }
-
 
   void populateSinglePartition(const CGPartitionMetaInfo &part, uint32_t partId) {
     toucanGPUSim::SimPartitionInfo partInfo;
@@ -281,7 +279,8 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     partInfo.valuePoolSize = part.numTotalValues;
 
     if (partInfo.valuePoolSize > UINT16_MAX) {
-      llvm::errs() << "Value pool size is " << partInfo.valuePoolSize << ", which exceeds UINT16_MAX. This should not happen.\n";
+      llvm::errs() << "Value pool size is " << partInfo.valuePoolSize
+                   << ", which exceeds UINT16_MAX. This should not happen.\n";
     }
     assert(partInfo.valuePoolSize <= UINT16_MAX && "Value pool is too large");
 
@@ -292,7 +291,7 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
 
     // reg reads
     partInfo.ops_l0_regRead.reserve(part.regReadOps.size());
-    for (const auto &opMeta: part.regReadOps) {
+    for (const auto &opMeta : part.regReadOps) {
       toucanGPUSim::CGRegReadMetaInfo rr;
       rr.reg = opMeta.regRead.reg;
       rr.result = opMeta.regRead.result;
@@ -314,10 +313,9 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
       }
     }
 
-
     // exchange reads
     partInfo.ops_l0_exchangeRead.reserve(part.exchangeReadOps.size());
-    for (const auto &opMeta: part.exchangeReadOps) {
+    for (const auto &opMeta : part.exchangeReadOps) {
       toucanGPUSim::CGExchangeReadMetaInfo er;
       er.exchange = opMeta.exgRead.exchangeVal;
       er.result = opMeta.exgRead.localVal;
@@ -340,13 +338,13 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     }
 
     // Micro parts
-    for (const auto &eachMPLevel: part.microPartOps) {
+    for (const auto &eachMPLevel : part.microPartOps) {
       partInfo.exec_mParts.emplace_back();
 
       mlir::SmallVector<CGMicroPartVecArith> allVecArithOps;
       mlir::SmallVector<CGMicroPartVecLogic> allVecLogicOps;
 
-      for (const auto &eachMP: eachMPLevel) {
+      for (const auto &eachMP : eachMPLevel) {
         if (eachMP.opType != CGToucanOPName::VecArith && eachMP.opType != CGToucanOPName::VecLogic) {
           partInfo.exec_mParts.back().emplace_back();
           populateMicroPartInfo(eachMP, partInfo.exec_mParts.back().back());
@@ -379,7 +377,7 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
         if (p.isLUTPart) {
           int ret = 0;
           ret += p.topLevel.size();
-          for (const auto &eachLevel: p.middleLevels) {
+          for (const auto &eachLevel : p.middleLevels) {
             ret += eachLevel.size();
           }
           ret += p.lastLevel.size();
@@ -388,37 +386,44 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
         }
 
         int numOps = 0;
-        if (p.memRead.size() != 0) numOps = p.memRead.size();
-        else if (p.vecRead.size() != 0) numOps = p.vecRead.size();
-        else numOps = p.vecArithAndLogic.size();
+        if (p.memRead.size() != 0)
+          numOps = p.memRead.size();
+        else if (p.vecRead.size() != 0)
+          numOps = p.vecRead.size();
+        else
+          numOps = p.vecArithAndLogic.size();
         assert(numOps != 0);
         return numOps;
       };
-      std::sort(partInfo.exec_mParts.back().begin(), partInfo.exec_mParts.back().end(), [getPartSize](const auto &a, const auto &b) {
-        auto weight_a = getPartSize(a);
-        auto weight_b = getPartSize(b);
-        return weight_a > weight_b;
-      });
+      std::sort(partInfo.exec_mParts.back().begin(), partInfo.exec_mParts.back().end(),
+                [getPartSize](const auto &a, const auto &b) {
+                  auto weight_a = getPartSize(a);
+                  auto weight_b = getPartSize(b);
+                  return weight_a > weight_b;
+                });
       auto getPartWeight = [](const toucanGPUSim::CGMicroPartInfo &p) {
-        if (p.isLUTPart) return p.middleLevels.size();
+        if (p.isLUTPart)
+          return p.middleLevels.size();
         size_t numOps = 0;
-        if (p.memRead.size() != 0) numOps = p.memRead.size();
-        else if (p.vecRead.size() != 0) numOps = p.vecRead.size();
-        else numOps = p.vecArithAndLogic.size();
+        if (p.memRead.size() != 0)
+          numOps = p.memRead.size();
+        else if (p.vecRead.size() != 0)
+          numOps = p.vecRead.size();
+        else
+          numOps = p.vecArithAndLogic.size();
         assert(numOps != 0);
         return UINT16_MAX + numOps;
       };
-      std::stable_sort(partInfo.exec_mParts.back().begin(), partInfo.exec_mParts.back().end(), [getPartWeight](const auto &a, const auto &b) {
-        auto weight_a = getPartWeight(a);
-        auto weight_b = getPartWeight(b);
-        return weight_a > weight_b;
-      });
-
+      std::stable_sort(partInfo.exec_mParts.back().begin(), partInfo.exec_mParts.back().end(),
+                       [getPartWeight](const auto &a, const auto &b) {
+                         auto weight_a = getPartWeight(a);
+                         auto weight_b = getPartWeight(b);
+                         return weight_a > weight_b;
+                       });
     }
 
-
     // mem writes
-    for (const auto &opMeta: part.memWriteOps) {
+    for (const auto &opMeta : part.memWriteOps) {
       assert(opMeta.memWrite.addrVec <= UINT16_MAX);
       assert(opMeta.memWrite.dat <= UINT16_MAX);
       assert(opMeta.memWrite.en <= UINT16_MAX);
@@ -430,12 +435,12 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
       info.addrVec = opMeta.memWrite.addrVec;
       info.dat = opMeta.memWrite.dat;
       info.en = opMeta.memWrite.en;
-      
+
       partInfo.ops_last_memWrite.push_back(info);
     }
 
     // print
-    for (const auto &opMeta: part.printOps) {
+    for (const auto &opMeta : part.printOps) {
       assert(opMeta.print.en <= UINT16_MAX);
       assert(opMeta.print.msg <= UINT16_MAX);
 
@@ -447,7 +452,7 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     }
 
     // stop
-    for (const auto &opMeta: part.stopOps) {
+    for (const auto &opMeta : part.stopOps) {
       assert(opMeta.stop.en <= UINT16_MAX);
 
       toucanGPUSim::CGStopMetaInfo info;
@@ -460,7 +465,7 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     uint32_t rw_bulk_size = 0;
     uint32_t rw_bulk_start_dat = 0;
     uint32_t rw_bulk_start_reg = 0;
-    for (const auto &opMeta: part.regWriteOps) {
+    for (const auto &opMeta : part.regWriteOps) {
       assert(opMeta.regWrite.dat <= UINT16_MAX);
 
       if (rw_bulk_size == 0) {
@@ -468,7 +473,8 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
         rw_bulk_start_reg = opMeta.regWrite.reg;
         rw_bulk_size = 1;
       } else {
-        if (opMeta.regWrite.dat == rw_bulk_start_dat + rw_bulk_size && opMeta.regWrite.reg == rw_bulk_start_reg + rw_bulk_size) {
+        if (opMeta.regWrite.dat == rw_bulk_start_dat + rw_bulk_size &&
+            opMeta.regWrite.reg == rw_bulk_start_reg + rw_bulk_size) {
           // bulk
           rw_bulk_size += 1;
         } else {
@@ -484,9 +490,9 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     // special handling for regWrites
 
     if (rw_bulk_size != 0) {
-      llvm::outs() << "Partition " << partId << " reg writes: from data(shared mem) " << rw_bulk_start_dat << " to reg(global mem) " << rw_bulk_start_reg << ", size " << rw_bulk_size << "B\n";
+      llvm::outs() << "Partition " << partId << " reg writes: from data(shared mem) " << rw_bulk_start_dat
+                   << " to reg(global mem) " << rw_bulk_start_reg << ", size " << rw_bulk_size << "B\n";
     }
-
 
     toucanGPUSim::CGRegWriteMetaInfo rwInfo;
     if (rw_bulk_size != 0) {
@@ -506,12 +512,11 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
 
     partInfo.op_last_regWrite = rwInfo;
 
-
     // exchange write
     uint32_t ew_bulk_size = 0;
     uint32_t ew_bulk_start_dat = 0;
     uint32_t ew_bulk_start_exg = 0;
-    for (const auto &opMeta: part.exchangeWriteOps) {
+    for (const auto &opMeta : part.exchangeWriteOps) {
       assert(opMeta.exgWrite.localVal <= UINT16_MAX);
 
       if (ew_bulk_size == 0) {
@@ -519,7 +524,8 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
         ew_bulk_start_exg = opMeta.exgWrite.exchangeVal;
         ew_bulk_size = 1;
       } else {
-        if (opMeta.exgWrite.localVal == ew_bulk_start_dat + ew_bulk_size && opMeta.exgWrite.exchangeVal == ew_bulk_start_exg + ew_bulk_size) {
+        if (opMeta.exgWrite.localVal == ew_bulk_start_dat + ew_bulk_size &&
+            opMeta.exgWrite.exchangeVal == ew_bulk_start_exg + ew_bulk_size) {
           // bulk
           ew_bulk_size += 1;
         } else {
@@ -534,7 +540,8 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     }
 
     if (ew_bulk_size != 0) {
-      llvm::outs() << "Partition " << partId << " exchange writes: from data(shared mem) " << ew_bulk_start_dat << " to exchange pool (global mem) " << ew_bulk_start_exg << ", size " << ew_bulk_size << "B\n";
+      llvm::outs() << "Partition " << partId << " exchange writes: from data(shared mem) " << ew_bulk_start_dat
+                   << " to exchange pool (global mem) " << ew_bulk_start_exg << ", size " << ew_bulk_size << "B\n";
     }
 
     toucanGPUSim::CGExchangeWriteMetaInfo ewInfo;
@@ -557,21 +564,21 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     designInfo.parts.push_back(std::move(partInfo));
   }
 
-  void populateDebugInfo(const CGInfo& codeGenInfo) {
+  void populateDebugInfo(const CGInfo &codeGenInfo) {
     std::vector<std::tuple<uint32_t, uint32_t>> eachRegDbgInfo;
     std::vector<std::tuple<uint32_t, uint32_t, uint32_t>> eachMemDbgInfo;
     std::vector<std::tuple<uint32_t, uint32_t, uint32_t>> eachSignalDbgInfo;
 
-    for (auto [regNameRef, ids]: codeGenInfo.regDebugInfo) {
+    for (auto [regNameRef, ids] : codeGenInfo.regDebugInfo) {
       eachRegDbgInfo.clear();
-      for (auto regId: ids) {
+      for (auto regId : ids) {
         eachRegDbgInfo.push_back(std::make_tuple(regId, codeGenInfo.regPool[regId].bitWidth));
       }
       debugInfo.regDebugInfo[regNameRef.str()] = eachRegDbgInfo;
     }
-    for (auto [memNameRef, ids]: codeGenInfo.memDebugInfo) {
+    for (auto [memNameRef, ids] : codeGenInfo.memDebugInfo) {
       eachMemDbgInfo.clear();
-      for (auto memId: ids) {
+      for (auto memId : ids) {
         auto startPos = codeGenInfo.memPool[memId].memBase;
         auto bitWidth = codeGenInfo.memPool[memId].bitWidth;
         auto memDepth = codeGenInfo.memPool[memId].memDepth;
@@ -579,13 +586,13 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
       }
       debugInfo.memDebugInfo[memNameRef.str()] = eachMemDbgInfo;
     }
-    for (auto [sigNameRef, sigLocs]: codeGenInfo.signalDebugInfo) {
+    for (auto [sigNameRef, sigLocs] : codeGenInfo.signalDebugInfo) {
       eachSignalDbgInfo.clear();
       assert(sigLocs.size() != 0);
 
       bool signalIsComplete = true;
 
-      for (auto sigLoc: sigLocs) {
+      for (auto sigLoc : sigLocs) {
         auto partId = std::get<0>(sigLoc);
         auto sigId = std::get<1>(sigLoc);
         auto sigBitWidth = std::get<2>(sigLoc);
@@ -602,22 +609,23 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     }
   }
 
-  void saveDebugGraph(std::filesystem::path graphDirectory, const PartitioningGraph &rawGraph, const PartitioningGraph &mpGraph) {
+  void saveDebugGraph(std::filesystem::path graphDirectory, const PartitioningGraph &rawGraph,
+                      const PartitioningGraph &mpGraph) {
     const char *rawGraphName = "rawGraph.graph";
-    const char* mpGraphName = "mpGraph.graph";
+    const char *mpGraphName = "mpGraph.graph";
 
     auto rawGraphSucc = RepCutPartitioner::dumpGraphToFile(rawGraph, graphDirectory / rawGraphName);
     assert(mlir::succeeded(rawGraphSucc));
 
     mlir::SmallVector<uint32_t> allNodes;
-    for (auto v: boost::make_iterator_range(boost::vertices(mpGraph))) {
+    for (auto v : boost::make_iterator_range(boost::vertices(mpGraph))) {
       allNodes.push_back(v);
     }
-    auto mpGraphSucc = PartitioningManager::dumpGraphToFileForMicroPartitioner(mpGraph, allNodes, graphDirectory / mpGraphName);
+    auto mpGraphSucc =
+        PartitioningManager::dumpGraphToFileForMicroPartitioner(mpGraph, allNodes, graphDirectory / mpGraphName);
 
     assert(mlir::succeeded(mpGraphSucc));
   }
-
 
   void runOnOperation() final {
     // Mark all analyses as preserved. This is a read only pass
@@ -633,7 +641,6 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
       return;
     }
 
-    
     {
       // Note: In this step, small parts at same level are not merged. This is done in scheduler
       auto ret = pm.runStage1MicroPartitioner(graph.g);
@@ -670,12 +677,11 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
 
       // verify exchange index. can be removed
       assert(pm.exchangeValPool.size() == pm.exchangeValues.size());
-      for (const auto &[val, idx]: pm.exchangeValues) {
+      for (const auto &[val, idx] : pm.exchangeValues) {
         assert(idx < pm.exchangeValPool.size());
         assert(pm.exchangeValPool[idx] == val);
       }
     }
-
 
     // Schedule
     llvm::outs() << "================== Schedule operations ==================\n";
@@ -698,17 +704,13 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     }
 
     // To use this, run with -debug-only=GPUCodeGenPass
-    LLVM_DEBUG(
-      llvm::dbgs() << "============ Partitioning Details =============\n";
-      for (size_t partId = 0; partId < scheduler.codeGenInfo.partitionInfo.size(); partId++) {
-        llvm::dbgs() << "Part " << partId << "\n";
-        scheduler.printPartInfo(scheduler.codeGenInfo.partitionInfo[partId]);
-      }
-    );
-
+    LLVM_DEBUG(llvm::dbgs() << "============ Partitioning Details =============\n";
+               for (size_t partId = 0; partId < scheduler.codeGenInfo.partitionInfo.size(); partId++) {
+                 llvm::dbgs() << "Part " << partId << "\n";
+                 scheduler.printPartInfo(scheduler.codeGenInfo.partitionInfo[partId]);
+               });
 
     llvm::outs() << "======================= Code Gen =======================\n";
-
 
     // Fill lut
     populateLUT();
@@ -724,9 +726,9 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
 
     designInfo.regionPartitionIds.clear();
     uint32_t partId = 0;
-    for (const auto &eachRegionParts: scheduler.codeGenInfo.regionPartitionIds) {
+    for (const auto &eachRegionParts : scheduler.codeGenInfo.regionPartitionIds) {
       designInfo.regionPartitionIds.emplace_back();
-      for (const auto &eachPartId: eachRegionParts) {
+      for (const auto &eachPartId : eachRegionParts) {
         assert(eachPartId == partId);
 
         // save partition region info
@@ -740,7 +742,7 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
 
     // Fill print msgs
     designInfo.printMsgs.resize(scheduler.codeGenInfo.printStrings.size());
-    for (auto [k, v]: scheduler.codeGenInfo.printStrings) {
+    for (auto [k, v] : scheduler.codeGenInfo.printStrings) {
       assert(designInfo.printMsgs[v].empty());
       designInfo.printMsgs[v] = k;
     }
@@ -750,11 +752,9 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     populateDebugInfo(scheduler.codeGenInfo);
     assert(scheduler.codeGenInfo.ioSignals.size() != 0);
 
-    llvm::outs() << "Symbol file has " 
-      << debugInfo.regDebugInfo.size() << " register debug info, " 
-      << debugInfo.memDebugInfo.size() << " memory debug info, " 
-      << debugInfo.signalDebugInfo.size() << " signal debug info\n";
-
+    llvm::outs() << "Symbol file has " << debugInfo.regDebugInfo.size() << " register debug info, "
+                 << debugInfo.memDebugInfo.size() << " memory debug info, " << debugInfo.signalDebugInfo.size()
+                 << " signal debug info\n";
 
     llvm::outs() << "=================== Serialize Netlist ===================\n";
     // Save. serialize
@@ -769,7 +769,6 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     toucanGPUSim::deserializeSimDesignInfo(ifs_design, design_read_back);
     assert(isSimDesignInfoIdentical(designInfo, design_read_back));
 
-
     // Debug symbols
     auto outputSymbolFileFullName = std::filesystem::path(outputDirectory.getValue()) / outputSymbolFilename.getValue();
     std::ofstream ofs_symbol(outputSymbolFileFullName, std::ios::binary | std::ios::out);
@@ -780,11 +779,12 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
     debugInfo.memDebugInfo.clear();
     debugInfo.signalDebugInfo.clear();
     std::erase_if(debugInfo.regDebugInfo, [&](auto const &item) {
-      auto const& [k, v] = item;
+      auto const &[k, v] = item;
       return !(scheduler.codeGenInfo.ioSignals.contains(k));
     });
 
-    auto outputIOSymbolFileFullName = std::filesystem::path(outputDirectory.getValue()) / outputIOSymbolFilename.getValue();
+    auto outputIOSymbolFileFullName =
+        std::filesystem::path(outputDirectory.getValue()) / outputIOSymbolFilename.getValue();
     std::ofstream ofs_io_symbol(outputIOSymbolFileFullName, std::ios::binary | std::ios::out);
     toucanGPUSim::serializeSimDebugInfo(ofs_io_symbol, debugInfo);
     ofs_io_symbol.close();
@@ -793,7 +793,6 @@ struct GPUCodeGenPass : toucan::impl::GPUCodeGenBase<GPUCodeGenPass>, CodeGenHel
 
     // printDesignStatistics(designInfo);
   }
-
 };
 
 std::unique_ptr<mlir::Pass> toucan::createGPUCodeGenPass(GPUCodeGenOptions option) {

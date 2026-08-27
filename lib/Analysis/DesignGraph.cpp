@@ -1,8 +1,8 @@
-#include "circt/Dialect/HW/HWTypes.h"
-#include "circt/Support/LLVM.h"
 #include "circt/Dialect/Comb/CombDialect.h"
 #include "circt/Dialect/Comb/CombOps.h"
+#include "circt/Dialect/HW/HWTypes.h"
 #include "circt/Dialect/Seq/SeqOps.h"
+#include "circt/Support/LLVM.h"
 
 #include "mlir/IR/Value.h"
 #include "mlir/Pass/AnalysisManager.h"
@@ -26,37 +26,45 @@ using namespace mlir;
 using namespace llvm;
 using namespace circt;
 
-
 bool DesignGraph::opShouldRemoveInGraph(mlir::Operation *op) {
-  // vp.opName == 
+  // vp.opName ==
   // Dummy_DefReg,
   // Dummy_DefMem,
-  if (isa<toucan::DefRegOp>(op)
-  || isa<toucan::DefMemOp>(op)) {
-      return true;
+  if (isa<toucan::DefRegOp>(op) || isa<toucan::DefMemOp>(op)) {
+    return true;
   }
   return false;
 }
 
-static uint32_t getOpWeight(Operation* op) {
-  if (isa<toucan::LUTOp>(op)) return 10;
+static uint32_t getOpWeight(Operation *op) {
+  if (isa<toucan::LUTOp>(op))
+    return 10;
   if (auto vecDeclOp = dyn_cast<toucan::DefVectorOp>(op)) {
     auto vecSize = vecDeclOp.getHandle().getType().getLength();
     return vecSize * 7;
   }
-  if (isa<toucan::RegReadOp>(op)) return 10;
+  if (isa<toucan::RegReadOp>(op))
+    return 10;
 
   // terminal ops: their input values are alive to the last. Don't produce any value
-  if (isa<toucan::RegWriteOp>(op)) return 5;
-  if (isa<toucan::MemWriteOp>(op)) return 200;
-  if (isa<toucan::PrintOp>(op)) return 5;
-  if (isa<toucan::StopOp>(op)) return 5;
+  if (isa<toucan::RegWriteOp>(op))
+    return 5;
+  if (isa<toucan::MemWriteOp>(op))
+    return 200;
+  if (isa<toucan::PrintOp>(op))
+    return 5;
+  if (isa<toucan::StopOp>(op))
+    return 5;
   // Consts and const vecs don't have place in smem
-  if (isa<toucan::ConstantOp>(op)) return 0;
-  if (isa<toucan::DefConstVectorOp>(op)) return 0;
+  if (isa<toucan::ConstantOp>(op))
+    return 0;
+  if (isa<toucan::DefConstVectorOp>(op))
+    return 0;
   // Static segment read ops are just pointer to certain place of vector value
-  if (isa<toucan::StaticVectorSegmentReadOp>(op)) return 0;
-  if (isa<toucan::MemReadOp>(op)) return 200;
+  if (isa<toucan::StaticVectorSegmentReadOp>(op))
+    return 0;
+  if (isa<toucan::MemReadOp>(op))
+    return 200;
   // if (isa<toucan::VectorArithOp>(op)) return 10;
   if (auto vecLogicOp = dyn_cast<toucan::VectorLogicOp>(op)) {
     auto vecLength = vecLogicOp.getV1().getType().getLength();
@@ -67,12 +75,13 @@ static uint32_t getOpWeight(Operation* op) {
     return vecLength * 10;
   }
   // if (isa<toucan::VectorLogicOp>(op)) return 10;
-  if (isa<toucan::VectorReadOp>(op)) return 10;
+  if (isa<toucan::VectorReadOp>(op))
+    return 10;
 
   return 10;
 }
 
-static uint32_t getOpCount(Operation* op) {
+static uint32_t getOpCount(Operation *op) {
   if (auto vecDeclOp = dyn_cast<toucan::DefVectorOp>(op)) {
     auto vecSize = vecDeclOp.getHandle().getType().getLength();
     return vecSize;
@@ -80,23 +89,38 @@ static uint32_t getOpCount(Operation* op) {
   return 1;
 }
 
-static CGToucanOPName getOpName(Operation* op) {
-  if (isa<toucan::ConstantOp>(op) || isa<toucan::DefConstVectorOp>(op)) return CGToucanOPName::ConstDecl;
-  if (isa<toucan::LUTOp>(op)) return CGToucanOPName::LUT;
-  if (isa<toucan::DefVectorOp>(op)) return CGToucanOPName::VecDecl;
-  if (isa<toucan::VectorReadOp>(op)) return CGToucanOPName::VecRead;
-  if (isa<toucan::PrintOp>(op)) return CGToucanOPName::Print;
-  if (isa<toucan::StopOp>(op)) return CGToucanOPName::Stop;
-  if (isa<toucan::RegReadOp>(op)) return CGToucanOPName::RegRead;
-  if (isa<toucan::RegWriteOp>(op)) return CGToucanOPName::RegWrite;
-  if (isa<toucan::MemReadOp>(op)) return CGToucanOPName::MemRead;
-  if (isa<toucan::MemWriteOp>(op)) return CGToucanOPName::MemWrite;
-  if (isa<toucan::VectorLogicOp>(op)) return CGToucanOPName::VecLogic;
-  if (isa<toucan::VectorArithOp>(op)) return CGToucanOPName::VecArith;
-  if (isa<toucan::StaticVectorSegmentReadOp>(op)) return CGToucanOPName::VecStaticRead;
+static CGToucanOPName getOpName(Operation *op) {
+  if (isa<toucan::ConstantOp>(op) || isa<toucan::DefConstVectorOp>(op))
+    return CGToucanOPName::ConstDecl;
+  if (isa<toucan::LUTOp>(op))
+    return CGToucanOPName::LUT;
+  if (isa<toucan::DefVectorOp>(op))
+    return CGToucanOPName::VecDecl;
+  if (isa<toucan::VectorReadOp>(op))
+    return CGToucanOPName::VecRead;
+  if (isa<toucan::PrintOp>(op))
+    return CGToucanOPName::Print;
+  if (isa<toucan::StopOp>(op))
+    return CGToucanOPName::Stop;
+  if (isa<toucan::RegReadOp>(op))
+    return CGToucanOPName::RegRead;
+  if (isa<toucan::RegWriteOp>(op))
+    return CGToucanOPName::RegWrite;
+  if (isa<toucan::MemReadOp>(op))
+    return CGToucanOPName::MemRead;
+  if (isa<toucan::MemWriteOp>(op))
+    return CGToucanOPName::MemWrite;
+  if (isa<toucan::VectorLogicOp>(op))
+    return CGToucanOPName::VecLogic;
+  if (isa<toucan::VectorArithOp>(op))
+    return CGToucanOPName::VecArith;
+  if (isa<toucan::StaticVectorSegmentReadOp>(op))
+    return CGToucanOPName::VecStaticRead;
 
-  if (isa<toucan::DefRegOp>(op)) return CGToucanOPName::Dummy_DefReg;
-  if (isa<toucan::DefMemOp>(op)) return CGToucanOPName::Dummy_DefMem;
+  if (isa<toucan::DefRegOp>(op))
+    return CGToucanOPName::Dummy_DefReg;
+  if (isa<toucan::DefMemOp>(op))
+    return CGToucanOPName::Dummy_DefMem;
 
   op->print(llvm::dbgs());
   llvm_unreachable("What's this op?");
@@ -115,12 +139,12 @@ DesignGraph::DesignGraph(Operation *op, AnalysisManager &am) {
 
   PartitioningGraph rawGraph;
 
-  mlir::DenseMap<Operation*, uint32_t> rawOpToId;
+  mlir::DenseMap<Operation *, uint32_t> rawOpToId;
   rawOpToId.reserve(numOps);
 
   uint32_t vertexIdCounter = 0;
   // add all vertecies
-  for (auto &stmt: modOp.getOps()) {
+  for (auto &stmt : modOp.getOps()) {
     // a new node
 
     PartitioningGraphNodeProperty vp;
@@ -141,17 +165,15 @@ DesignGraph::DesignGraph(Operation *op, AnalysisManager &am) {
   }
 
   // add all edges
-  for (auto &stmt: modOp.getOps()) {
+  for (auto &stmt : modOp.getOps()) {
     auto vtxId = rawOpToId[&stmt];
-    for (auto user: stmt.getUsers()) {
+    for (auto user : stmt.getUsers()) {
       auto userVtxId = rawOpToId[user];
       boost::add_edge(vtxId, userVtxId, rawGraph);
     }
   }
 
   mlir::DenseSet<uint32_t> vtxToRemove;
-
-
 
   mlir::SmallVector<uint32_t> vecReaders;
   mlir::SmallVector<uint32_t> memWriters;
@@ -172,7 +194,7 @@ DesignGraph::DesignGraph(Operation *op, AnalysisManager &am) {
         assert(userOpName == CGToucanOPName::VecStaticRead);
       }
 
-      for (auto userOp: vecArithOp->getUsers()) {
+      for (auto userOp : vecArithOp->getUsers()) {
         assert(isa<toucan::StaticVectorSegmentReadOp>(userOp));
       }
     }
@@ -183,7 +205,7 @@ DesignGraph::DesignGraph(Operation *op, AnalysisManager &am) {
       if (!vecHandled_VecRead.contains(vecHandle)) {
         // a New vector
         vecReaders.clear();
-        for (auto userOp: vecHandle.getUsers()) {
+        for (auto userOp : vecHandle.getUsers()) {
           assert(isa<toucan::VectorReadOp>(userOp));
           auto vecReaderVtxId = rawOpToId[userOp];
           vecReaders.push_back(vecReaderVtxId);
@@ -211,7 +233,7 @@ DesignGraph::DesignGraph(Operation *op, AnalysisManager &am) {
         // a new vec
         // collect all StaticVectorSegmentReadOp that share same vec
         vecReaders.clear();
-        for (auto userOp: vecHandle.getUsers()) {
+        for (auto userOp : vecHandle.getUsers()) {
           assert(isa<toucan::StaticVectorSegmentReadOp>(userOp));
           auto vecReaderVtxId = rawOpToId[userOp];
           vecReaders.push_back(vecReaderVtxId);
@@ -229,7 +251,7 @@ DesignGraph::DesignGraph(Operation *op, AnalysisManager &am) {
     } else if (auto memDeclOp = dyn_cast<toucan::DefMemOp>(rawOp)) {
       // Merge multiple writers of a same memory into 1
       memWriters.clear();
-      for (auto userOp: memDeclOp->getUsers()) {
+      for (auto userOp : memDeclOp->getUsers()) {
         if (auto memWriteOp = dyn_cast<toucan::MemWriteOp>(userOp)) {
           // a new write port
           auto writerVtxId = rawOpToId[memWriteOp];
@@ -245,7 +267,7 @@ DesignGraph::DesignGraph(Operation *op, AnalysisManager &am) {
         rawGraph.mergeVerticies(topVtxId, memWriters, true);
         vtxToRemove.insert(memWriters.begin(), memWriters.end());
       }
-    } 
+    }
     // else if (auto constOp = dyn_cast<toucan::ConstantOp>(rawOp)) {
     //   // save
     //   constOps.push_back(&constOp);
@@ -257,14 +279,12 @@ DesignGraph::DesignGraph(Operation *op, AnalysisManager &am) {
       auto regVal = regDeclOp.getHandle();
       regs.insert(regVal);
     }
-    
+
     if (opShouldRemoveInGraph(rawOp)) {
       // Remove all defmem, defreg, const, const vec
       vtxToRemove.insert(vtxId);
     }
-
   }
-
 
   // Build new graph without removed nodes, since removing them is expensive
   SmallVector<uint32_t> oldIdToNewId;
@@ -298,12 +318,13 @@ DesignGraph::DesignGraph(Operation *op, AnalysisManager &am) {
     }
   }
 
+  llvm::outs() << "Raw graph has " << boost::num_vertices(rawGraph) << " vertices and " << boost::num_edges(rawGraph)
+               << " edges\n";
 
-  llvm::outs() << "Raw graph has " << boost::num_vertices(rawGraph) << " vertices and " << boost::num_edges(rawGraph) << " edges\n";
+  llvm::outs() << "After removing and merging, graph has " << boost::num_vertices(g) << " vertices and "
+               << boost::num_edges(g) << " edges\n";
 
-  llvm::outs() << "After removing and merging, graph has " << boost::num_vertices(g) << " vertices and " << boost::num_edges(g) << " edges\n";
-
-  for (auto vtx: boost::make_iterator_range(boost::vertices(g))) {
+  for (auto vtx : boost::make_iterator_range(boost::vertices(g))) {
     if (g[vtx].toucanOpName == CGToucanOPName::RegRead) {
       assert(boost::out_degree(vtx, g) != 0 && "RegRead result must have a user!");
     }
