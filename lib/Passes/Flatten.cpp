@@ -112,7 +112,7 @@ struct FlattenPass : toucan::impl::FlattenBase<FlattenPass> {
       setIOSignalMarker(regOperation);
 
       if (auto chunkDefiningOp = inputChunk.getDefiningOp()) {
-        auto nextValueName = valueNewNameAttr.getValue() + getRegNextSuffix();
+        auto nextValueName = (valueNewNameAttr.getValue() + getRegNextSuffix()).str();
         auto nextValueNameAttr = rewriter.getStringAttr(nextValueName);
 
         setSVNameHintAttr(chunkDefiningOp, nextValueNameAttr);
@@ -137,7 +137,7 @@ struct FlattenPass : toucan::impl::FlattenBase<FlattenPass> {
     // mapping.map(bodyBlock->getArguments(), inst->getOperands());
     for (auto [inputVal, valName]: zip(inst.getInputs(), inst.getArgNames()) ) {
       // input values are transformed to a register with writer only
-      auto valueNewName = instName + "." + valName.cast<StringAttr>().getValue();
+      auto valueNewName = (instName + "." + valName.cast<StringAttr>().getValue()).str();
       auto valueNewNameAttr = StringAttr::get(context, valueNewName);
 
       if (isa<seq::ClockType>(inputVal.getType()) || hw::getBitWidth(inputVal.getType()) <= 0) {
@@ -159,7 +159,7 @@ struct FlattenPass : toucan::impl::FlattenBase<FlattenPass> {
       } else {
         // input values are transformed to a register with writer only
         auto valueWidth = hw::getBitWidth(outputVal.getType());
-        auto valueNewName = instName + "." + valName.cast<StringAttr>().getValue();
+        auto valueNewName = (instName + "." + valName.cast<StringAttr>().getValue()).str();
         auto valueNewNameAttr = StringAttr::get(context, valueNewName);
 
         auto regVal = createRegAndReturnSingleReadValue(valueWidth, inst->getLoc(), rewriter, valueNewNameAttr);
@@ -227,7 +227,7 @@ struct FlattenPass : toucan::impl::FlattenBase<FlattenPass> {
       auto newVal = getMap(val);
       if (auto valDefOp = newVal.getDefiningOp()) {
         // Add namehint
-        auto newName = instName + "." + argName;
+        auto newName = (instName + "." + argName).str();
         auto namehint = builder.getStringAttr(newName);
         setSVNameHintAttr(valDefOp, namehint);
         setIOSignalMarker(valDefOp);
