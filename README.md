@@ -98,3 +98,18 @@ The compiled design is run by the [Toucan GPU runtime](https://github.com/ucsc-v
 ## License
 
 BSD 3-Clause. See `LICENSE`.
+
+## Copy-bytecode regression check
+
+The host-only checker exercises all 16 nibble values through copy-only
+micro-partitions in a compiled design. It detects lane selectors accidentally
+encoded as constants by `scheduleNOPMicroPart`.
+
+```bash
+g++ -std=c++20 -O2 -Iinclude -Iinclude/ToucanGPUSim \
+  tests/check_nop_bytecode.cpp lib/ToucanGPUSim/Serializer.cpp \
+  -o /tmp/check_nop_bytecode
+/tmp/check_nop_bytecode ../rocket-gpu/designs/rocket21-1c/rocket21-1c.bin
+```
+
+This checks copy encoding; it does not replace end-to-end GPU execution tests.

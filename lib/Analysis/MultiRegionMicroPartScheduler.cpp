@@ -1686,7 +1686,8 @@ void MultiRegionMicroPartScheduler::scheduleNOPMicroPart(CGMicroPartInfo &part, 
       inputValId});
 
     auto resultValSMemIdx = static_cast<uint16_t>(valToValId.at(resultVal));
-    part.lastLevel.push_back({static_cast<uint8_t>(opIndex), resultValSMemIdx});
+    // Shuffle operands 0..15 are constants; lanes are encoded as 32..63.
+    part.lastLevel.push_back({static_cast<uint8_t>(opIndex + 32), resultValSMemIdx});
 
     opIndex++;
   }
