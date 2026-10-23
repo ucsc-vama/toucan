@@ -2,8 +2,8 @@
 
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/MLIRContext.h"
-#include "mlir/IR/Threading.h"
 #include "mlir/IR/Operation.h"
+#include "mlir/IR/Threading.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
@@ -28,11 +28,7 @@ using namespace toucan;
 using namespace mlir;
 using namespace llvm;
 
-
-void MicroPartitioner::mergeSpecialMParts(const size_t maxOpsPerMPart) {
-  llvm_unreachable("Under construction");
-}
-
+void MicroPartitioner::mergeSpecialMParts(const size_t maxOpsPerMPart) { llvm_unreachable("Under construction"); }
 
 LogicalResult MicroPartitioner::arrangeSpecialOps(const PartitioningGraph &g, const size_t maxOpsPerMPart) {
 
@@ -45,16 +41,14 @@ LogicalResult MicroPartitioner::arrangeSpecialOps(const PartitioningGraph &g, co
   mlir::SmallVector<mlir::SmallVector<uint32_t>> excludeNodeGroupedByOp;
   excludeNodeGroupedByOp.resize(maxOpToInt + 1);
 
-  mlir::SmallVector<mlir::Operation*> specialOps;
-
-
+  mlir::SmallVector<mlir::Operation *> specialOps;
 
   for (size_t levelId = 0; levelId < numLevels; levelId++) {
     for (int i = 0; i < maxOpToInt; i++) {
       excludeNodeGroupedByOp[i].clear();
     }
 
-    for (auto eachVtx: excludeNodeLevels[levelId]) {
+    for (auto eachVtx : excludeNodeLevels[levelId]) {
       auto vtxOpName = g[eachVtx].toucanOpName;
       auto vtxOpName_int = static_cast<int>(vtxOpName);
 
@@ -65,11 +59,11 @@ LogicalResult MicroPartitioner::arrangeSpecialOps(const PartitioningGraph &g, co
     }
 
     for (int vtxOpName_int = 0; vtxOpName_int <= maxOpToInt; vtxOpName_int++) {
-      if (excludeNodeGroupedByOp[vtxOpName_int].empty()) continue;
+      if (excludeNodeGroupedByOp[vtxOpName_int].empty())
+        continue;
 
       auto vtxOpName = static_cast<CGToucanOPName>(vtxOpName_int);
       auto &vtxes = excludeNodeGroupedByOp[vtxOpName_int];
-
 
       switch (vtxOpName) {
 
@@ -82,7 +76,7 @@ LogicalResult MicroPartitioner::arrangeSpecialOps(const PartitioningGraph &g, co
 
         case CGToucanOPName::VecStaticRead:
         case CGToucanOPName::Dummy_DefReg:
-        case CGToucanOPName::Dummy_DefMem:{
+        case CGToucanOPName::Dummy_DefMem: {
           // should not appear
           llvm::errs() << "Op type " << stringifyCGToucanOPName(vtxOpName) << " should not appear in graph\n";
           return failure();
@@ -101,15 +95,15 @@ LogicalResult MicroPartitioner::arrangeSpecialOps(const PartitioningGraph &g, co
           // For those 4 ops, each part can only have 1 level
           mlir::SmallVector<NodeIdAndOpCount> idAndOpCount;
 
-          for (auto eachVtx: vtxes) {
+          for (auto eachVtx : vtxes) {
             auto opCount = g[eachVtx].opCount;
             idAndOpCount.push_back({eachVtx, opCount});
           }
-          std::sort(idAndOpCount.begin(), idAndOpCount.end(), [](const NodeIdAndOpCount&a, const NodeIdAndOpCount&b) {return a.opCount > b.opCount; });
-
+          std::sort(idAndOpCount.begin(), idAndOpCount.end(),
+                    [](const NodeIdAndOpCount &a, const NodeIdAndOpCount &b) { return a.opCount > b.opCount; });
 
           specialOps.clear();
-          for (auto [eachVtx, opCount]: idAndOpCount) {
+          for (auto [eachVtx, opCount] : idAndOpCount) {
             auto rawOp = g[eachVtx].op;
             assert(rawOp != nullptr);
             if (opCount == 1) {
@@ -120,7 +114,7 @@ LogicalResult MicroPartitioner::arrangeSpecialOps(const PartitioningGraph &g, co
               if (auto vecReadOp = dyn_cast<toucan::VectorReadOp>(rawOp)) {
                 auto vecVal = vecReadOp.getHandle();
 
-                for (auto userOp: vecVal.getUsers()) {
+                for (auto userOp : vecVal.getUsers()) {
                   if (isa<toucan::VectorReadOp>(userOp)) {
                     specialOps.push_back(userOp);
                     thisNodeOpCount++;
@@ -134,11 +128,11 @@ LogicalResult MicroPartitioner::arrangeSpecialOps(const PartitioningGraph &g, co
           }
 
           // for every maxOpsPerMPart
-          mlir::SmallVector<mlir::Operation*> thisPartOps;
+          mlir::SmallVector<mlir::Operation *> thisPartOps;
           for (size_t i = 0; i < specialOps.size(); i++) {
             thisPartOps.push_back(specialOps[i]);
 
-            if (thisPartOps.size() == maxOpsPerMPart || i+1 == specialOps.size()) {
+            if (thisPartOps.size() == maxOpsPerMPart || i + 1 == specialOps.size()) {
               auto newPart = std::make_shared<MicroPart>();
               partLevels.back().emplace_back(newPart);
               newPart->buildSpecialPart(vtxOpName, thisPartOps);
@@ -178,7 +172,7 @@ LogicalResult MicroPartitioner::arrangeSpecialOps(const PartitioningGraph &g, co
           allMemWrites.append(vtxes);
           break;
         }
-        
+
         case CGToucanOPName::ExchangeRead:
         case CGToucanOPName::ExchangeWrite: {
           llvm::errs() << "ExchangeRead and ExchangeWrite is not supported yet!\n";
@@ -199,16 +193,19 @@ LogicalResult MicroPartitioner::arrangeSpecialOps(const PartitioningGraph &g, co
 
 mlir::LogicalResult MicroPartitioner::partition() {
   auto ret = callExternalPartitioner();
-  if (failed(ret)) return ret;
+  if (failed(ret))
+    return ret;
 
   ret = loadMicroParts();
-  if (failed(ret)) return ret;
+  if (failed(ret))
+    return ret;
 
   ret = loadVectorNopMap();
-  if (failed(ret)) return ret;
+  if (failed(ret))
+    return ret;
 
   uint32_t totalNumParts = 0;
-  for (const auto &level: partLevels) {
+  for (const auto &level : partLevels) {
     totalNumParts += level.size();
   }
 
@@ -219,7 +216,6 @@ mlir::LogicalResult MicroPartitioner::partition() {
 
   return mlir::success();
 };
-
 
 mlir::LogicalResult MicroPartitioner::callExternalPartitioner() {
   if (!std::filesystem::exists(inputGraphFile)) {
@@ -233,26 +229,11 @@ mlir::LogicalResult MicroPartitioner::callExternalPartitioner() {
 
   std::string mPartMaxSizeString = std::to_string(MICRO_PARTITIONER_MAX_PART_SIZE);
 
-  llvm::StringRef args[] = {
-    microPartitionerBin,
-    "--graph",
-    inputGraphFile,
-    "--vector",
-    graphVectorInfoFile,
-    "--output",
-    outputFile,
-    "--vecmap",
-    outputVectorMapFile,
-    "--max-part-size",
-    mPartMaxSizeString
-  };
+  llvm::StringRef args[] = {microPartitionerBin, "--graph",         inputGraphFile,    "--vector",
+                            graphVectorInfoFile, "--output",        outputFile,        "--vecmap",
+                            outputVectorMapFile, "--max-part-size", mPartMaxSizeString};
 
-  std::optional<llvm::StringRef> redirects[] = {
-    std::nullopt,
-    consoleLogFile,
-    consoleLogFile
-  };
-
+  std::optional<llvm::StringRef> redirects[] = {std::nullopt, consoleLogFile, consoleLogFile};
 
   auto mpartExe = llvm::sys::findProgramByName(microPartitionerBin);
   if (!mpartExe) {
@@ -265,7 +246,7 @@ mlir::LogicalResult MicroPartitioner::callExternalPartitioner() {
   if (result != 0) {
     llvm::errs() << "MicroPart partitioner returns non-zero code: " << result << "\n";
     llvm::errs() << "Partitioner at: " << mpartExe.get() << "\n";
-    for (const auto &eachArg: args) {
+    for (const auto &eachArg : args) {
       llvm::errs() << eachArg << " ";
     }
     llvm::errs() << "\n";
@@ -276,21 +257,23 @@ mlir::LogicalResult MicroPartitioner::callExternalPartitioner() {
   return success();
 }
 
-
-static bool testIsInteger(const std::string& s) {
-  if (s.empty()) return false;
+static bool testIsInteger(const std::string &s) {
+  if (s.empty())
+    return false;
   size_t start = 0;
   if (s[0] == '-' || s[0] == '+') { // Handle signs
-      start = 1;
-      if (s.size() == 1) return false; // Only a sign is invalid
+    start = 1;
+    if (s.size() == 1)
+      return false; // Only a sign is invalid
   }
   for (size_t i = start; i < s.size(); i++) {
-      if (!isdigit(s[i])) return false;
+    if (!isdigit(s[i]))
+      return false;
   }
   return true;
 }
 
-static bool checkIsValidIntegerTokenAndReport(uint32_t lineno, std::string& s) {
+static bool checkIsValidIntegerTokenAndReport(uint32_t lineno, std::string &s) {
   if (!testIsInteger(s)) {
     errs() << "Error on stoi at line " << lineno << ": [" << s << "]\n";
     return false;
@@ -320,15 +303,18 @@ mlir::LogicalResult MicroPartitioner::loadMicroParts() {
     split_line.clear();
     boost::split(split_line, line, boost::is_any_of(" "));
 
-    if (split_line[0].size() != 1) return failure();
+    if (split_line[0].size() != 1)
+      return failure();
 
     if (split_line[0] == "L") {
       // a new level
-      if (split_line.size() != 2) return failure();
+      if (split_line.size() != 2)
+        return failure();
 
       checkIsValidIntegerTokenAndReport(lineno, split_line[1]);
       levelId = std::stoi(split_line[1]);
-      if (levelId != static_cast<int>(partLevels.size())) return failure();
+      if (levelId != static_cast<int>(partLevels.size()))
+        return failure();
 
       partLevels.emplace_back();
       // avoid frequent reallocation.
@@ -336,14 +322,15 @@ mlir::LogicalResult MicroPartitioner::loadMicroParts() {
       excludeNodeLevels.emplace_back();
     } else if (split_line[0] == "e") {
       // Exclude nodes
-      if (split_line.size() < 2) return failure();
+      if (split_line.size() < 2)
+        return failure();
 
       mlir::SmallVector<uint32_t> thisLevelExcludeNodes;
       for (size_t i = 1; i < split_line.size(); i++) {
         if (!checkIsValidIntegerTokenAndReport(lineno, split_line[i])) {
           // something is wrong!
           errs() << "Error on exclude part parsing\n";
-          for (auto &t: split_line) {
+          for (auto &t : split_line) {
             errs() << "[" << t << "] ";
           }
           errs() << "\n";
@@ -375,7 +362,7 @@ mlir::LogicalResult MicroPartitioner::loadMicroParts() {
           if (!checkIsValidIntegerTokenAndReport(lineno, split_line[i])) {
             // something is wrong!
             errs() << "Error on normal part parsing\n";
-            for (auto &t: split_line) {
+            for (auto &t : split_line) {
               errs() << "[" << t << "] ";
             }
             errs() << "\n";
@@ -400,10 +387,11 @@ mlir::LogicalResult MicroPartitioner::loadMicroParts() {
       llvm::errs() << "Cannot parse line\n" << line;
       return failure();
     }
-    lineno ++;
+    lineno++;
   }
 
-  // Note: It's possible to collect more nodes than repcut nodes, since some VecDecl nodes are converted to multiple NOPs by MicroPart partitioner
+  // Note: It's possible to collect more nodes than repcut nodes, since some VecDecl nodes are converted to multiple
+  // NOPs by MicroPart partitioner
 
   return success();
 }
@@ -422,18 +410,20 @@ mlir::LogicalResult MicroPartitioner::loadVectorNopMap() {
   std::vector<uint32_t> lineValues;
 
   while (std::getline(file, line)) {
-    if (line.empty()) return failure();
+    if (line.empty())
+      return failure();
 
     split_line.clear();
     boost::split(split_line, line, boost::is_any_of(" "));
-    if (split_line.size() <= 1) return failure();
+    if (split_line.size() <= 1)
+      return failure();
 
     lineValues.clear();
-    for (auto eachToken: split_line) {
+    for (auto eachToken : split_line) {
       if (!checkIsValidIntegerTokenAndReport(lineno, eachToken)) {
         // something is wrong!
         errs() << "Error on parsing\nTokens:";
-        for (auto &t: split_line) {
+        for (auto &t : split_line) {
           errs() << "[" << t << "] ";
         }
         errs() << "\n";
@@ -459,11 +449,11 @@ mlir::LogicalResult MicroPartitioner::loadVectorNopMap() {
 void MicroPartitioner::collectPartIOValues(mlir::MLIRContext *context, const PartitioningGraph &g) {
   // 1. find map from new node id to original vecDecl Id
 
-  for (const auto &[vecDeclId, vecNewNodes]: outputVectorNopMap) {
+  for (const auto &[vecDeclId, vecNewNodes] : outputVectorNopMap) {
     assert(originalVectorElementsMap.contains(vecDeclId));
 
-    for (const auto &eachNewNode: vecNewNodes) {
-      // Note: it's possible that eachNewNode exists in g.g due to name conflict: 
+    for (const auto &eachNewNode : vecNewNodes) {
+      // Note: it's possible that eachNewNode exists in g.g due to name conflict:
       // each partition only have partial view of the original graph
       newNodeIdToOriginalVecDeclId[eachNewNode] = vecDeclId;
     }
@@ -481,13 +471,14 @@ void MicroPartitioner::collectPartIOValues(mlir::MLIRContext *context, const Par
   // 2. collect for all parts
   // uint32_t levelId = 0;
   // consider parallel
-  for (auto &eachPartLevel: partLevels) {
+  for (auto &eachPartLevel : partLevels) {
     size_t numMPartThisLevel = eachPartLevel.size();
 
     auto allPartGood = mlir::failableParallelForEachN(context, 0, numMPartThisLevel, [&](size_t partIndexInThisLevel) {
       auto eachPart = eachPartLevel[partIndexInThisLevel];
 
-      auto partGood = eachPart->checkAndCollectIOValues(g, allNodes, newNodeIdToDepNodeId, newNodeIdToOriginalVecDeclId, outputVectorNopMap);
+      auto partGood = eachPart->checkAndCollectIOValues(g, allNodes, newNodeIdToDepNodeId, newNodeIdToOriginalVecDeclId,
+                                                        outputVectorNopMap);
 
       if (!partGood) {
         llvm::errs() << "Error when checking micro parts\n";
@@ -502,4 +493,3 @@ void MicroPartitioner::collectPartIOValues(mlir::MLIRContext *context, const Par
     }
   }
 }
-

@@ -10,24 +10,23 @@
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/Threading.h"
 #include "mlir/IR/Visitors.h"
 #include "mlir/Support/LLVM.h"
-#include "mlir/IR/Threading.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/STLExtras.h"
 
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/Mutex.h"
+#include "llvm/Support/raw_ostream.h"
 
-#include <memory>
 #include <atomic>
-
+#include <memory>
 
 #define GEN_PASS_DEF_SPLITFIRMEMRWPORTS
 #include "toucan/ToucanPassCommon.h"
@@ -43,7 +42,7 @@ using namespace llvm;
 
 static std::atomic<uint64_t> splittedRWPortsInModules;
 
-struct FirMemRWPortRewrite: OpRewritePattern<seq::FirMemReadWriteOp> {
+struct FirMemRWPortRewrite : OpRewritePattern<seq::FirMemReadWriteOp> {
   using OpRewritePattern<seq::FirMemReadWriteOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(seq::FirMemReadWriteOp op, PatternRewriter &rewriter) const final {
@@ -80,7 +79,6 @@ struct FirMemRWPortRewrite: OpRewritePattern<seq::FirMemReadWriteOp> {
   }
 };
 
-
 struct SplitFirMemRWPortsPass : toucan::impl::SplitFirMemRWPortsBase<SplitFirMemRWPortsPass> {
   using SplitFirMemRWPortsBase<SplitFirMemRWPortsPass>::SplitFirMemRWPortsBase;
 
@@ -95,29 +93,27 @@ struct SplitFirMemRWPortsPass : toucan::impl::SplitFirMemRWPortsBase<SplitFirMem
     return success();
   }
 
-
   LogicalResult runOnModule(hw::HWModuleOp mod) {
-    SmallVector<Operation*> toRemove;
+    SmallVector<Operation *> toRemove;
 
     return applyPatternsAndFoldGreedily(mod, *patterns);
   }
-
 
   void runOnOperation() final {
     auto mod = getOperation();
 
     SmallVector<hw::HWModuleOp> modulesToProcess;
 
-    for(auto & inner: mod.getOps()) {
-      if(auto mod = dyn_cast<hw::HWModuleOp>(&inner)) {
+    for (auto &inner : mod.getOps()) {
+      if (auto mod = dyn_cast<hw::HWModuleOp>(&inner)) {
         modulesToProcess.push_back(mod);
       }
     }
 
-    auto result = mlir::failableParallelForEach(&getContext(), modulesToProcess.begin(), modulesToProcess.end(), [&](auto mod) {
-      return runOnModule(mod);
-    });
-    if (failed(result)) return signalPassFailure();
+    auto result = mlir::failableParallelForEach(&getContext(), modulesToProcess.begin(), modulesToProcess.end(),
+                                                [&](auto mod) { return runOnModule(mod); });
+    if (failed(result))
+      return signalPassFailure();
 
     splittedRWPorts = splittedRWPortsInModules;
   }

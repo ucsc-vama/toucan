@@ -1,34 +1,33 @@
 
-#include "circt/Dialect/HW/HWTypes.h"
-#include "circt/Support/LLVM.h"
 #include "circt/Dialect/Comb/CombDialect.h"
 #include "circt/Dialect/Comb/CombOps.h"
+#include "circt/Dialect/HW/HWTypes.h"
 #include "circt/Dialect/Seq/SeqOps.h"
+#include "circt/Support/LLVM.h"
 
 #include "mlir/IR/Builders.h"
-#include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/Operation.h"
+#include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/Threading.h"
 #include "mlir/IR/Visitors.h"
 #include "mlir/Support/LLVM.h"
-#include "mlir/IR/Threading.h"
 #include "mlir/Support/LogicalResult.h"
 #include "toucan/ToucanTypes.h"
 
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/STLExtras.h"
 
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include <atomic>
 #include <memory>
 #include <string>
-#include <atomic>
-
 
 #define GEN_PASS_DEF_LOWERREGMEMTO4B
 #include "toucan/ToucanPassCommon.h"
@@ -52,10 +51,10 @@ struct LowerRegMemTo4BPass : toucan::impl::LowerRegMemTo4BBase<LowerRegMemTo4BPa
   using LowerRegMemTo4BBase<LowerRegMemTo4BPass>::LowerRegMemTo4BBase;
 
   LogicalResult runOnModule(hw::HWModuleOp mod) {
-    SmallVector<Operation*> toRemove;
+    SmallVector<Operation *> toRemove;
     circt::DenseSet<mlir::Value> processedRegs;
 
-    for (auto &stmt: mod.getOps()) {
+    for (auto &stmt : mod.getOps()) {
       if (auto regOp = dyn_cast<toucan::DefRegOp>(stmt)) {
         regsBeforeInModule++;
 
@@ -79,7 +78,7 @@ struct LowerRegMemTo4BPass : toucan::impl::LowerRegMemTo4BBase<LowerRegMemTo4BPa
           auto chunks = split_signal_4B(regBitWidth);
           regsAfterInModule += chunks.size();
 
-          for (auto [regId, regWidth]: chunks) {
+          for (auto [regId, regWidth] : chunks) {
             auto regDataType = rewriter.getIntegerType(regWidth);
 
             auto newRegOp_4B = rewriter.create<toucan::DefRegOp>(regOp.getLoc(), regDataType);
@@ -93,17 +92,17 @@ struct LowerRegMemTo4BPass : toucan::impl::LowerRegMemTo4BBase<LowerRegMemTo4BPa
             setSignalFragmentIDAttr(newRegOp_4B, fragmentId);
 
             newRegInfos.push_back({fragmentId, regWidth, newRegHandle, namehint});
-          } 
+          }
           toRemove.push_back(regOp);
 
-          for (auto op: regHandle.getUsers()) {
+          for (auto op : regHandle.getUsers()) {
             rewriter.setInsertionPointAfter(op);
 
             if (auto regReadOp = dyn_cast<toucan::RegReadOp>(op)) {
               // reads this register
               SmallVector<mlir::Value> regReadValues_4B;
 
-              for (auto [regId_4b, regWidth_4b, regHandle_4b, regNameHint_4b]: newRegInfos) {
+              for (auto [regId_4b, regWidth_4b, regHandle_4b, regNameHint_4b] : newRegInfos) {
 
                 auto regReadOp_4b = rewriter.create<toucan::RegReadOp>(regReadOp->getLoc(), regHandle_4b);
 
@@ -113,8 +112,8 @@ struct LowerRegMemTo4BPass : toucan::impl::LowerRegMemTo4BBase<LowerRegMemTo4BPa
                 regReadValues_4B.push_back(regReadOp_4b.getResult());
               }
 
-              // auto bitAggregator = rewriter.create<toucan::BitAggregateOp>(regReadOp->getLoc(), regReadValues_4B);
-              // rewriter.replaceAllUsesWith(regReadOp, bitAggregator);
+              // auto bitAggregator = rewriter.create<toucan::BitAggregateOp>(regReadOp->getLoc(),
+              // regReadValues_4B); rewriter.replaceAllUsesWith(regReadOp, bitAggregator);
               auto bitConcatOp = rewriter.create<comb::ConcatOp>(regReadOp->getLoc(), regReadValues_4B);
               rewriter.replaceAllUsesWith(regReadOp, bitConcatOp);
 
@@ -122,9 +121,10 @@ struct LowerRegMemTo4BPass : toucan::impl::LowerRegMemTo4BBase<LowerRegMemTo4BPa
               // writes to this register
               auto writeData = regWriteOp.getData();
 
-              for (auto [regId_4b, regWidth_4b, regHandle_4b, regNameHint_4b]: newRegInfos) {
+              for (auto [regId_4b, regWidth_4b, regHandle_4b, regNameHint_4b] : newRegInfos) {
 
-                auto signalExtractOp = rewriter.create<comb::ExtractOp>(regWriteOp.getLoc(), writeData, regId_4b.getInt() * 4, regWidth_4b);
+                auto signalExtractOp = rewriter.create<comb::ExtractOp>(regWriteOp.getLoc(), writeData,
+                                                                        regId_4b.getInt() * 4, regWidth_4b);
                 auto writeData_4b = signalExtractOp.getResult();
 
                 rewriter.create<toucan::RegWriteOp>(regWriteOp->getLoc(), writeData_4b, regHandle_4b);
@@ -147,7 +147,7 @@ struct LowerRegMemTo4BPass : toucan::impl::LowerRegMemTo4BBase<LowerRegMemTo4BPa
             // set name hint
             setSVNameHintAttr(regOp, namehint);
             // Set fragment Id
-            auto fragmentId = rewriter.getI32IntegerAttr( 0);
+            auto fragmentId = rewriter.getI32IntegerAttr(0);
             setSignalFragmentIDAttr(regOp, fragmentId);
           }
         }
@@ -173,7 +173,7 @@ struct LowerRegMemTo4BPass : toucan::impl::LowerRegMemTo4BBase<LowerRegMemTo4BPa
           auto chunks = split_signal_4B(memWidth);
           memsAfterInModule += chunks.size();
 
-          for (auto [newMemId, newMemWidth]: chunks) {
+          for (auto [newMemId, newMemWidth] : chunks) {
 
             auto newMemElemType = rewriter.getIntegerType(newMemWidth);
             auto newMemDataType = rewriter.getType<toucan::MemType>(memDepth, newMemElemType);
@@ -195,8 +195,10 @@ struct LowerRegMemTo4BPass : toucan::impl::LowerRegMemTo4BBase<LowerRegMemTo4BPa
               auto fragmentsInEachMask = (memWidth + 3) / 4;
               fragmentId_raw = (originalMemPos / memWidth) * (fragmentsInEachMask) + newMemId;
 
-              if (namehint == "TestHarness.ldut.tile_prci_domain_1.tile_reset_domain.boom_tile.frontend.bpd.banked_predictors_0.components_1.tables_2.lo_us") {
-                llvm::dbgs() << "Found mem with accumulated_mem_width " << originalMemPos << ", mem id " << newMemId << ", new fragment id " << fragmentId_raw << "\n";
+              if (namehint == "TestHarness.ldut.tile_prci_domain_1.tile_reset_domain.boom_tile.frontend."
+                              "bpd.banked_predictors_0.components_1.tables_2.lo_us") {
+                llvm::dbgs() << "Found mem with accumulated_mem_width " << originalMemPos << ", mem id " << newMemId
+                             << ", new fragment id " << fragmentId_raw << "\n";
               }
             } else {
               fragmentId_raw = newMemId;
@@ -205,13 +207,11 @@ struct LowerRegMemTo4BPass : toucan::impl::LowerRegMemTo4BBase<LowerRegMemTo4BPa
             auto fragmentId = rewriter.getIntegerAttr(rewriter.getIntegerType(32), fragmentId_raw);
             setSignalFragmentIDAttr(newMemOp_4B, fragmentId);
 
-
             newMemInfos.push_back({fragmentId, newMemId, newMemWidth, newMemHandle, namehint});
-          } 
+          }
           toRemove.push_back(memOp);
 
-
-          for (auto op: memOp->getUsers()) {
+          for (auto op : memOp->getUsers()) {
             rewriter.setInsertionPointAfter(op);
 
             if (auto memReadOp = dyn_cast<toucan::MemReadOp>(op)) {
@@ -220,9 +220,10 @@ struct LowerRegMemTo4BPass : toucan::impl::LowerRegMemTo4BBase<LowerRegMemTo4BPa
               auto memReadEn = memReadOp.getEn();
               auto memReadAddrVec = memReadOp.getAddrVec();
 
-              for (auto [fragmentId, memId_4b, memWidth_4b, memHandle_4b, memNameHint_4b]: newMemInfos) {
+              for (auto [fragmentId, memId_4b, memWidth_4b, memHandle_4b, memNameHint_4b] : newMemInfos) {
 
-                auto memReadOp_4b = rewriter.create<toucan::MemReadOp>(memReadOp->getLoc(), memHandle_4b, memReadAddrVec, memReadEn);
+                auto memReadOp_4b =
+                    rewriter.create<toucan::MemReadOp>(memReadOp->getLoc(), memHandle_4b, memReadAddrVec, memReadEn);
 
                 setSVNameHintAttr(memReadOp_4b, memNameHint_4b);
                 setSignalFragmentIDAttr(memReadOp_4b, fragmentId);
@@ -230,8 +231,8 @@ struct LowerRegMemTo4BPass : toucan::impl::LowerRegMemTo4BBase<LowerRegMemTo4BPa
                 memReadValues_4B.push_back(memReadOp_4b.getResult());
               }
 
-              // auto bitAggregator = rewriter.create<toucan::BitAggregateOp>(regReadOp->getLoc(), regReadValues_4B);
-              // rewriter.replaceAllUsesWith(regReadOp, bitAggregator);
+              // auto bitAggregator = rewriter.create<toucan::BitAggregateOp>(regReadOp->getLoc(),
+              // regReadValues_4B); rewriter.replaceAllUsesWith(regReadOp, bitAggregator);
               auto bitConcatOp = rewriter.create<comb::ConcatOp>(memReadOp->getLoc(), memReadValues_4B);
               rewriter.replaceAllUsesWith(memReadOp, bitConcatOp);
 
@@ -241,12 +242,14 @@ struct LowerRegMemTo4BPass : toucan::impl::LowerRegMemTo4BBase<LowerRegMemTo4BPa
               auto memWriteAddrVec = memWriteOp.getAddrVec();
               auto memWriteEn = memWriteOp.getEn();
 
-              for (auto [fragmentId, memId_4b, memWidth_4b, memHandle_4b, memNameHint_4b]: newMemInfos) {
+              for (auto [fragmentId, memId_4b, memWidth_4b, memHandle_4b, memNameHint_4b] : newMemInfos) {
 
-                auto signalExtractOp = rewriter.create<comb::ExtractOp>(memWriteOp.getLoc(), memWriteData, memId_4b * 4, memWidth_4b);
+                auto signalExtractOp =
+                    rewriter.create<comb::ExtractOp>(memWriteOp.getLoc(), memWriteData, memId_4b * 4, memWidth_4b);
                 auto writeData_4b = signalExtractOp.getResult();
 
-                rewriter.create<toucan::MemWriteOp>(memWriteOp->getLoc(), memHandle_4b, memWriteAddrVec, writeData_4b, memWriteEn);
+                rewriter.create<toucan::MemWriteOp>(memWriteOp->getLoc(), memHandle_4b, memWriteAddrVec, writeData_4b,
+                                                    memWriteEn);
 
                 // setSVNameHintAttr(regReadOp_4b, regNameHint_4b);
                 // setSignalFragmentIDAttr(regReadOp_4b, regId_4b);
@@ -281,12 +284,12 @@ struct LowerRegMemTo4BPass : toucan::impl::LowerRegMemTo4BBase<LowerRegMemTo4BPa
               setSignalFragmentIDAttr(memOp, fragmentId);
             }
           }
-          
         }
       }
     }
 
-    for (auto op: llvm::reverse(toRemove)) op->erase();
+    for (auto op : llvm::reverse(toRemove))
+      op->erase();
 
     return success();
   }
@@ -300,8 +303,8 @@ struct LowerRegMemTo4BPass : toucan::impl::LowerRegMemTo4BBase<LowerRegMemTo4BPa
     memsAfterInModule = 0;
 
     SmallVector<hw::HWModuleOp> modulesToProcess;
-    for(auto & inner: mod.getOps()) {
-      if(auto mod = dyn_cast<hw::HWModuleOp>(&inner)) {
+    for (auto &inner : mod.getOps()) {
+      if (auto mod = dyn_cast<hw::HWModuleOp>(&inner)) {
         modulesToProcess.push_back(mod);
       }
     }
@@ -312,19 +315,16 @@ struct LowerRegMemTo4BPass : toucan::impl::LowerRegMemTo4BBase<LowerRegMemTo4BPa
     // }
 
     // Parallel
-    auto result = mlir::failableParallelForEach(&getContext(), modulesToProcess.begin(), modulesToProcess.end(), [&](auto mod) {
-      return runOnModule(mod);
-    });
-    if (failed(result)) return signalPassFailure();
+    auto result = mlir::failableParallelForEach(&getContext(), modulesToProcess.begin(), modulesToProcess.end(),
+                                                [&](auto mod) { return runOnModule(mod); });
+    if (failed(result))
+      return signalPassFailure();
 
     numRegsBefore = regsBeforeInModule;
     numRegsAfter = regsAfterInModule;
     numMemsBefore = memsBeforeInModule;
     numMemsAfter = memsAfterInModule;
   }
-
 };
 
-std::unique_ptr<mlir::Pass> toucan::createLowerRegMemTo4BPass() {
-  return std::make_unique<LowerRegMemTo4BPass>();
-}
+std::unique_ptr<mlir::Pass> toucan::createLowerRegMemTo4BPass() { return std::make_unique<LowerRegMemTo4BPass>(); }

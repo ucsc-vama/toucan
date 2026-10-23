@@ -6,34 +6,55 @@ using namespace llvm;
 
 std::string toucan::stringifyCGToucanOPName(CGToucanOPName val) {
   switch (val) {
-    case CGToucanOPName::ConstDecl: return "ConstDecl";
-    case CGToucanOPName::MPart_Regular: return "MPart_Regular";
-    case CGToucanOPName::MPart_Special: return "MPart_Special";
-    case CGToucanOPName::LUT : return "LUT";
-    case CGToucanOPName::VecRead : return "VecRead";
-    case CGToucanOPName::VecDecl : return "VecDecl";
-    case CGToucanOPName::Print : return "Print";
-    case CGToucanOPName::Stop : return "Stop";
-    case CGToucanOPName::RegRead : return "RegRead";
-    case CGToucanOPName::RegWrite : return "RegWrite";
-    case CGToucanOPName::MemRead : return "MemRead";
-    case CGToucanOPName::MemWrite : return "MemWrite";
-    case CGToucanOPName::ExchangeRead : return "ExgRead";
-    case CGToucanOPName::ExchangeWrite : return "ExgWrite";
-    case CGToucanOPName::VecLogic: return "VecLogic";
-    case CGToucanOPName::VecArith: return "VecArith";
-    case CGToucanOPName::VecStaticRead: return "VecStaticRead";
+    case CGToucanOPName::ConstDecl:
+      return "ConstDecl";
+    case CGToucanOPName::MPart_Regular:
+      return "MPart_Regular";
+    case CGToucanOPName::MPart_Special:
+      return "MPart_Special";
+    case CGToucanOPName::LUT:
+      return "LUT";
+    case CGToucanOPName::VecRead:
+      return "VecRead";
+    case CGToucanOPName::VecDecl:
+      return "VecDecl";
+    case CGToucanOPName::Print:
+      return "Print";
+    case CGToucanOPName::Stop:
+      return "Stop";
+    case CGToucanOPName::RegRead:
+      return "RegRead";
+    case CGToucanOPName::RegWrite:
+      return "RegWrite";
+    case CGToucanOPName::MemRead:
+      return "MemRead";
+    case CGToucanOPName::MemWrite:
+      return "MemWrite";
+    case CGToucanOPName::ExchangeRead:
+      return "ExgRead";
+    case CGToucanOPName::ExchangeWrite:
+      return "ExgWrite";
+    case CGToucanOPName::VecLogic:
+      return "VecLogic";
+    case CGToucanOPName::VecArith:
+      return "VecArith";
+    case CGToucanOPName::VecStaticRead:
+      return "VecStaticRead";
 
-    case CGToucanOPName::ShouldNotAppear: return "ShouldNotAppear";
-    case CGToucanOPName::Dummy_DefReg: return "DefReg";
-    case CGToucanOPName::Dummy_DefMem: return "DefMem";
+    case CGToucanOPName::ShouldNotAppear:
+      return "ShouldNotAppear";
+    case CGToucanOPName::Dummy_DefReg:
+      return "DefReg";
+    case CGToucanOPName::Dummy_DefMem:
+      return "DefMem";
       // Should not appear
       break;
-    }
+  }
   llvm_unreachable("Every op name should be stringified!");
 }
 
-void toucan::PartitioningGraph::mergeVerticies(uint32_t dst, const mlir::SmallVector<uint32_t> &toMerge, bool increseOpCount) {
+void toucan::PartitioningGraph::mergeVerticies(uint32_t dst, const mlir::SmallVector<uint32_t> &toMerge,
+                                               bool increseOpCount) {
   // update edge
 
   // avoid duplicated edges
@@ -60,11 +81,11 @@ void toucan::PartitioningGraph::mergeVerticies(uint32_t dst, const mlir::SmallVe
 
   mlir::DenseSet<uint32_t> edgesToRemove;
 
-  for (auto vtxToMerge: toMerge) {
+  for (auto vtxToMerge : toMerge) {
     edgesToRemove.clear();
     mergedOpCount += g[vtxToMerge].opCount;
     auto out_edges = boost::out_edges(vtxToMerge, g);
-    for(auto ei = out_edges.first; ei != out_edges.second; ++ei) {
+    for (auto ei = out_edges.first; ei != out_edges.second; ++ei) {
       auto target = boost::target(*ei, g);
       edgesToRemove.insert(target);
       if ((target != dst)) {
@@ -72,7 +93,7 @@ void toucan::PartitioningGraph::mergeVerticies(uint32_t dst, const mlir::SmallVe
         outVtxes.insert(target);
       }
     }
-    for (const auto &target: edgesToRemove) {
+    for (const auto &target : edgesToRemove) {
       boost::remove_edge(vtxToMerge, target, g);
     }
     edgesToRemove.clear();
@@ -86,7 +107,7 @@ void toucan::PartitioningGraph::mergeVerticies(uint32_t dst, const mlir::SmallVe
         inVtxes.insert(source);
       }
     }
-    for (const auto &source: edgesToRemove) {
+    for (const auto &source : edgesToRemove) {
       boost::remove_edge(source, vtxToMerge, g);
     }
 
@@ -96,21 +117,19 @@ void toucan::PartitioningGraph::mergeVerticies(uint32_t dst, const mlir::SmallVe
   }
 
   // update op count
-  if (increseOpCount) g[dst].opCount += mergedOpCount;
+  if (increseOpCount)
+    g[dst].opCount += mergedOpCount;
 }
-
-
 
 // Custom visitor to detect cycles
 struct cycle_detector : public boost::dfs_visitor<> {
-    bool& has_cycle;
+  bool &has_cycle;
 
-    cycle_detector(bool& cycle) : has_cycle(cycle) {}
+  cycle_detector(bool &cycle) : has_cycle(cycle) {}
 
-    template <typename Edge, typename Graph>
-    void back_edge(Edge, const Graph&) {
-        has_cycle = true;  // Cycle detected
-    }
+  template <typename Edge, typename Graph> void back_edge(Edge, const Graph &) {
+    has_cycle = true; // Cycle detected
+  }
 };
 
 bool toucan::PartitioningGraph::hasCycle() const {

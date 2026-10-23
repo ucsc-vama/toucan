@@ -1,30 +1,28 @@
 
-#include "circt/Dialect/SV/SVDialect.h"
 #include "circt/Dialect/OM/OMDialect.h"
+#include "circt/Dialect/SV/SVDialect.h"
 #include "circt/Support/LLVM.h"
 
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/Operation.h"
+#include "mlir/IR/Threading.h"
 #include "mlir/IR/Visitors.h"
 #include "mlir/Support/LLVM.h"
-#include "mlir/IR/Threading.h"
 #include "mlir/Support/LogicalResult.h"
 
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/STLExtras.h"
 
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/Mutex.h"
+#include "llvm/Support/raw_ostream.h"
 
-#include <memory>
 #include <atomic>
-
-
+#include <memory>
 
 #define GEN_PASS_DEF_REMOVESVNOM
 #include "toucan/ToucanPassCommon.h"
@@ -43,23 +41,22 @@ static std::atomic<uint64_t> removedOpsInModules;
 struct RemoveSVnOMPass : toucan::impl::RemoveSVnOMBase<RemoveSVnOMPass> {
   using RemoveSVnOMBase<RemoveSVnOMPass>::RemoveSVnOMBase;
 
-  static inline bool shouldRemove(Operation * op) {
+  static inline bool shouldRemove(Operation *op) {
     auto dialect = op->getDialect();
     return isa_and_nonnull<om::OMDialect>(dialect) || isa_and_nonnull<sv::SVDialect>(dialect);
   }
 
-  static void removeOps(SmallVector<Operation*> &toRemove) {
-    for(auto op: llvm::reverse(toRemove)) {
+  static void removeOps(SmallVector<Operation *> &toRemove) {
+    for (auto op : llvm::reverse(toRemove)) {
       op->erase();
     }
   }
 
-
   LogicalResult runOnModule(hw::HWModuleOp mod) {
-    SmallVector<Operation*> toRemove;
+    SmallVector<Operation *> toRemove;
 
-    for(auto & inner: mod.getOps()) {
-      if(shouldRemove(&inner)) {
+    for (auto &inner : mod.getOps()) {
+      if (shouldRemove(&inner)) {
         toRemove.push_back(&inner);
       }
     }
@@ -72,14 +69,13 @@ struct RemoveSVnOMPass : toucan::impl::RemoveSVnOMBase<RemoveSVnOMPass> {
   void runOnOperation() final {
     auto mod = getOperation();
 
-    SmallVector<Operation*> toRemove;
+    SmallVector<Operation *> toRemove;
     SmallVector<hw::HWModuleOp> modulesToProcess;
 
-    for(auto & inner: mod.getOps()) {
-      if(auto mod = dyn_cast<hw::HWModuleOp>(&inner)) {
+    for (auto &inner : mod.getOps()) {
+      if (auto mod = dyn_cast<hw::HWModuleOp>(&inner)) {
         modulesToProcess.push_back(mod);
-      }
-      else if(shouldRemove(&inner)) {
+      } else if (shouldRemove(&inner)) {
         toRemove.push_back(&inner);
       }
     }
@@ -87,23 +83,19 @@ struct RemoveSVnOMPass : toucan::impl::RemoveSVnOMBase<RemoveSVnOMPass> {
     removeOps(toRemove);
     removedOps = toRemove.size();
 
-
     LLVM_DEBUG(llvm::dbgs() << "Found " << modulesToProcess.size() << " modules.\n");
     // for_each(modulesToProcess, [=](auto submod) {
     //   LVM_DEBUG(llvm::dbgs() << submod.getName() << "\n");
     // });
 
     // Search all modules. Less likely return OMOps
-    auto result = mlir::failableParallelForEach(&getContext(), modulesToProcess.begin(), modulesToProcess.end(), [&](auto mod) {
-      return runOnModule(mod);
-    });
+    auto result = mlir::failableParallelForEach(&getContext(), modulesToProcess.begin(), modulesToProcess.end(),
+                                                [&](auto mod) { return runOnModule(mod); });
     if (failed(result))
-        return signalPassFailure();
-    
+      return signalPassFailure();
+
     removedOps += removedOpsInModules;
   }
 };
 
-std::unique_ptr<mlir::Pass> toucan::createRemoveSVnOMPass() {
-  return std::make_unique<RemoveSVnOMPass>();
-}
+std::unique_ptr<mlir::Pass> toucan::createRemoveSVnOMPass() { return std::make_unique<RemoveSVnOMPass>(); }

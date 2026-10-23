@@ -262,8 +262,6 @@ static LogicalResult toucanMain(MLIRContext &context) {
 
 int main(int argc, char ** argv) {
     llvm::InitLLVM y(argc, argv);
-    mlir::MLIRContext context;
-    // context.disableMultithreading();
     cl::HideUnrelatedOptions(mainCategory);
     toucan::registerPasses();
     mlir::registerCSEPass();
@@ -278,6 +276,9 @@ int main(int argc, char ** argv) {
     auto argsLegal = checkArgs();
     if (!argsLegal) exit(-1);
 
+    // MLIRContext reads the options registered above during construction.
+    // Construct it after parsing so --mlir-disable-threading takes effect.
+    mlir::MLIRContext context;
     auto result = toucanMain(context);
     exit(failed(result));
 }

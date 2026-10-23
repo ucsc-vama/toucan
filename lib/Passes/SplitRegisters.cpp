@@ -1,34 +1,33 @@
 
-#include "circt/Dialect/HW/HWTypes.h"
-#include "circt/Dialect/SV/SVAttributes.h"
-#include "circt/Support/LLVM.h"
 #include "circt/Dialect/Comb/CombDialect.h"
 #include "circt/Dialect/Comb/CombOps.h"
+#include "circt/Dialect/HW/HWTypes.h"
+#include "circt/Dialect/SV/SVAttributes.h"
 #include "circt/Dialect/Seq/SeqOps.h"
+#include "circt/Support/LLVM.h"
 
 #include "mlir/IR/Builders.h"
-#include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/Operation.h"
+#include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/Threading.h"
 #include "mlir/IR/Visitors.h"
 #include "mlir/Support/LLVM.h"
-#include "mlir/IR/Threading.h"
 #include "mlir/Support/LogicalResult.h"
 #include "toucan/ToucanTypes.h"
 
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/STLExtras.h"
 
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
 
-#include <memory>
 #include <atomic>
-
+#include <memory>
 
 #define GEN_PASS_DEF_SPLITREGISTERS
 #include "toucan/ToucanPassCommon.h"
@@ -50,9 +49,9 @@ struct SplitRegistersPass : toucan::impl::SplitRegistersBase<SplitRegistersPass>
   using SplitRegistersBase<SplitRegistersPass>::SplitRegistersBase;
 
   LogicalResult runOnModule(hw::HWModuleOp mod) {
-    SmallVector<Operation*> toRemove;
+    SmallVector<Operation *> toRemove;
 
-    for (auto &stmt: mod.getOps()) {
+    for (auto &stmt : mod.getOps()) {
       if (auto regOp = dyn_cast<seq::FirRegOp>(stmt)) {
         // assert(regOp.getIsAsync() == false && "Async reset registers should not appear here!");
         auto isAsyncReset = regOp.getIsAsync();
@@ -70,14 +69,13 @@ struct SplitRegistersPass : toucan::impl::SplitRegistersBase<SplitRegistersPass>
         auto nextValue = regOp.getNext();
         auto nextValueName = rewriter.getStringAttr(regName + getRegNextSuffix());
 
-
         // Declare new register in toucan
         auto regDefOp = rewriter.create<toucan::DefRegOp>(regOp.getLoc(), elemType);
         auto regDefReference = regDefOp.getHandle();
 
         setSVNameHintAttr(regDefOp, regName);
 
-        // Read 
+        // Read
         auto regReadOp = rewriter.create<toucan::RegReadOp>(regOp.getLoc(), regDefReference);
 
         if (isAsyncReset) {
@@ -97,7 +95,6 @@ struct SplitRegistersPass : toucan::impl::SplitRegistersBase<SplitRegistersPass>
           rewriter.replaceAllUsesWith(regOp.getResult(), regReadOp.getResult());
         }
 
-
         // Factor reg write
 
         if (regOp.hasReset()) {
@@ -109,13 +106,14 @@ struct SplitRegistersPass : toucan::impl::SplitRegistersBase<SplitRegistersPass>
           setSVNameHintAttr(resetWriteMux, nextValueName);
 
           // Reg write op
-          auto regWriteOp = rewriter.create<toucan::RegWriteOp>(regOp.getLoc(), resetWriteMux.getResult(), regDefReference);
+          auto regWriteOp =
+              rewriter.create<toucan::RegWriteOp>(regOp.getLoc(), resetWriteMux.getResult(), regDefReference);
           setSVNameHintAttr(regWriteOp, nextValueName);
           numResetRegsInModule++;
         } else {
           // This register don't have reset signal
           // Simply write next
-          
+
           auto regWriteOp = rewriter.create<toucan::RegWriteOp>(regOp.getLoc(), nextValue, regDefReference);
           if (nextValue.getDefiningOp() != nullptr) {
             setSVNameHintAttr(nextValue.getDefiningOp(), nextValueName);
@@ -127,7 +125,8 @@ struct SplitRegistersPass : toucan::impl::SplitRegistersBase<SplitRegistersPass>
       }
     }
 
-    for (auto op: toRemove) op->erase();
+    for (auto op : toRemove)
+      op->erase();
 
     return success();
   }
@@ -138,8 +137,8 @@ struct SplitRegistersPass : toucan::impl::SplitRegistersBase<SplitRegistersPass>
     numResetRegsInModule = 0;
 
     SmallVector<hw::HWModuleOp> modulesToProcess;
-    for(auto & inner: mod.getOps()) {
-      if(auto mod = dyn_cast<hw::HWModuleOp>(&inner)) {
+    for (auto &inner : mod.getOps()) {
+      if (auto mod = dyn_cast<hw::HWModuleOp>(&inner)) {
         modulesToProcess.push_back(mod);
       }
     }
@@ -150,17 +149,14 @@ struct SplitRegistersPass : toucan::impl::SplitRegistersBase<SplitRegistersPass>
     // }
 
     // Parallel
-    auto result = mlir::failableParallelForEach(&getContext(), modulesToProcess.begin(), modulesToProcess.end(), [&](auto mod) {
-      return runOnModule(mod);
-    });
-    if (failed(result)) return signalPassFailure();
+    auto result = mlir::failableParallelForEach(&getContext(), modulesToProcess.begin(), modulesToProcess.end(),
+                                                [&](auto mod) { return runOnModule(mod); });
+    if (failed(result))
+      return signalPassFailure();
 
     numRegs = numRegsInModule;
     numResetRegs = numResetRegsInModule;
   }
-
 };
 
-std::unique_ptr<mlir::Pass> toucan::createSplitRegistersPass() {
-  return std::make_unique<SplitRegistersPass>();
-}
+std::unique_ptr<mlir::Pass> toucan::createSplitRegistersPass() { return std::make_unique<SplitRegistersPass>(); }

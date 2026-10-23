@@ -1,13 +1,12 @@
 #include "ToucanGPUSim/ToucanGPUGenDataTypes.h"
 #include <fstream>
 
-#include <iostream>
 #include <cassert>
-#include <vector>
 #include <cstring>
+#include <iostream>
+#include <vector>
 
 using namespace toucanGPUSim;
-
 
 // // Endianness representation
 // enum class Endianness : uint8_t {
@@ -21,31 +20,26 @@ using namespace toucanGPUSim;
 //     return (*(reinterpret_cast<const uint8_t*>(&one)) == 1) ? Endianness::LittleEndian : Endianness::BigEndian;
 // }
 
-
 namespace toucanGPUSim {
 
 // Primitive type serialization
-template<typename T>
-static void serializePrimitive(std::ostream& out, const T& value) {
-  out.write(reinterpret_cast<const char*>(&value), sizeof(value));
+template <typename T> static void serializePrimitive(std::ostream &out, const T &value) {
+  out.write(reinterpret_cast<const char *>(&value), sizeof(value));
 }
 
-template<typename T>
-static void deserializePrimitive(std::istream& in, T& value) {
-  in.read(reinterpret_cast<char*>(&value), sizeof(value));
+template <typename T> static void deserializePrimitive(std::istream &in, T &value) {
+  in.read(reinterpret_cast<char *>(&value), sizeof(value));
 }
 
 // Vector serialization
-template<typename T>
-static void serializeVector(std::ostream& out, const std::vector<T>& vec) {
+template <typename T> static void serializeVector(std::ostream &out, const std::vector<T> &vec) {
   serializePrimitive(out, vec.size());
-  for (const auto& item : vec) {
+  for (const auto &item : vec) {
     serializePrimitive(out, item);
   }
 }
 
-template<typename T>
-static void deserializeVector(std::istream& in, std::vector<T>& vec) {
+template <typename T> static void deserializeVector(std::istream &in, std::vector<T> &vec) {
   size_t size;
   deserializePrimitive(in, size);
   vec.resize(size);
@@ -55,26 +49,22 @@ static void deserializeVector(std::istream& in, std::vector<T>& vec) {
 }
 
 // String serialization
-static void serializeString(std::ostream& out, const std::string& str) {
+static void serializeString(std::ostream &out, const std::string &str) {
   serializeVector(out, std::vector<char>(str.begin(), str.end()));
 }
 
-static void deserializeString(std::istream& in, std::string& str) {
+static void deserializeString(std::istream &in, std::string &str) {
   std::vector<char> vec;
   deserializeVector(in, vec);
   str.assign(vec.begin(), vec.end());
 }
 
-
-
-template<typename T1, typename T2>
-static void serializeTuple(std::ostream& out, const std::tuple<T1, T2>& value) {
+template <typename T1, typename T2> static void serializeTuple(std::ostream &out, const std::tuple<T1, T2> &value) {
   serializePrimitive(out, std::get<0>(value));
   serializePrimitive(out, std::get<1>(value));
 }
 
-template<typename T1, typename T2>
-static void deserializeTuple(std::istream& in, std::tuple<T1, T2>& value) {
+template <typename T1, typename T2> static void deserializeTuple(std::istream &in, std::tuple<T1, T2> &value) {
   T1 first;
   T2 second;
   deserializePrimitive(in, first);
@@ -82,15 +72,15 @@ static void deserializeTuple(std::istream& in, std::tuple<T1, T2>& value) {
   value = std::make_tuple(first, second);
 }
 
-template<typename T1, typename T2, typename T3>
-static void serializeTuple(std::ostream& out, const std::tuple<T1, T2, T3>& value) {
+template <typename T1, typename T2, typename T3>
+static void serializeTuple(std::ostream &out, const std::tuple<T1, T2, T3> &value) {
   serializePrimitive(out, std::get<0>(value));
   serializePrimitive(out, std::get<1>(value));
   serializePrimitive(out, std::get<2>(value));
 }
 
-template<typename T1, typename T2, typename T3>
-static void deserializeTuple(std::istream& in, std::tuple<T1, T2, T3>& value) {
+template <typename T1, typename T2, typename T3>
+static void deserializeTuple(std::istream &in, std::tuple<T1, T2, T3> &value) {
   T1 first;
   T2 second;
   T3 third;
@@ -100,16 +90,13 @@ static void deserializeTuple(std::istream& in, std::tuple<T1, T2, T3>& value) {
   value = std::make_tuple(first, second, third);
 }
 
-
-
-
-static void serializeCGMicroPartInfo(std::ostream& out, const CGMicroPartInfo& info) {
+static void serializeCGMicroPartInfo(std::ostream &out, const CGMicroPartInfo &info) {
   serializePrimitive(out, info.isLUTPart);
 
   if (info.isLUTPart) {
     serializeVector(out, info.topLevel);
     serializePrimitive(out, info.middleLevels.size());
-    for (const auto& level : info.middleLevels) {
+    for (const auto &level : info.middleLevels) {
       serializeVector(out, level);
     }
     serializeVector(out, info.lastLevel);
@@ -120,7 +107,7 @@ static void serializeCGMicroPartInfo(std::ostream& out, const CGMicroPartInfo& i
   }
 }
 
-static void deserializeCGMicroPartInfo(std::istream& in, CGMicroPartInfo& info) {
+static void deserializeCGMicroPartInfo(std::istream &in, CGMicroPartInfo &info) {
   deserializePrimitive(in, info.isLUTPart);
 
   if (info.isLUTPart) {
@@ -128,7 +115,7 @@ static void deserializeCGMicroPartInfo(std::istream& in, CGMicroPartInfo& info) 
     size_t middleLevelsSize;
     deserializePrimitive(in, middleLevelsSize);
     info.middleLevels.resize(middleLevelsSize);
-    for (auto& level : info.middleLevels) {
+    for (auto &level : info.middleLevels) {
       deserializeVector(in, level);
     }
     deserializeVector(in, info.lastLevel);
@@ -142,9 +129,7 @@ static void deserializeCGMicroPartInfo(std::istream& in, CGMicroPartInfo& info) 
   }
 }
 
-
-
-static void serializeSimPartitionInfo(std::ostream& out, const SimPartitionInfo& info) {
+static void serializeSimPartitionInfo(std::ostream &out, const SimPartitionInfo &info) {
   serializeVector(out, info.valuePool);
   serializePrimitive(out, info.valuePoolSize);
   serializeVector(out, info.constVecPool);
@@ -152,9 +137,9 @@ static void serializeSimPartitionInfo(std::ostream& out, const SimPartitionInfo&
   serializeVector(out, info.ops_l0_exchangeRead);
 
   serializePrimitive(out, info.exec_mParts.size());
-  for (const auto& mParts : info.exec_mParts) {
+  for (const auto &mParts : info.exec_mParts) {
     serializePrimitive(out, mParts.size());
-    for (const auto& mPart : mParts) {
+    for (const auto &mPart : mParts) {
       serializeCGMicroPartInfo(out, mPart);
     }
   }
@@ -162,10 +147,11 @@ static void serializeSimPartitionInfo(std::ostream& out, const SimPartitionInfo&
   serializePrimitive(out, info.op_last_regWrite);
   serializeVector(out, info.ops_last_memWrite);
   serializeVector(out, info.ops_last_print);
-  serializeVector(out, info.ops_last_stop);serializePrimitive(out, info.op_last_exchangeWrite);
+  serializeVector(out, info.ops_last_stop);
+  serializePrimitive(out, info.op_last_exchangeWrite);
 }
 
-static void deserializeSimPartitionInfo(std::istream& in, SimPartitionInfo& info) {
+static void deserializeSimPartitionInfo(std::istream &in, SimPartitionInfo &info) {
   deserializeVector(in, info.valuePool);
   deserializePrimitive(in, info.valuePoolSize);
   deserializeVector(in, info.constVecPool);
@@ -176,12 +162,12 @@ static void deserializeSimPartitionInfo(std::istream& in, SimPartitionInfo& info
   deserializePrimitive(in, exec_mPartsSize);
   info.exec_mParts.resize(exec_mPartsSize);
 
-  for (auto& mParts : info.exec_mParts) {
+  for (auto &mParts : info.exec_mParts) {
     size_t mPartsSize;
     deserializePrimitive(in, mPartsSize);
     mParts.resize(mPartsSize);
 
-    for (auto& mPart : mParts) {
+    for (auto &mPart : mParts) {
       deserializeCGMicroPartInfo(in, mPart);
     }
   }
@@ -193,10 +179,7 @@ static void deserializeSimPartitionInfo(std::istream& in, SimPartitionInfo& info
   deserializePrimitive(in, info.op_last_exchangeWrite);
 }
 
-
-
-
-void serializeSimDesignInfo(std::ostream& out, const SimDesignInfo& info) {
+void serializeSimDesignInfo(std::ostream &out, const SimDesignInfo &info) {
   serializePrimitive(out, info.regPoolSize);
   serializePrimitive(out, info.memPoolSize);
   serializePrimitive(out, info.exchangePoolSize);
@@ -207,23 +190,22 @@ void serializeSimDesignInfo(std::ostream& out, const SimDesignInfo& info) {
   serializeVector(out, info.memPool);
 
   serializePrimitive(out, info.parts.size());
-  for (const auto& part : info.parts) {
+  for (const auto &part : info.parts) {
     serializeSimPartitionInfo(out, part);
   }
 
   serializePrimitive(out, info.regionPartitionIds.size());
-  for (const auto& partitionIds : info.regionPartitionIds) {
+  for (const auto &partitionIds : info.regionPartitionIds) {
     serializeVector(out, partitionIds);
   }
 
   serializePrimitive(out, info.printMsgs.size());
-  for (const auto& msg : info.printMsgs) {
+  for (const auto &msg : info.printMsgs) {
     serializeString(out, msg);
   }
 }
 
-
-void deserializeSimDesignInfo(std::istream& in, SimDesignInfo& info) {
+void deserializeSimDesignInfo(std::istream &in, SimDesignInfo &info) {
   deserializePrimitive(in, info.regPoolSize);
   deserializePrimitive(in, info.memPoolSize);
   deserializePrimitive(in, info.exchangePoolSize);
@@ -237,7 +219,7 @@ void deserializeSimDesignInfo(std::istream& in, SimDesignInfo& info) {
   deserializePrimitive(in, partsSize);
   info.parts.resize(partsSize);
 
-  for (auto& part : info.parts) {
+  for (auto &part : info.parts) {
     deserializeSimPartitionInfo(in, part);
   }
 
@@ -245,7 +227,7 @@ void deserializeSimDesignInfo(std::istream& in, SimDesignInfo& info) {
   deserializePrimitive(in, regionPartitionIdsSize);
   info.regionPartitionIds.resize(regionPartitionIdsSize);
 
-  for (auto& partitionIds : info.regionPartitionIds) {
+  for (auto &partitionIds : info.regionPartitionIds) {
     deserializeVector(in, partitionIds);
   }
 
@@ -253,23 +235,20 @@ void deserializeSimDesignInfo(std::istream& in, SimDesignInfo& info) {
   size_t printMsgsSize;
   deserializePrimitive(in, printMsgsSize);
   info.printMsgs.resize(printMsgsSize);
-  for (auto& msg : info.printMsgs) {
+  for (auto &msg : info.printMsgs) {
     deserializeString(in, msg);
   }
 }
 
-
-
-
-void serializeSimDebugInfo(std::ostream& out, const SimDebugInfo& info) {
+void serializeSimDebugInfo(std::ostream &out, const SimDebugInfo &info) {
   // Serialize regDebugInfo
   size_t regMapSize = info.regDebugInfo.size();
   serializePrimitive(out, regMapSize);
-  for (const auto& pair : info.regDebugInfo) {
+  for (const auto &pair : info.regDebugInfo) {
     serializeString(out, pair.first);
     size_t vectorSize = pair.second.size();
     serializePrimitive(out, vectorSize);
-    for (const auto& tuple : pair.second) {
+    for (const auto &tuple : pair.second) {
       serializeTuple(out, tuple);
     }
   }
@@ -277,11 +256,11 @@ void serializeSimDebugInfo(std::ostream& out, const SimDebugInfo& info) {
   // Serialize signalDebugInfo
   size_t signalMapSize = info.signalDebugInfo.size();
   serializePrimitive(out, signalMapSize);
-  for (const auto& pair : info.signalDebugInfo) {
+  for (const auto &pair : info.signalDebugInfo) {
     serializeString(out, pair.first);
     size_t vectorSize = pair.second.size();
     serializePrimitive(out, vectorSize);
-    for (const auto& tuple : pair.second) {
+    for (const auto &tuple : pair.second) {
       serializeTuple(out, tuple);
     }
   }
@@ -289,18 +268,17 @@ void serializeSimDebugInfo(std::ostream& out, const SimDebugInfo& info) {
   // Serialize memDebugInfo similarly to regDebugInfo
   size_t memMapSize = info.memDebugInfo.size();
   serializePrimitive(out, memMapSize);
-  for (const auto& pair : info.memDebugInfo) {
+  for (const auto &pair : info.memDebugInfo) {
     serializeString(out, pair.first);
     size_t vectorSize = pair.second.size();
     serializePrimitive(out, vectorSize);
-    for (const auto& tuple : pair.second) {
+    for (const auto &tuple : pair.second) {
       serializeTuple(out, tuple);
     }
   }
 }
 
-
-void deserializeSimDebugInfo(std::istream& in, SimDebugInfo& info) {
+void deserializeSimDebugInfo(std::istream &in, SimDebugInfo &info) {
   // Deserialize regDebugInfo
   size_t regMapSize;
   deserializePrimitive(in, regMapSize);
@@ -353,51 +331,43 @@ void deserializeSimDebugInfo(std::istream& in, SimDebugInfo& info) {
   }
 }
 
+template <typename T> static bool isPODEqual(const T &a, const T &b) { return std::memcmp(&a, &b, sizeof(T)) == 0; }
 
-
-template<typename T>
-static bool isPODEqual(const T& a, const T& b) {
-  return std::memcmp(&a, &b, sizeof(T)) == 0;
-}
-
-template<typename T>
-static bool isVectorEqual(const std::vector<T>& a, const std::vector<T>& b) {
-  return a.size() == b.size() && 
-           (a.empty() || std::memcmp(a.data(), b.data(), a.size() * sizeof(T)) == 0);
+template <typename T> static bool isVectorEqual(const std::vector<T> &a, const std::vector<T> &b) {
+  return a.size() == b.size() && (a.empty() || std::memcmp(a.data(), b.data(), a.size() * sizeof(T)) == 0);
 }
 
 static bool isVectorOfStringEqual(const std::vector<std::string> &a, const std::vector<std::string> &b) {
-  if (a.size() != b.size()) return false;
+  if (a.size() != b.size())
+    return false;
   for (size_t i = 0; i < a.size(); ++i) {
-    if (!(a[i] == b[i])) return false;
+    if (!(a[i] == b[i]))
+      return false;
   }
   return true;
 }
 
-static bool isCGMicroPartInfoEqual(const CGMicroPartInfo& a, const CGMicroPartInfo& b) {
+static bool isCGMicroPartInfoEqual(const CGMicroPartInfo &a, const CGMicroPartInfo &b) {
   return a.isLUTPart == b.isLUTPart &&
-         std::memcmp(a.topLevel.data(), b.topLevel.data(), 
-                    a.topLevel.size() * sizeof(CGMicroPartLUTTopLevelOp)) == 0 &&
+         std::memcmp(a.topLevel.data(), b.topLevel.data(), a.topLevel.size() * sizeof(CGMicroPartLUTTopLevelOp)) == 0 &&
          a.middleLevels.size() == b.middleLevels.size() &&
-         [&](){
+         [&]() {
            for (size_t i = 0; i < a.middleLevels.size(); ++i) {
              if (std::memcmp(a.middleLevels[i].data(), b.middleLevels[i].data(),
-                            a.middleLevels[i].size() * sizeof(CGMicroPartLUTMiddleLevelOp)) != 0)
+                             a.middleLevels[i].size() * sizeof(CGMicroPartLUTMiddleLevelOp)) != 0)
                return false;
            }
            return true;
          }() &&
          std::memcmp(a.lastLevel.data(), b.lastLevel.data(),
-                    a.lastLevel.size() * sizeof(CGMicroPartLUTLastLevelWriteBack)) == 0 &&
-         std::memcmp(a.vecRead.data(), b.vecRead.data(),
-                    a.vecRead.size() * sizeof(CGMicroPartVecRead)) == 0 &&
+                     a.lastLevel.size() * sizeof(CGMicroPartLUTLastLevelWriteBack)) == 0 &&
+         std::memcmp(a.vecRead.data(), b.vecRead.data(), a.vecRead.size() * sizeof(CGMicroPartVecRead)) == 0 &&
          std::memcmp(a.vecArithAndLogic.data(), b.vecArithAndLogic.data(),
-                    a.vecArithAndLogic.size() * sizeof(CGMicroPartVecArithOrLogic)) == 0 &&
-         std::memcmp(a.memRead.data(), b.memRead.data(),
-                    a.memRead.size() * sizeof(CGMicroPartMemRead)) == 0;
+                     a.vecArithAndLogic.size() * sizeof(CGMicroPartVecArithOrLogic)) == 0 &&
+         std::memcmp(a.memRead.data(), b.memRead.data(), a.memRead.size() * sizeof(CGMicroPartMemRead)) == 0;
 }
 
-bool isSimDesignInfoIdentical(const SimDesignInfo& a, const SimDesignInfo& b) {
+bool isSimDesignInfoIdentical(const SimDesignInfo &a, const SimDesignInfo &b) {
   assert(a.regPoolSize == b.regPoolSize);
   assert(a.memPoolSize == b.memPoolSize);
   assert(a.exchangePoolSize == b.exchangePoolSize);
@@ -410,8 +380,8 @@ bool isSimDesignInfoIdentical(const SimDesignInfo& a, const SimDesignInfo& b) {
 
   assert(a.parts.size() == b.parts.size());
   for (size_t i = 0; i < a.parts.size(); ++i) {
-    const auto& partA = a.parts[i];
-    const auto& partB = b.parts[i];
+    const auto &partA = a.parts[i];
+    const auto &partB = b.parts[i];
 
     assert(isVectorEqual(partA.valuePool, partB.valuePool));
     assert(partA.valuePoolSize == partB.valuePoolSize);
@@ -441,6 +411,5 @@ bool isSimDesignInfoIdentical(const SimDesignInfo& a, const SimDesignInfo& b) {
 
   return true;
 }
-
 
 } // namespace toucanGPUSim

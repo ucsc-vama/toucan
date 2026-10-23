@@ -1,38 +1,37 @@
 
+#include "circt/Dialect/Comb/CombDialect.h"
+#include "circt/Dialect/Comb/CombOps.h"
 #include "circt/Dialect/HW/HWOps.h"
 #include "circt/Dialect/HW/HWTypes.h"
 #include "circt/Dialect/Seq/SeqAttributes.h"
-#include "circt/Support/LLVM.h"
-#include "circt/Dialect/Comb/CombDialect.h"
-#include "circt/Dialect/Comb/CombOps.h"
 #include "circt/Dialect/Seq/SeqOps.h"
+#include "circt/Support/LLVM.h"
 
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
-#include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/Operation.h"
+#include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/Threading.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/Visitors.h"
 #include "mlir/Support/LLVM.h"
-#include "mlir/IR/Threading.h"
 #include "mlir/Support/LogicalResult.h"
 #include "toucan/ToucanTypes.h"
 
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/STLExtras.h"
 
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include <atomic>
 #include <memory>
 #include <string>
-#include <atomic>
-
 
 #define GEN_PASS_DEF_REMOVEMEMMASK
 #include "toucan/ToucanPassCommon.h"
@@ -54,7 +53,7 @@ struct RemoveMemMaskPass : toucan::impl::RemoveMemMaskBase<RemoveMemMaskPass> {
   using RemoveMemMaskBase<RemoveMemMaskPass>::RemoveMemMaskBase;
 
   LogicalResult runOnModule(hw::HWModuleOp mod) {
-    SmallVector<Operation*> toRemove;
+    SmallVector<Operation *> toRemove;
 
     for (auto &stmt : mod.getOps()) {
       if (auto memOp = dyn_cast<seq::FirMemOp>(stmt)) {
@@ -82,12 +81,18 @@ struct RemoveMemMaskPass : toucan::impl::RemoveMemMaskBase<RemoveMemMaskPass> {
             signalPassFailure();
           }
           if (numWriters > 1) {
-            memOp->emitWarning() << "Memory %" << memName << " has a Write-Under-Write behavior of [" << seq::stringifyWUW(memOp.getWuw()) << "], which is not guaranteed. This may lead to incorrect result in simulation. (Memory has " << numWriters << " writers)";
+            memOp->emitWarning() << "Memory %" << memName << " has a Write-Under-Write behavior of ["
+                                 << seq::stringifyWUW(memOp.getWuw())
+                                 << "], which is not guaranteed. This may lead to incorrect result in "
+                                    "simulation. (Memory has "
+                                 << numWriters << " writers)";
           }
         }
 
         if (memOp.getRuw() != seq::RUW::Undefined) {
-          memOp->emitWarning() << "Memory %" << memName << " has a Read-Under-Write behavior of [" << seq::stringifyRUW(memOp.getRuw()) << "], which is not guaranteed. This may lead to incorrect result in simulation.";
+          memOp->emitWarning() << "Memory %" << memName << " has a Read-Under-Write behavior of ["
+                               << seq::stringifyRUW(memOp.getRuw())
+                               << "], which is not guaranteed. This may lead to incorrect result in simulation.";
         }
 
         if (auto maskWidth = firMemDataType.getMaskWidth()) {
@@ -99,7 +104,8 @@ struct RemoveMemMaskPass : toucan::impl::RemoveMemMaskBase<RemoveMemMaskPass> {
           numNewMemInModule += numSplittedMems;
 
           if (memWidth % (*maskWidth) != 0) {
-            memOp.emitError() << "Incorrect mask width, got " << (*maskWidth) << " for a " << memWidth << " width memory";
+            memOp.emitError() << "Incorrect mask width, got " << (*maskWidth) << " for a " << memWidth
+                              << " width memory";
             return failure();
           }
 
@@ -150,7 +156,7 @@ struct RemoveMemMaskPass : toucan::impl::RemoveMemMaskBase<RemoveMemMaskPass> {
         toRemove.push_back(memOp);
         assert(newMemValues.size() > 0);
 
-        for (auto op: memOp.getMemory().getUsers()) {
+        for (auto op : memOp.getMemory().getUsers()) {
           // Replace all memory use
           rewriter.setInsertionPointAfter(op);
           if (auto memReadOp = dyn_cast<seq::FirMemReadOp>(op)) {
@@ -178,8 +184,8 @@ struct RemoveMemMaskPass : toucan::impl::RemoveMemMaskBase<RemoveMemMaskPass> {
             } else {
               // has multiple memory
               SmallVector<mlir::Value> memReadResults;
-              
-              for (auto &newMem: newMemValues) {
+
+              for (auto &newMem : newMemValues) {
                 auto readOp = rewriter.create<toucan::MemReadOp>(op->getLoc(), newMem, memAddrVec, memEnSignal);
                 memReadResults.push_back(readOp.getResult());
 
@@ -206,10 +212,12 @@ struct RemoveMemMaskPass : toucan::impl::RemoveMemMaskBase<RemoveMemMaskPass> {
 
             auto memEnSignal = (memEn) ? memEn : constTrue;
 
-            if (newMemValues.size() == 1){
+            if (newMemValues.size() == 1) {
               auto newMem = newMemValues.front();
-              
-              auto newMemWriteOp = rewriter.create<toucan::MemWriteOp>(op->getLoc(), newMem, memAddrVec, memData, memEnSignal);auto namehint = getSVNameHintAttr(newMem.getDefiningOp()).value();
+
+              auto newMemWriteOp =
+                  rewriter.create<toucan::MemWriteOp>(op->getLoc(), newMem, memAddrVec, memData, memEnSignal);
+              auto namehint = getSVNameHintAttr(newMem.getDefiningOp()).value();
               setSVNameHintAttr(newMemWriteOp, namehint);
             } else {
               auto memMask = memWriteOp.getMask();
@@ -217,7 +225,7 @@ struct RemoveMemMaskPass : toucan::impl::RemoveMemMaskBase<RemoveMemMaskPass> {
 
               auto memLanes = newMemValues.size();
 
-              for (uint32_t memId = 0; memId < memLanes; memId ++) {
+              for (uint32_t memId = 0; memId < memLanes; memId++) {
                 auto newMem = newMemValues[memId];
                 auto maskLaneWidth = newMem.getType().cast<MemType>().getElementWidth();
 
@@ -229,12 +237,15 @@ struct RemoveMemMaskPass : toucan::impl::RemoveMemMaskBase<RemoveMemMaskPass> {
 
                 auto newMemEn = newMemEnOp.getResult();
 
-                // auto dataSliceOp = rewriter.create<comb::ExtractOp>(op->getLoc(), memData, memId * maskLaneWidth, maskLaneWidth);
-                auto dataSliceOp = rewriter.create<comb::ExtractOp>(op->getLoc(), memData, (memLanes - 1 - memId) * maskLaneWidth, maskLaneWidth);
+                // auto dataSliceOp = rewriter.create<comb::ExtractOp>(op->getLoc(), memData, memId *
+                // maskLaneWidth, maskLaneWidth);
+                auto dataSliceOp = rewriter.create<comb::ExtractOp>(
+                    op->getLoc(), memData, (memLanes - 1 - memId) * maskLaneWidth, maskLaneWidth);
                 auto dataSlice = dataSliceOp.getResult();
 
-                auto newMemWriteOp = rewriter.create<toucan::MemWriteOp>(op->getLoc(), newMem, memAddrVec, dataSlice, newMemEn);
-                
+                auto newMemWriteOp =
+                    rewriter.create<toucan::MemWriteOp>(op->getLoc(), newMem, memAddrVec, dataSlice, newMemEn);
+
                 auto namehint = getSVNameHintAttr(newMem.getDefiningOp()).value();
                 setSVNameHintAttr(newMemWriteOp, namehint);
               }
@@ -249,12 +260,11 @@ struct RemoveMemMaskPass : toucan::impl::RemoveMemMaskBase<RemoveMemMaskPass> {
       }
     }
 
-    for (auto op: llvm::reverse(toRemove)) {
+    for (auto op : llvm::reverse(toRemove)) {
       op->erase();
     }
     return success();
   }
-
 
   void runOnOperation() final {
     auto mod = getOperation();
@@ -263,8 +273,8 @@ struct RemoveMemMaskPass : toucan::impl::RemoveMemMaskBase<RemoveMemMaskPass> {
     numNewMemInModule = 0;
 
     SmallVector<hw::HWModuleOp> modulesToProcess;
-    for(auto & inner: mod.getOps()) {
-      if(auto mod = dyn_cast<hw::HWModuleOp>(&inner)) {
+    for (auto &inner : mod.getOps()) {
+      if (auto mod = dyn_cast<hw::HWModuleOp>(&inner)) {
         modulesToProcess.push_back(mod);
       }
     }
@@ -274,18 +284,15 @@ struct RemoveMemMaskPass : toucan::impl::RemoveMemMaskBase<RemoveMemMaskPass> {
     //    if (failed(ret)) return signalPassFailure();
     //  }
 
-   // Parallel
-   auto result = mlir::failableParallelForEach(&getContext(), modulesToProcess.begin(), modulesToProcess.end(), [&](auto mod) {
-     return runOnModule(mod);
-   });
-   if (failed(result)) return signalPassFailure();
+    // Parallel
+    auto result = mlir::failableParallelForEach(&getContext(), modulesToProcess.begin(), modulesToProcess.end(),
+                                                [&](auto mod) { return runOnModule(mod); });
+    if (failed(result))
+      return signalPassFailure();
 
-   numMemWithMask = numMemWithMaskInModule;
-   numNewMem = numNewMemInModule;
+    numMemWithMask = numMemWithMaskInModule;
+    numNewMem = numNewMemInModule;
   }
-
 };
 
-std::unique_ptr<mlir::Pass> toucan::createRemoveMemMaskPass() {
-  return std::make_unique<RemoveMemMaskPass>();
-}
+std::unique_ptr<mlir::Pass> toucan::createRemoveMemMaskPass() { return std::make_unique<RemoveMemMaskPass>(); }

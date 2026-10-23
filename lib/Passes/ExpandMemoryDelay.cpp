@@ -7,32 +7,28 @@
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/Operation.h"
-#include "mlir/IR/Visitors.h"
 #include "mlir/IR/PatternMatch.h"
-#include "mlir/Support/LLVM.h"
 #include "mlir/IR/Threading.h"
+#include "mlir/IR/Visitors.h"
+#include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 
-#include "llvm/ADT/SmallPtrSet.h"
-#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/STLFunctionalExtras.h"
+#include "llvm/ADT/SmallPtrSet.h"
+#include "llvm/ADT/SmallVector.h"
 
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/Format.h"
-
+#include "llvm/Support/raw_ostream.h"
 
 #include "circt/Dialect/Seq/SeqDialect.h"
 #include "circt/Dialect/Seq/SeqOps.h"
 #include "circt/Support/LLVM.h"
 
-
-#include <memory>
 #include <atomic>
-
-
+#include <memory>
 
 #define GEN_PASS_DEF_EXPANDMEMORYDELAY
 #include "toucan/ToucanPassCommon.h"
@@ -51,18 +47,12 @@ static std::atomic<uint64_t> nonOneWLMemInModule;
 static std::atomic<uint64_t> insertedRegsInModule;
 static std::atomic<uint64_t> noNameMemsInModule;
 
-static StringRef getMarkerStringRef() {
-  return "_isMemPipelineHeadingRegister";
-}
-
-
+static StringRef getMarkerStringRef() { return "_isMemPipelineHeadingRegister"; }
 
 struct ExpandMemoryDelayPass : toucan::impl::ExpandMemoryDelayBase<ExpandMemoryDelayPass> {
   using ExpandMemoryDelayBase<ExpandMemoryDelayPass>::ExpandMemoryDelayBase;
 
-  void unsetPipelineHeadingRegister(Operation *op) {
-    op->removeAttr(getMarkerStringRef());
-  }
+  void unsetPipelineHeadingRegister(Operation *op) { op->removeAttr(getMarkerStringRef()); }
 
   void markAsPipelineHeadingRegister(Operation *op) {
     op->setAttr(getMarkerStringRef(), BoolAttr::get(&getContext(), true));
@@ -76,7 +66,7 @@ struct ExpandMemoryDelayPass : toucan::impl::ExpandMemoryDelayBase<ExpandMemoryD
   }
 
   LogicalResult pipeliningMemDelayOnModule(hw::HWModuleOp &mod) {
-    for (auto &stmt: mod.getOps()) {
+    for (auto &stmt : mod.getOps()) {
       if (auto memReadOp = dyn_cast<seq::FirMemReadOp>(stmt)) {
         // For memory read ports with ReadLatency > 0
 
@@ -88,11 +78,10 @@ struct ExpandMemoryDelayPass : toucan::impl::ExpandMemoryDelayBase<ExpandMemoryD
         }
 
         if (memReadLatency > 0) {
-          LLVM_DEBUG(
-            char buffer[256];
-            format("Found memory %s with read latency of %d\n", memDefiningOp->getName().getStringRef().str().c_str(), memReadLatency).snprint(buffer, 256);
-            llvm::dbgs() << buffer
-            );
+          LLVM_DEBUG(char buffer[256]; format("Found memory %s with read latency of %d\n",
+                                              memDefiningOp->getName().getStringRef().str().c_str(), memReadLatency)
+                                           .snprint(buffer, 256);
+                     llvm::dbgs() << buffer);
 
           auto clockSignal = memReadOp.getClk();
 
@@ -107,14 +96,16 @@ struct ExpandMemoryDelayPass : toucan::impl::ExpandMemoryDelayBase<ExpandMemoryD
           seq::FirRegOp *lastReg = nullptr;
           for (uint32_t i = 0; i < memReadLatency; i++) {
             // insert a new pipeline register
-            auto regName = mlir::StringAttr::get(memReadOp->getContext(), memName.str() + "_pipeline_" + std::to_string(i));
+            auto regName =
+                mlir::StringAttr::get(memReadOp->getContext(), memName.str() + "_pipeline_" + std::to_string(i));
             auto next = (i == 0) ? memReadOp.getResult() : lastReg->getData();
             auto pipelineRegister = rewriter.create<seq::FirRegOp>(memReadOp->getLoc(), next, clockSignal, regName);
             lastReg = &pipelineRegister;
-            if (i == 0) markAsPipelineHeadingRegister(pipelineRegister);
+            if (i == 0)
+              markAsPipelineHeadingRegister(pipelineRegister);
           }
           // Replace all reference with new value, except pipelining registers
-          memReadOp.getResult().replaceUsesWithIf(lastReg->getResult(), [&](mlir::OpOperand& oprand) { 
+          memReadOp.getResult().replaceUsesWithIf(lastReg->getResult(), [&](mlir::OpOperand &oprand) {
             auto op = oprand.getOwner();
             if (isPipelineHeadingRegister(op)) {
               unsetPipelineHeadingRegister(op);
@@ -130,7 +121,7 @@ struct ExpandMemoryDelayPass : toucan::impl::ExpandMemoryDelayBase<ExpandMemoryD
         auto memWriteLatency = memDefiningOp.getWriteLatency();
 
         if (memWriteLatency != 1) {
-          nonOneWriteLatencyMems ++;
+          nonOneWriteLatencyMems++;
         }
 
         assert(memWriteLatency == 1 && "Expect memory write latency always be 1");
@@ -141,15 +132,11 @@ struct ExpandMemoryDelayPass : toucan::impl::ExpandMemoryDelayBase<ExpandMemoryD
   }
 
   LogicalResult legalizeMemoryParameterOnModule(hw::HWModuleOp &mod) {
-    for (auto &stmt: mod) {
+    for (auto &stmt : mod) {
       if (auto memOp = dyn_cast<seq::FirMemOp>(stmt)) {
         if (memOp.getReadLatency() != 0 || memOp.getWriteLatency() != 1) {
-          LLVM_DEBUG(
-            llvm::dbgs() << "Rewrite memory decl ";
-            memOp->getLoc()->print(llvm::dbgs());
-            memOp.print(llvm::dbgs());
-            llvm::dbgs() << "\n"
-            );
+          LLVM_DEBUG(llvm::dbgs() << "Rewrite memory decl "; memOp->getLoc()->print(llvm::dbgs());
+                     memOp.print(llvm::dbgs()); llvm::dbgs() << "\n");
 
           // OpBuilder builder(memOp);
           // builder.setInsertionPointAfter(memOp);
@@ -157,7 +144,6 @@ struct ExpandMemoryDelayPass : toucan::impl::ExpandMemoryDelayBase<ExpandMemoryD
 
           memOp.setReadLatency(0);
           memOp.setWriteLatency(1);
-
         }
       }
     }
@@ -165,11 +151,10 @@ struct ExpandMemoryDelayPass : toucan::impl::ExpandMemoryDelayBase<ExpandMemoryD
     return success();
   }
 
-
-
   LogicalResult runOnModule(hw::HWModuleOp mod) {
     auto ret = pipeliningMemDelayOnModule(mod);
-    if (failed(ret)) return ret;
+    if (failed(ret))
+      return ret;
 
     return legalizeMemoryParameterOnModule(mod);
   }
@@ -183,8 +168,8 @@ struct ExpandMemoryDelayPass : toucan::impl::ExpandMemoryDelayBase<ExpandMemoryD
 
     SmallVector<hw::HWModuleOp> modulesToProcess;
 
-    for(auto & inner: mod.getOps()) {
-      if(auto mod = dyn_cast<hw::HWModuleOp>(&inner)) {
+    for (auto &inner : mod.getOps()) {
+      if (auto mod = dyn_cast<hw::HWModuleOp>(&inner)) {
         modulesToProcess.push_back(mod);
       }
     }
@@ -195,10 +180,10 @@ struct ExpandMemoryDelayPass : toucan::impl::ExpandMemoryDelayBase<ExpandMemoryD
     //   if (failed(ret)) return signalPassFailure();
     // }
 
-    auto result = mlir::failableParallelForEach(&getContext(), modulesToProcess.begin(), modulesToProcess.end(), [&](auto mod) {
-      return runOnModule(mod);
-    });
-    if (failed(result)) return signalPassFailure();
+    auto result = mlir::failableParallelForEach(&getContext(), modulesToProcess.begin(), modulesToProcess.end(),
+                                                [&](auto mod) { return runOnModule(mod); });
+    if (failed(result))
+      return signalPassFailure();
 
     nonZeroReadLatencyMems = nonZeroRLMemInModule;
     nonOneWriteLatencyMems = nonOneWLMemInModule;
@@ -207,7 +192,4 @@ struct ExpandMemoryDelayPass : toucan::impl::ExpandMemoryDelayBase<ExpandMemoryD
   }
 };
 
-std::unique_ptr<mlir::Pass> toucan::createExpandMemoryDelayPass() {
-  return std::make_unique<ExpandMemoryDelayPass>();
-}
-
+std::unique_ptr<mlir::Pass> toucan::createExpandMemoryDelayPass() { return std::make_unique<ExpandMemoryDelayPass>(); }

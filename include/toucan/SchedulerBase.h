@@ -25,38 +25,37 @@
 #include <optional>
 
 #include "mlir/Support/LogicalResult.h"
+#include "toucan/MicroPartLocalValueAllocator.h"
+#include "toucan/PartitioningGraph.h"
 #include "toucan/ToucanAttributes.h"
+#include "toucan/ToucanCodeGenInfo.h"
+#include "toucan/ToucanConfigs.h"
 #include "toucan/ToucanDialect.h"
 #include "toucan/ToucanOps.h"
 #include "toucan/ToucanTypes.h"
-#include "toucan/PartitioningGraph.h"
-#include "toucan/MicroPartLocalValueAllocator.h"
-#include "toucan/ToucanCodeGenInfo.h"
-#include "toucan/ToucanConfigs.h"
 
 #include "toucan/MicroPartitioner.h"
 
 #include <boost/graph/adjacency_list.hpp>
 
+#include <filesystem>
 #include <string>
 #include <unordered_map>
-#include <filesystem>
 #include <vector>
-
 
 namespace toucan {
 
+class SchedulerBase {
+public:
+  // void fillDebugInfo(bool fillSignalDebugInfo = true);
 
-  class SchedulerBase {
-  public:
+  static void getVtxToLevel(const PartitioningGraph &g, mlir::SmallVector<uint32_t> &levels, uint32_t maxVtxId);
+  // static void collectPrintString(const DesignGraph &graph, mlir::DenseMap<mlir::StringRef, uint32_t>
+  // &printStrings);
+  static void collectPrintString(const PartitioningGraph &graph,
+                                 mlir::DenseMap<mlir::StringRef, uint32_t> &printStrings);
+  static void levelizeWorker(const PartitioningGraph &g, mlir::SmallVector<mlir::SmallVector<uint32_t>> &graphLevels);
+  static void populateOpMetaDebugInfo(CGOpMetaInfo &opMeta, mlir::Operation *op);
+};
 
-    // void fillDebugInfo(bool fillSignalDebugInfo = true);
-
-    static void getVtxToLevel(const PartitioningGraph &g, mlir::SmallVector<uint32_t> &levels, uint32_t maxVtxId);
-    // static void collectPrintString(const DesignGraph &graph, mlir::DenseMap<mlir::StringRef, uint32_t>  &printStrings);
-    static void collectPrintString(const PartitioningGraph &graph, mlir::DenseMap<mlir::StringRef, uint32_t>  &printStrings);
-    static void levelizeWorker(const PartitioningGraph &g, mlir::SmallVector<mlir::SmallVector<uint32_t>> &graphLevels);
-    static void populateOpMetaDebugInfo(CGOpMetaInfo &opMeta, mlir::Operation *op);
-  };
-
-}
+} // namespace toucan

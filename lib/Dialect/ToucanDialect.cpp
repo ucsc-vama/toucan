@@ -1,21 +1,22 @@
 #include "toucan/ToucanDialect.h"
 #include "circt/Dialect/HW/HWTypes.h"
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/ValueRange.h"
 #include "toucan/ToucanAttributes.h"
 #include "toucan/ToucanOps.h"
 #include "toucan/ToucanTypes.h"
-#include "mlir/IR/BuiltinAttributes.h"
-#include "mlir/IR/BuiltinTypes.h"
 
 #include "mlir/IR/PatternMatch.h"
 
-#include "toucan/ToucanDialect.cpp.inc"
+#include "circt/Dialect/HW/HWOps.h"
 #include "mlir/IR/OperationSupport.h"
 #include "mlir/IR/Types.h"
 #include "mlir/Interfaces/CallInterfaces.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
+#include "toucan/ToucanDialect.cpp.inc"
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
@@ -23,7 +24,6 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/MathExtras.h"
 #include <numeric>
-#include "circt/Dialect/HW/HWOps.h"
 
 using namespace circt;
 using namespace mlir;
@@ -40,7 +40,7 @@ void ToucanDialect::initialize() {
   addOperations<
 #define GET_OP_LIST
 #include "toucan/Toucan.cpp.inc"
-  >();
+      >();
 }
 
 #define GET_OP_CLASSES
@@ -94,7 +94,8 @@ LogicalResult RegWriteOp::verify() {
   auto regWidth = getReg().getType().getElementWidth();
 
   if (regWidth != static_cast<uint64_t>(dataWidth)) {
-    return emitError() <<"Data width doesn't match register width! " << "Register width is " << regWidth << ", while data width is " << dataWidth;
+    return emitError() << "Data width doesn't match register width! " << "Register width is " << regWidth
+                       << ", while data width is " << dataWidth;
   }
   return success();
 }
@@ -129,11 +130,12 @@ size_t LUTOp::getLegalOperandCount(toucan::LUTOpName opName) {
 }
 
 LogicalResult LUTOp::verify() {
-  size_t legalOperandCount = getLegalOperandCount(getOpName()); 
+  size_t legalOperandCount = getLegalOperandCount(getOpName());
   if (getInputs().size() != legalOperandCount) {
-    return emitError() << "Unmatched oprand count for op " << stringifyLUTOpName(getOpName()) << ": expect " << legalOperandCount << ", got " << getInputs().size();
+    return emitError() << "Unmatched oprand count for op " << stringifyLUTOpName(getOpName()) << ": expect "
+                       << legalOperandCount << ", got " << getInputs().size();
   }
-  for (auto input: getInputs()) {
+  for (auto input : getInputs()) {
     if (hw::getBitWidth(input.getType()) > 4) {
       return emitError() << "Operand has a max width of 4";
     }
@@ -150,7 +152,8 @@ LogicalResult LUTOp::verify() {
       break;
     }
 
-    default: {}
+    default: {
+    }
   }
 
   return success();
@@ -180,7 +183,7 @@ LogicalResult DefVectorOp::verify() {
   }
 
   auto expectedElemWidth = hw::getBitWidth(inputs[0].getType());
-  for (auto elem: inputs) {
+  for (auto elem : inputs) {
     auto elemWidth = hw::getBitWidth(elem.getType());
     if (elemWidth != expectedElemWidth) {
       return emitError() << "Elements inside vector should have same width";
@@ -231,7 +234,7 @@ LogicalResult VectorArithOp::verify() {
   if (v1Width != 4) {
     return emitError() << "For now only support 4 bit vector ops!";
   }
-  
+
   if (v1Length != v2Length) {
     return emitError() << "Vector arith should have identical input vectors";
   }
@@ -257,7 +260,7 @@ LogicalResult VectorLogicOp::verify() {
 
   auto v2Length = getV2().getType().getLength();
   auto v2Width = getV2().getType().getElementWidth();
-  
+
   if (v1Length != v2Length) {
     return emitError() << "Vector arith should have identical input vectors";
   }
@@ -279,8 +282,10 @@ LogicalResult VectorLogicOp::verify() {
 
 size_t LUTOp::getResultWidth1(toucan::LUTOpName opName, ValueRange inputs) {
   switch (opName) {
-    case LUTOpName::LUT_Rep1b: return 4;
-    case LUTOpName::LUT_XorR: return 1;
+    case LUTOpName::LUT_Rep1b:
+      return 4;
+    case LUTOpName::LUT_XorR:
+      return 1;
     default:
       break;
   }
@@ -291,7 +296,7 @@ size_t LUTOp::getResultWidth2(toucan::LUTOpName opName, ValueRange inputs) {
   switch (opName) {
     case LUTOpName::LUT_And:
     case LUTOpName::LUT_Or:
-    case LUTOpName::LUT_Xor: 
+    case LUTOpName::LUT_Xor:
     case LUTOpName::LUT_Shl1:
     case LUTOpName::LUT_Shl2:
     case LUTOpName::LUT_Shl3:
@@ -304,10 +309,10 @@ size_t LUTOp::getResultWidth2(toucan::LUTOpName opName, ValueRange inputs) {
       return std::max(lhsSize, rhsSize);
     }
 
-    case LUTOpName::LUT_Cmp_Eq: 
+    case LUTOpName::LUT_Cmp_Eq:
     case LUTOpName::LUT_Cmp_Ult:
     case LUTOpName::LUT_Cmp_Slt4b:
-    return 1;
+      return 1;
 
     case LUTOpName::LUT_Sub:
     case LUTOpName::LUT_Add: {
@@ -315,7 +320,7 @@ size_t LUTOp::getResultWidth2(toucan::LUTOpName opName, ValueRange inputs) {
       return 4;
     }
 
-    default: ;
+    default:;
   }
   llvm_unreachable(toucan::stringifyLUTOpName(opName).str().c_str());
 }
@@ -332,7 +337,6 @@ size_t LUTOp::getResultWidth3(toucan::LUTOpName opName, ValueRange inputs) {
 
   return std::max(lhsWidth, rhsWidth);
 }
-
 
 static inline LogicalResult canonicalize_LUT_Add(LUTOp &op, PatternRewriter &rewriter) {
   auto inputs = op.getInputs();
@@ -356,23 +360,22 @@ static inline LogicalResult canonicalize_LUT_Add(LUTOp &op, PatternRewriter &rew
   return failure();
 }
 
-
 LogicalResult LUTOp::canonicalize(LUTOp op, PatternRewriter &rewriter) {
   auto opName = op.getOpName();
   auto inputs = op.getInputs();
 
-
-  switch(opName) {
+  switch (opName) {
     case LUTOpName::LUT_And: {
       assert(inputs.size() == 2);
       for (size_t i = 0; i < 2; i++) {
         auto opRand = inputs[i];
         if (value_is_const_zero(opRand)) {
-          auto constZeroOp = rewriter.create<hw::ConstantOp>(op.getLoc(), rewriter.getIntegerType(hw::getBitWidth(opRand.getType())), 0);
+          auto constZeroOp = rewriter.create<hw::ConstantOp>(
+              op.getLoc(), rewriter.getIntegerType(hw::getBitWidth(opRand.getType())), 0);
           rewriter.replaceOp(op, constZeroOp);
           return success();
         } else if (value_is_const_ones(opRand)) {
-          rewriter.replaceOp(op, inputs[1-i]);
+          rewriter.replaceOp(op, inputs[1 - i]);
           return success();
         }
       }
@@ -380,7 +383,8 @@ LogicalResult LUTOp::canonicalize(LUTOp op, PatternRewriter &rewriter) {
     }
     case LUTOpName::LUT_Or: {
       assert(inputs.size() == 2);
-      assert(hw::getBitWidth(inputs[0].getType()) == hw::getBitWidth(inputs[1].getType()) && "Input should of same type.");
+      assert(hw::getBitWidth(inputs[0].getType()) == hw::getBitWidth(inputs[1].getType()) &&
+             "Input should of same type.");
       for (size_t i = 0; i < 2; i++) {
         auto opRand = inputs[i];
         auto opRand_another = inputs[1 - i];
@@ -388,7 +392,8 @@ LogicalResult LUTOp::canonicalize(LUTOp op, PatternRewriter &rewriter) {
           rewriter.replaceOp(op, opRand_another);
           return success();
         } else if (value_is_const_ones(opRand)) {
-          auto constOnesOp = rewriter.create<hw::ConstantOp>(op.getLoc(), rewriter.getIntegerType(hw::getBitWidth(opRand.getType())), -1);
+          auto constOnesOp = rewriter.create<hw::ConstantOp>(
+              op.getLoc(), rewriter.getIntegerType(hw::getBitWidth(opRand.getType())), -1);
           rewriter.replaceOp(op, constOnesOp);
           return success();
         }
@@ -400,7 +405,7 @@ LogicalResult LUTOp::canonicalize(LUTOp op, PatternRewriter &rewriter) {
       for (size_t i = 0; i < 2; i++) {
         auto opRand = inputs[i];
         if (value_is_const_zero(opRand)) {
-          rewriter.replaceOp(op, inputs[1-i]);
+          rewriter.replaceOp(op, inputs[1 - i]);
           return success();
         }
       }
@@ -444,7 +449,7 @@ LogicalResult LUTOp::canonicalize(LUTOp op, PatternRewriter &rewriter) {
     case LUTOpName::LUT_Cmp_Ult:
     case LUTOpName::LUT_Cmp_Slt4b:
     case LUTOpName::LUT_Sub:
-    break;
+      break;
   }
   return failure();
 }
@@ -452,17 +457,20 @@ LogicalResult LUTOp::canonicalize(LUTOp op, PatternRewriter &rewriter) {
 // Note: Some op has exact same truth table with others.
 toucan::LUTOpName LUTOp::getMappedOpName(toucan::LUTOpName opName) {
   switch (opName) {
-    case LUTOpName::LUT_Shr1: return LUTOpName::LUT_Shl3;
-    case LUTOpName::LUT_Shr2: return LUTOpName::LUT_Shl2;
-    case LUTOpName::LUT_Shr3: return LUTOpName::LUT_Shl1;
-    default: return opName;
+    case LUTOpName::LUT_Shr1:
+      return LUTOpName::LUT_Shl3;
+    case LUTOpName::LUT_Shr2:
+      return LUTOpName::LUT_Shl2;
+    case LUTOpName::LUT_Shr3:
+      return LUTOpName::LUT_Shl1;
+    default:
+      return opName;
   }
 }
 
 /// Build a ConstantOp from an APInt, infering the result type from the
 /// width of the APInt.
-void ConstantOp::build(OpBuilder &builder, OperationState &result,
-                       const APInt &value) {
+void ConstantOp::build(OpBuilder &builder, OperationState &result, const APInt &value) {
 
   auto type = IntegerType::get(builder.getContext(), value.getBitWidth());
   auto attr = builder.getIntegerAttr(type, value);
@@ -471,8 +479,7 @@ void ConstantOp::build(OpBuilder &builder, OperationState &result,
 
 /// Build a ConstantOp from an APInt, infering the result type from the
 /// width of the APInt.
-void ConstantOp::build(OpBuilder &builder, OperationState &result,
-                       IntegerAttr value) {
+void ConstantOp::build(OpBuilder &builder, OperationState &result, IntegerAttr value) {
   return build(builder, result, value.getType(), value);
 }
 
@@ -480,10 +487,7 @@ void ConstantOp::build(OpBuilder &builder, OperationState &result,
 /// matching a specified MLIR IntegerType.  This shouldn't be used for general
 /// constant folding because it only works with values that can be expressed in
 /// an int64_t.  Use APInt's instead.
-void ConstantOp::build(OpBuilder &builder, OperationState &result, Type type,
-                       int64_t value) {
+void ConstantOp::build(OpBuilder &builder, OperationState &result, Type type, int64_t value) {
   auto numBits = type.cast<IntegerType>().getWidth();
   build(builder, result, APInt(numBits, (uint64_t)value, /*isSigned=*/true));
 }
-
-

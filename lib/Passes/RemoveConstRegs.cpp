@@ -1,33 +1,32 @@
 
-#include "circt/Dialect/HW/HWTypes.h"
-#include "circt/Support/LLVM.h"
 #include "circt/Dialect/Comb/CombDialect.h"
 #include "circt/Dialect/Comb/CombOps.h"
+#include "circt/Dialect/HW/HWTypes.h"
 #include "circt/Dialect/Seq/SeqOps.h"
+#include "circt/Support/LLVM.h"
 
 #include "mlir/IR/Builders.h"
-#include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/Operation.h"
+#include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/Threading.h"
 #include "mlir/IR/Visitors.h"
 #include "mlir/Support/LLVM.h"
-#include "mlir/IR/Threading.h"
 #include "mlir/Support/LogicalResult.h"
 #include "toucan/ToucanDialect.h"
 #include "toucan/ToucanTypes.h"
 
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/STLExtras.h"
 
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <memory>
-
 
 #define GEN_PASS_DEF_REMOVECONSTREGS
 #include "toucan/ToucanPassCommon.h"
@@ -44,18 +43,14 @@ using namespace llvm;
 
 #define DEBUG_TYPE "RemoveConstRegs"
 
-
 // TODO: dump merged register list for future use (waveform, for example)
-
 
 struct RemoveConstRegs : toucan::impl::RemoveConstRegsBase<RemoveConstRegs> {
   using RemoveConstRegsBase<RemoveConstRegs>::RemoveConstRegsBase;
 
-
-
   void runOnOperation() final {
 
-    mlir::DenseSet<Operation*> toRemove, toRemove_regDecl;
+    mlir::DenseSet<Operation *> toRemove, toRemove_regDecl;
 
     uint64_t constRegCnt = 0;
     uint64_t constRegInThisIteration = 0;
@@ -63,11 +58,12 @@ struct RemoveConstRegs : toucan::impl::RemoveConstRegsBase<RemoveConstRegs> {
 
     do {
       constRegInThisIteration = 0;
-      getOperation()->walk([&](toucan::RegWriteOp op){
-        if (toRemove.contains(op)) return;
+      getOperation()->walk([&](toucan::RegWriteOp op) {
+        if (toRemove.contains(op))
+          return;
 
         auto regDataVal = op.getData();
-        
+
         if (auto constantOp = dyn_cast<ConstantOp>(regDataVal.getDefiningOp())) {
           constRegInThisIteration++;
 
@@ -77,7 +73,7 @@ struct RemoveConstRegs : toucan::impl::RemoveConstRegsBase<RemoveConstRegs> {
           toRemove.insert(op);
           toRemove_regDecl.insert(regVal.getDefiningOp());
 
-          for (auto user: regVal.getUsers()) {
+          for (auto user : regVal.getUsers()) {
             if (auto regReadOp = dyn_cast<RegReadOp>(user)) {
               toRemove.insert(regReadOp);
               auto regReadResult = regReadOp.getResult();
@@ -87,14 +83,15 @@ struct RemoveConstRegs : toucan::impl::RemoveConstRegsBase<RemoveConstRegs> {
         }
       });
 
-      for (auto op: toRemove) {
+      for (auto op : toRemove) {
         op->erase();
       }
-      for (auto op: toRemove_regDecl) {
+      for (auto op : toRemove_regDecl) {
         op->erase();
       }
 
-      LLVM_DEBUG(llvm::dbgs() << "Iteration " << iteration << " removed " << constRegInThisIteration << " const registers\n");
+      LLVM_DEBUG(llvm::dbgs() << "Iteration " << iteration << " removed " << constRegInThisIteration
+                              << " const registers\n");
 
       toRemove.clear();
       toRemove_regDecl.clear();
@@ -104,11 +101,6 @@ struct RemoveConstRegs : toucan::impl::RemoveConstRegsBase<RemoveConstRegs> {
 
     LLVM_DEBUG(llvm::dbgs() << "Remove " << constRegCnt << " const registers\n");
   }
-
-  
-
 };
 
-std::unique_ptr<mlir::Pass> toucan::createRemoveConstRegsPass() {
-  return std::make_unique<RemoveConstRegs>();
-}
+std::unique_ptr<mlir::Pass> toucan::createRemoveConstRegsPass() { return std::make_unique<RemoveConstRegs>(); }

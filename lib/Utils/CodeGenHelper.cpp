@@ -5,10 +5,9 @@
 #include "toucan/CodeGenCommon.h"
 
 #include "toucan/ToucanAttributes.h"
-#include "toucan/ToucanUtils.h"
 #include "toucan/ToucanOps.h"
+#include "toucan/ToucanUtils.h"
 #include "llvm/Support/Debug.h"
-
 
 using namespace mlir;
 using namespace toucan;
@@ -24,13 +23,12 @@ void CodeGenHelper::populateLUT_Nop() {
   lutContent.insert(lutContent.end(), lut.begin(), lut.end());
 }
 
-
 void CodeGenHelper::populateLUT_Rep1b() {
   // simple lut, 0 -> 0000, 1 -> 1111
   SmallVector<uint8_t> lut;
   lut.push_back(0);
   lut.push_back(0xF);
-  
+
   lutPos[static_cast<uint8_t>(LUTOpName::LUT_Rep1b)] = lutContent.size();
   lutContent.insert(lutContent.end(), lut.begin(), lut.end());
 }
@@ -309,7 +307,6 @@ void CodeGenHelper::populateLUT() {
   //   assert(elem <= 0xF);
   // }
 
-
   // Uncomment following to print out lut pos
   // Example:
   // Pos for op nop: 0
@@ -334,6 +331,7 @@ void CodeGenHelper::populateLUT() {
   // Pos for op cmp_slt4b: 1826
   // LUT size 4642B
   // for (size_t enumId = 0; enumId <= toucan::getMaxEnumValForLUTOpName(); enumId++) {
-  //   llvm::dbgs() << "Pos for op " << stringifyLUTOpName(static_cast<LUTOpName>(enumId)) << ": " << lutPos[enumId] << "\n";
+  //   llvm::dbgs() << "Pos for op " << stringifyLUTOpName(static_cast<LUTOpName>(enumId)) << ": " << lutPos[enumId]
+  //   << "\n";
   // }
 }

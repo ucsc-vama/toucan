@@ -38,10 +38,21 @@ cd external && ./build-deps.sh
 Then build Toucan itself:
 
 ```bash
-mkdir build && cd build
-cmake .. -DCMAKE_BUILD_TYPE=Release
-make -j$(nproc)
+cmake --preset release
+cmake --build --preset release -j$(nproc)
 ```
+
+For a debug build with symbols and assertions, use the isolated debug build
+tree instead:
+
+```bash
+cmake --preset debug
+cmake --build --preset debug -j$(nproc)
+```
+
+The resulting executables are `build/release/tools/toucan/toucan` and
+`build/debug/tools/toucan/toucan`. To configure manually, use separate build
+directories with `-DCMAKE_BUILD_TYPE=Release` or `-DCMAKE_BUILD_TYPE=Debug`.
 
 ## Pipeline Overview
 

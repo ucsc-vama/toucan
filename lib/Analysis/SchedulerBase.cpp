@@ -1,8 +1,8 @@
-#include "circt/Dialect/HW/HWTypes.h"
-#include "circt/Support/LLVM.h"
 #include "circt/Dialect/Comb/CombDialect.h"
 #include "circt/Dialect/Comb/CombOps.h"
+#include "circt/Dialect/HW/HWTypes.h"
 #include "circt/Dialect/Seq/SeqOps.h"
+#include "circt/Support/LLVM.h"
 
 #include "mlir/IR/Value.h"
 #include "mlir/Pass/AnalysisManager.h"
@@ -24,23 +24,21 @@
 #include <cstddef>
 #include <cstdint>
 
+#include <algorithm>
+#include <array>
 #include <boost/graph/topological_sort.hpp>
 #include <cstring>
 #include <iterator>
-#include <array>
 #include <optional>
 #include <tuple>
 #include <unordered_set>
 #include <vector>
-#include <algorithm>
-
 
 using namespace toucan;
 
 using namespace mlir;
 using namespace llvm;
 using namespace circt;
-
 
 void SchedulerBase::getVtxToLevel(const PartitioningGraph &g, mlir::SmallVector<uint32_t> &levels, uint32_t maxVtxId) {
   std::vector<uint32_t> topo_order;
@@ -76,17 +74,16 @@ void SchedulerBase::getVtxToLevel(const PartitioningGraph &g, mlir::SmallVector<
   assert(!sinkVtxes.empty());
 
   // move all sinkVtx to last level
-  for (auto v: sinkVtxes) {
+  for (auto v : sinkVtxes) {
     levels[v] = maxLevel + 1;
   }
 }
 
-
-void SchedulerBase::levelizeWorker(const PartitioningGraph &g, mlir::SmallVector<mlir::SmallVector<uint32_t>> &graphLevels) {
+void SchedulerBase::levelizeWorker(const PartitioningGraph &g,
+                                   mlir::SmallVector<mlir::SmallVector<uint32_t>> &graphLevels) {
 
   mlir::SmallVector<uint32_t> levels;
   getVtxToLevel(g, levels, boost::num_vertices(g));
-
 
   for (uint32_t vtx = 0; vtx < levels.size(); vtx++) {
     uint32_t vtxLevel = levels[vtx];
@@ -98,13 +95,13 @@ void SchedulerBase::levelizeWorker(const PartitioningGraph &g, mlir::SmallVector
   }
 
   // Every level should have at least 1 nodes
-  for (const auto &eachLevel: graphLevels) {
+  for (const auto &eachLevel : graphLevels) {
     assert(!eachLevel.empty());
   }
-
 }
 
-void SchedulerBase::collectPrintString(const PartitioningGraph &graph, mlir::DenseMap<mlir::StringRef, uint32_t> &printStrings) {
+void SchedulerBase::collectPrintString(const PartitioningGraph &graph,
+                                       mlir::DenseMap<mlir::StringRef, uint32_t> &printStrings) {
   uint32_t stringId = 0;
 
   for (uint32_t vtxId = 0; vtxId < boost::num_vertices(graph); vtxId++) {
@@ -122,7 +119,8 @@ void SchedulerBase::collectPrintString(const PartitioningGraph &graph, mlir::Den
   }
 }
 
-// void SchedulerBase::collectPrintString(const DesignGraph &graph, mlir::DenseMap<mlir::StringRef, uint32_t> &printStrings) {
+// void SchedulerBase::collectPrintString(const DesignGraph &graph, mlir::DenseMap<mlir::StringRef, uint32_t>
+// &printStrings) {
 //   collectPrintString(graph.g, printStrings);
 // }
 

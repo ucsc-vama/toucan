@@ -1,22 +1,22 @@
 
-#include "circt/Dialect/HW/HWOps.h"
-#include "circt/Dialect/HW/HWTypes.h"
-#include "circt/Support/LLVM.h"
 #include "circt/Dialect/Comb/CombDialect.h"
 #include "circt/Dialect/Comb/CombOps.h"
+#include "circt/Dialect/HW/HWOps.h"
+#include "circt/Dialect/HW/HWTypes.h"
 #include "circt/Dialect/Seq/SeqOps.h"
+#include "circt/Support/LLVM.h"
 
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
-#include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/Operation.h"
+#include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/Threading.h"
 #include "mlir/IR/Visitors.h"
 #include "mlir/Support/LLVM.h"
-#include "mlir/IR/Threading.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
@@ -24,20 +24,19 @@
 #include "toucan/ToucanTypes.h"
 
 #include "llvm/ADT/APInt.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/STLExtras.h"
 
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/Format.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Support/Format.h"
 
 #include <algorithm>
-#include <memory>
 #include <atomic>
-
+#include <memory>
 
 #define GEN_PASS_DEF_FACTORBINARYOP
 #include "toucan/ToucanPassCommon.h"
@@ -52,24 +51,22 @@ using namespace llvm;
 
 #define DEBUG_TYPE "FactorBinaryOpPass"
 
-
 static std::atomic<uint64_t> numMultiOprandBinOpInModule;
 
-
 struct LowerBinaryOpWithMultipleOperandBase {
-  public:
-  template<class OpTy>
-  LogicalResult lowerOp(OpTy &op, PatternRewriter &rewriter) const {
+public:
+  template <class OpTy> LogicalResult lowerOp(OpTy &op, PatternRewriter &rewriter) const {
     auto inputs = op.getInputs();
     if (inputs.size() > 2) {
       numMultiOprandBinOpInModule++;
 
       SmallVector<Value> inputs_vec;
       inputs_vec.assign(inputs.begin(), inputs.end());
-      auto resultVal = generate_reduce_tree(rewriter, op.getLoc(), inputs_vec, [&](RewriterBase &rewriter, Location loc, Value lhs, Value rhs) {
-        auto newOp = rewriter.create<OpTy>(loc, ValueRange({lhs, rhs}), false);
-        return newOp.getResult();
-      });
+      auto resultVal = generate_reduce_tree(rewriter, op.getLoc(), inputs_vec,
+                                            [&](RewriterBase &rewriter, Location loc, Value lhs, Value rhs) {
+                                              auto newOp = rewriter.create<OpTy>(loc, ValueRange({lhs, rhs}), false);
+                                              return newOp.getResult();
+                                            });
 
       auto namehint = getSVNameHintAttr(op);
       if (namehint) {
@@ -82,8 +79,7 @@ struct LowerBinaryOpWithMultipleOperandBase {
   }
 };
 
-
-struct LowerCombAndWithMultipleOperands: OpRewritePattern<comb::AndOp>, LowerBinaryOpWithMultipleOperandBase {
+struct LowerCombAndWithMultipleOperands : OpRewritePattern<comb::AndOp>, LowerBinaryOpWithMultipleOperandBase {
   using OpRewritePattern<comb::AndOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(comb::AndOp op, PatternRewriter &rewriter) const final {
@@ -91,7 +87,7 @@ struct LowerCombAndWithMultipleOperands: OpRewritePattern<comb::AndOp>, LowerBin
   }
 };
 
-struct LowerCombOrWithMultipleOperands: OpRewritePattern<comb::OrOp>, LowerBinaryOpWithMultipleOperandBase {
+struct LowerCombOrWithMultipleOperands : OpRewritePattern<comb::OrOp>, LowerBinaryOpWithMultipleOperandBase {
   using OpRewritePattern<comb::OrOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(comb::OrOp op, PatternRewriter &rewriter) const final {
@@ -99,7 +95,7 @@ struct LowerCombOrWithMultipleOperands: OpRewritePattern<comb::OrOp>, LowerBinar
   }
 };
 
-struct LowerCombXorWithMultipleOperands: OpRewritePattern<comb::XorOp>, LowerBinaryOpWithMultipleOperandBase {
+struct LowerCombXorWithMultipleOperands : OpRewritePattern<comb::XorOp>, LowerBinaryOpWithMultipleOperandBase {
   using OpRewritePattern<comb::XorOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(comb::XorOp op, PatternRewriter &rewriter) const final {
@@ -107,16 +103,13 @@ struct LowerCombXorWithMultipleOperands: OpRewritePattern<comb::XorOp>, LowerBin
   }
 };
 
-struct LowerCombAddWithMultipleOperands: OpRewritePattern<comb::AddOp>, LowerBinaryOpWithMultipleOperandBase {
+struct LowerCombAddWithMultipleOperands : OpRewritePattern<comb::AddOp>, LowerBinaryOpWithMultipleOperandBase {
   using OpRewritePattern<comb::AddOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(comb::AddOp op, PatternRewriter &rewriter) const final {
     return lowerOp<comb::AddOp>(op, rewriter);
   }
 };
-
-
-
 
 struct FactorBinaryOpPass : toucan::impl::FactorBinaryOpBase<FactorBinaryOpPass> {
   using FactorBinaryOpBase<FactorBinaryOpPass>::FactorBinaryOpBase;
@@ -126,7 +119,7 @@ struct FactorBinaryOpPass : toucan::impl::FactorBinaryOpBase<FactorBinaryOpPass>
     numMultiOprandBinOpInModule = 0;
 
     RewritePatternSet owningPatterns(context);
-    
+
     owningPatterns.add<LowerCombAddWithMultipleOperands>(context);
     owningPatterns.add<LowerCombAndWithMultipleOperands>(context);
     owningPatterns.add<LowerCombOrWithMultipleOperands>(context);
@@ -136,7 +129,6 @@ struct FactorBinaryOpPass : toucan::impl::FactorBinaryOpBase<FactorBinaryOpPass>
 
     return success();
   }
-
 
   LogicalResult runOnModule(hw::HWModuleOp mod) {
     GreedyRewriteConfig config;
@@ -156,8 +148,8 @@ struct FactorBinaryOpPass : toucan::impl::FactorBinaryOpBase<FactorBinaryOpPass>
     auto mod = getOperation();
 
     SmallVector<hw::HWModuleOp> modulesToProcess;
-    for(auto & inner: mod.getOps()) {
-      if(auto mod = dyn_cast<hw::HWModuleOp>(&inner)) {
+    for (auto &inner : mod.getOps()) {
+      if (auto mod = dyn_cast<hw::HWModuleOp>(&inner)) {
         modulesToProcess.push_back(mod);
       }
     }
@@ -168,15 +160,13 @@ struct FactorBinaryOpPass : toucan::impl::FactorBinaryOpBase<FactorBinaryOpPass>
     // }
 
     // Parallel
-    auto result = mlir::failableParallelForEach(&getContext(), modulesToProcess.begin(), modulesToProcess.end(), [&](auto mod) {
-      return runOnModule(mod);
-    });
-    if (failed(result)) return signalPassFailure();
+    auto result = mlir::failableParallelForEach(&getContext(), modulesToProcess.begin(), modulesToProcess.end(),
+                                                [&](auto mod) { return runOnModule(mod); });
+    if (failed(result))
+      return signalPassFailure();
 
     numMultiOprandBinaryOp = numMultiOprandBinOpInModule;
   }
 };
 
-std::unique_ptr<mlir::Pass> toucan::createFactorBinaryOpPass() {
-  return std::make_unique<FactorBinaryOpPass>();
-}
+std::unique_ptr<mlir::Pass> toucan::createFactorBinaryOpPass() { return std::make_unique<FactorBinaryOpPass>(); }
