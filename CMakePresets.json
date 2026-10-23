@@ -17,7 +17,7 @@
     {
       "name": "release",
       "displayName": "Release",
-      "description": "Optimized Toucan build with assertions disabled.",
+      "description": "Optimized Toucan build; assertion settings follow the LLVM configuration.",
       "inherits": "base",
       "binaryDir": "${sourceDir}/build/release",
       "cacheVariables": {
