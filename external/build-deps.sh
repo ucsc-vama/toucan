@@ -3,7 +3,7 @@
 set -e
 
 if [[ "$BUILD_TYPE" == "" ]]; then
-  BUILD_TYPE="DEBUG"
+  BUILD_TYPE="RELEASE"
 fi
 
 # Resolve the install prefix relative to this script's location and create it if
