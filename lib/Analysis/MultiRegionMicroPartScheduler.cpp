@@ -1932,94 +1932,60 @@ void MultiRegionMicroPartScheduler::mergeSmallRegularMParts(std::vector<CGMicroP
     from.clear();
   };
 
-  size_t mergeCount;
-  size_t iterCount = 0;
-
+  // Packing deep parts together avoids carrying a shallow part's outputs
+  // through many extra levels. For equal depths, place wider parts first.
   std::vector<uint32_t> mPartIds;
-  mlir::DenseSet<uint32_t> removedMParts;
-
-  while (true) {
-    mergeCount = 0;
-    iterCount++;
-    assert(iterCount < 100 && "This merge usually finish in 2-3 iterations.");
-
-    mPartIds.clear();
-    for (uint32_t i = 0; i < mPartsThisLevel.size(); i++) {
-      if (!removedMParts.contains(i)) {
-        mPartIds.push_back(i);
-        assert(mPartsThisLevel[i].maxActiveVars != -1);
-      } else {
-        assert(mPartsThisLevel[i].maxActiveVars == -1);
-      }
-    }
-
-    if (mPartIds.size() <= 1)
-      break;
-
-    std::sort(mPartIds.begin(), mPartIds.end(), [&mPartsThisLevel](const auto a, const auto b) {
-      return mPartsThisLevel.at(a).middleLevels.size() > mPartsThisLevel.at(b).middleLevels.size();
-    });
-    std::stable_sort(mPartIds.begin(), mPartIds.end(), [&mPartsThisLevel](const auto a, const auto b) {
-      return mPartsThisLevel.at(a).maxActiveVars > mPartsThisLevel.at(b).maxActiveVars;
-    });
-
-    size_t frontPtr = 0;
-    size_t lastPtr = mPartIds.size() - 1;
-
-    while ((frontPtr < mPartIds.size()) && (mPartsThisLevel[mPartIds.at(frontPtr)].maxActiveVars >= 32)) {
-      assert(mPartsThisLevel[mPartIds.at(frontPtr)].maxActiveVars == 32);
-      frontPtr++;
-    }
-
-    while (frontPtr < lastPtr) {
-      auto frontMpId = mPartIds.at(frontPtr);
-      auto lastMpId = mPartIds.at(lastPtr);
-      assert(frontMpId != lastMpId);
-      auto &frontMPart = mPartsThisLevel[frontMpId];
-      auto &lastMPart = mPartsThisLevel[lastMpId];
-
-      assert(!removedMParts.contains(frontMpId));
-      assert(!removedMParts.contains(lastMpId));
-      assert(frontMPart.maxActiveVars > 0);
-      assert(lastMPart.maxActiveVars > 0);
-      if (frontMPart.maxActiveVars + lastMPart.maxActiveVars <= 32) {
-        // ok to merge
-        auto front_mpart_levels = frontMPart.middleLevels.size();
-        auto last_mpart_levels = lastMPart.middleLevels.size();
-
-        if (front_mpart_levels >= last_mpart_levels) {
-          // merge lastMP into frontMP. After this, lastMP become invalid
-          mergeMP(frontMPart, lastMPart);
-          removedMParts.insert(lastMpId);
-          lastPtr--;
-        } else {
-          // merge frontMP into lastMP. After this, frontMP become invalid
-          mergeMP(lastMPart, frontMPart);
-          removedMParts.insert(frontMpId);
-          frontPtr++;
-          // Though lastMP is still valid, skip it and merge in next iteration
-          lastPtr--;
-        }
-
-        mergeCount++;
-      } else {
-        frontPtr++;
-      }
-    }
-
-    // llvm::outs() << "Perform " << mergeCount << " merges at iteration " << iterCount << "\n";
-
-    if (mergeCount == 0)
-      break;
+  mPartIds.reserve(mPartsThisLevel.size());
+  for (uint32_t i = 0; i < mPartsThisLevel.size(); ++i) {
+    assert(mPartsThisLevel[i].maxActiveVars > 0 && mPartsThisLevel[i].maxActiveVars <= 32);
+    mPartIds.push_back(i);
   }
+  std::sort(mPartIds.begin(), mPartIds.end(), [&](auto a, auto b) {
+    const auto &lhs = mPartsThisLevel[a];
+    const auto &rhs = mPartsThisLevel[b];
+    if (lhs.middleLevels.size() != rhs.middleLevels.size())
+      return lhs.middleLevels.size() > rhs.middleLevels.size();
+    if (lhs.maxActiveVars != rhs.maxActiveVars)
+      return lhs.maxActiveVars > rhs.maxActiveVars;
+    return a < b;
+  });
 
+  // Each width bucket inherits depth order. Searching only its first unused
+  // entry bounds partner selection to 32 candidates, rather than scanning the
+  // whole execution level for every merge.
+  std::array<std::vector<uint32_t>, 33> widthBuckets;
+  std::array<size_t, 33> nextInBucket{};
+  for (auto id : mPartIds)
+    widthBuckets[mPartsThisLevel[id].maxActiveVars].push_back(id);
+  std::vector<bool> consumed(mPartsThisLevel.size(), false);
   std::vector<CGMicroPartInfo> newMParts;
-  for (uint32_t i = 0; i < mPartsThisLevel.size(); i++) {
-    if (!removedMParts.contains(i)) {
-      newMParts.push_back(mPartsThisLevel[i]);
+  for (auto id : mPartIds) {
+    if (consumed[id])
+      continue;
+    consumed[id] = true;
+    auto &target = mPartsThisLevel[id];
+    while (true) {
+      size_t best = mPartsThisLevel.size();
+      // Prefer the widest partner when depths are equal.
+      for (int width = 32 - target.maxActiveVars; width > 0; --width) {
+        const auto &bucket = widthBuckets[width];
+        auto &next = nextInBucket[width];
+        while (next < bucket.size() && consumed[bucket[next]])
+          ++next;
+        if (next == bucket.size())
+          continue;
+        auto candidate = bucket[next];
+        if (best == mPartsThisLevel.size() ||
+            mPartsThisLevel[candidate].middleLevels.size() > mPartsThisLevel[best].middleLevels.size())
+          best = candidate;
+      }
+      if (best == mPartsThisLevel.size())
+        break;
+      consumed[best] = true;
+      mergeMP(target, mPartsThisLevel[best]);
     }
+    newMParts.push_back(std::move(target));
   }
-
   std::swap(newMParts, mPartsThisLevel);
 }
 

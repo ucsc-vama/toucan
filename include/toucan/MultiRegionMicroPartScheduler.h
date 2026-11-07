@@ -144,6 +144,9 @@ public:
 
   static void printPartInfo(const CGPartitionMetaInfo &partInfo);
 
+  // Pack independent regular micro-parts from one execution level into warps.
+  static void mergeSmallRegularMParts(std::vector<CGMicroPartInfo> &mPartsThisLevel);
+
 private:
   // GPU cache line size
   const uint32_t partitionAlignment = 128;
@@ -208,8 +211,6 @@ private:
                             const mlir::DenseMap<mlir::Value, uint32_t> &valToValId) const;
   void scheduleMicroParts(const PartitioningGraph &graph, CGPartitionMetaInfo &partInfo,
                           const std::vector<std::vector<MicroPart>> &partLevels);
-
-  static void mergeSmallRegularMParts(std::vector<CGMicroPartInfo> &mPartsThisLevel);
 
   std::mutex debugSymbolLock;
 
