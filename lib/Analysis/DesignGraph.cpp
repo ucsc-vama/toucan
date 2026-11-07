@@ -11,6 +11,7 @@
 #include "toucan/ToucanAnalysis.h"
 #include "toucan/ToucanOps.h"
 
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -128,201 +129,139 @@ static CGToucanOPName getOpName(Operation *op) {
 }
 
 DesignGraph::DesignGraph(Operation *op, AnalysisManager &am) {
-  // build graph
-  auto isToucan4B = am.getAnalysis<IsLegalToucan4B>();
+  const auto &isToucan4B = am.getAnalysis<IsLegalToucan4B>();
   assert(isToucan4B.isToucanOnly && "Must be flatten toucan design");
 
   auto modOp = cast<ModuleOp>(op);
-  auto ops = modOp.getOps();
-  auto numOps = std::distance(ops.begin(), ops.end());
-  // assert(numOps < UINT32_MAX && "Too many nodes!");
+  auto numOps = std::distance(modOp.getOps().begin(), modOp.getOps().end());
+  assert(numOps < UINT32_MAX && "Too many nodes!");
 
-  PartitioningGraph rawGraph;
-
-  mlir::DenseMap<Operation *, uint32_t> rawOpToId;
-  rawOpToId.reserve(numOps);
-
-  uint32_t vertexIdCounter = 0;
-  // add all vertecies
+  SmallVector<Operation *> ops;
+  mlir::DenseMap<Operation *, uint32_t> opIds;
+  SmallVector<uint32_t> representatives;
+  SmallVector<uint32_t> opCounts;
+  ops.reserve(numOps);
+  opIds.reserve(numOps);
+  representatives.reserve(numOps);
+  opCounts.reserve(numOps);
   for (auto &stmt : modOp.getOps()) {
-    // a new node
+    auto id = ops.size();
+    opIds[&stmt] = id;
+    ops.push_back(&stmt);
+    representatives.push_back(id);
+    opCounts.push_back(getOpCount(&stmt));
+  }
+
+  // The merge groups are disjoint: vector readers, an arithmetic producer with
+  // its static segment readers, or writers of one memory. Record their final
+  // representatives before allocating any edges. Repeatedly removing edges
+  // from a raw graph would rescan high-fanout adjacency lists for every merge.
+  auto merge = [&](uint32_t dst, ArrayRef<uint32_t> members, bool increaseOpCount) {
+    assert(representatives[dst] == dst && "Merge groups must be disjoint");
+    for (auto id : members) {
+      assert(id != dst && representatives[id] == id && "Merge groups must be disjoint");
+      representatives[id] = dst;
+      if (increaseOpCount)
+        opCounts[dst] += opCounts[id];
+    }
+  };
+
+  SmallVector<uint32_t> members;
+  mlir::DenseSet<Value> handledVectors;
+  for (auto *rawOp : ops) {
+    if (auto vecArithOp = dyn_cast<VectorArithOp>(rawOp)) {
+      for (auto *user : vecArithOp->getUsers()) {
+        assert(isa<StaticVectorSegmentReadOp>(user));
+      }
+    }
+
+    if (auto vecReadOp = dyn_cast<VectorReadOp>(rawOp)) {
+      auto handle = vecReadOp.getHandle();
+      if (handledVectors.insert(handle).second) {
+        members.clear();
+        for (auto *user : handle.getUsers()) {
+          assert(isa<VectorReadOp>(user));
+          members.push_back(opIds.lookup(user));
+        }
+        // Preserve the original representative: the last reader in use order.
+        auto dst = members.pop_back_val();
+        merge(dst, members, true);
+      }
+    } else if (auto segmentOp = dyn_cast<StaticVectorSegmentReadOp>(rawOp)) {
+      auto handle = segmentOp.getHandle();
+      if (handledVectors.insert(handle).second) {
+        assert(isa<VectorArithOp>(handle.getDefiningOp()));
+        members.clear();
+        for (auto *user : handle.getUsers()) {
+          assert(isa<StaticVectorSegmentReadOp>(user));
+          members.push_back(opIds.lookup(user));
+        }
+        // Segment reads are aliases of the producer's result, not extra work.
+        merge(opIds.lookup(handle.getDefiningOp()), members, false);
+      }
+    } else if (auto memOp = dyn_cast<DefMemOp>(rawOp)) {
+      members.clear();
+      for (auto *user : memOp->getUsers()) {
+        if (isa<MemWriteOp>(user))
+          members.push_back(opIds.lookup(user));
+      }
+      if (!members.empty()) {
+        auto dst = members.pop_back_val();
+        merge(dst, members, true);
+      }
+    }
+
+    if (auto regOp = dyn_cast<DefRegOp>(rawOp))
+      regs.insert(regOp.getHandle());
+  }
+
+  // Retain the original operation order and representative metadata. Only the
+  // operation count is accumulated by a merge; its weight remains unchanged.
+  SmallVector<uint32_t> finalIds(ops.size(), UINT32_MAX);
+  auto numVertices = llvm::count_if(llvm::seq<size_t>(0, ops.size()), [&](size_t id) {
+    return representatives[id] == id && !opShouldRemoveInGraph(ops[id]);
+  });
+  g.reserve_vertices(numVertices);
+  opToId.reserve(numVertices);
+  for (uint32_t id = 0; id < ops.size(); ++id) {
+    auto *stmt = ops[id];
+    if (representatives[id] != id || opShouldRemoveInGraph(stmt))
+      continue;
 
     PartitioningGraphNodeProperty vp;
-    vp.op = &stmt;
-    vp.weight = getOpWeight(&stmt);
-    vp.toucanOpName = getOpName(&stmt);
-    assert(vp.toucanOpName != CGToucanOPName::ShouldNotAppear);
-    vp.opCount = getOpCount(&stmt);
+    vp.op = stmt;
+    vp.weight = getOpWeight(stmt);
+    vp.toucanOpName = getOpName(stmt);
+    vp.opCount = opCounts[id];
     vp.exchangeValId = 0;
     vp.mp = nullptr;
-    auto newVertex = boost::add_vertex(vp, rawGraph);
-
-    rawOpToId[&stmt] = newVertex;
-
-    // Ensure node id is incremental
-    assert(newVertex == vertexIdCounter);
-    vertexIdCounter++;
+    auto vertex = boost::add_vertex(vp, g);
+    finalIds[id] = vertex;
+    opToId[stmt] = vertex;
   }
+  for (uint32_t id = 0; id < ops.size(); ++id)
+    finalIds[id] = finalIds[representatives[id]];
 
-  // add all edges
-  for (auto &stmt : modOp.getOps()) {
-    auto vtxId = rawOpToId[&stmt];
-    for (auto user : stmt.getUsers()) {
-      auto userVtxId = rawOpToId[user];
-      boost::add_edge(vtxId, userVtxId, rawGraph);
-    }
-  }
-
-  mlir::DenseSet<uint32_t> vtxToRemove;
-
-  mlir::SmallVector<uint32_t> vecReaders;
-  mlir::SmallVector<uint32_t> memWriters;
-
-  mlir::DenseSet<mlir::Value> vecHandled_VecRead;
-  mlir::DenseSet<mlir::Value> vecHandled_VecStaticRead;
-
-  // Note: Merge some nodes
-  for (uint32_t vtxId = 0; vtxId < boost::num_vertices(rawGraph); vtxId++) {
-    auto rawOp = rawGraph[vtxId].op;
-
-    // Assertion: All VecArith should followed by StaticVectorSegmentReadOp
-    if (auto vecArithOp = dyn_cast<toucan::VectorArithOp>(rawOp)) {
-      auto vecUserEdges = boost::out_edges(vtxId, rawGraph);
-      for (auto ei = vecUserEdges.first; ei != vecUserEdges.second; ei++) {
-        auto userVtxId = boost::target(*ei, rawGraph);
-        auto userOpName = rawGraph[userVtxId].toucanOpName;
-        assert(userOpName == CGToucanOPName::VecStaticRead);
-      }
-
-      for (auto userOp : vecArithOp->getUsers()) {
-        assert(isa<toucan::StaticVectorSegmentReadOp>(userOp));
-      }
-    }
-
-    if (auto vecReadOp = dyn_cast<toucan::VectorReadOp>(rawOp)) {
-      // vector read. merge all into 1
-      auto vecHandle = vecReadOp.getHandle();
-      if (!vecHandled_VecRead.contains(vecHandle)) {
-        // a New vector
-        vecReaders.clear();
-        for (auto userOp : vecHandle.getUsers()) {
-          assert(isa<toucan::VectorReadOp>(userOp));
-          auto vecReaderVtxId = rawOpToId[userOp];
-          vecReaders.push_back(vecReaderVtxId);
-        }
-
-        if (vecReaders.size() > 1) {
-          // Merge readers
-          auto topVtxId = vecReaders.back();
-          vecReaders.pop_back();
-          rawGraph.mergeVerticies(topVtxId, vecReaders, true);
-          vtxToRemove.insert(vecReaders.begin(), vecReaders.end());
-        }
-
-        vecHandled_VecRead.insert(vecHandle);
-      }
-    } else if (auto vecSegReadOp = dyn_cast<toucan::StaticVectorSegmentReadOp>(rawOp)) {
-      // Merge StaticVectorSegmentReadOp with its vector producing op (which should be a VectorArithOp)
-      // After this, no StaticVectorSegmentReadOp should appear in the graph
-      auto vecHandle = vecSegReadOp.getHandle();
-
-      if (!vecHandled_VecStaticRead.contains(vecHandle)) {
-        // Producing op should be a VectorArith
-        assert(isa<toucan::VectorArithOp>(vecHandle.getDefiningOp()));
-
-        // a new vec
-        // collect all StaticVectorSegmentReadOp that share same vec
-        vecReaders.clear();
-        for (auto userOp : vecHandle.getUsers()) {
-          assert(isa<toucan::StaticVectorSegmentReadOp>(userOp));
-          auto vecReaderVtxId = rawOpToId[userOp];
-          vecReaders.push_back(vecReaderVtxId);
-        }
-        assert(vecReaders.size() > 0);
-
-        // Merge them with vector producing op, which is a VectorArithOp
-        // Don't increase op count, as VecStaticRead is not a real op
-        auto vecDeclNodeId = rawOpToId[vecHandle.getDefiningOp()];
-        rawGraph.mergeVerticies(vecDeclNodeId, vecReaders, false);
-        vtxToRemove.insert(vecReaders.begin(), vecReaders.end());
-
-        vecHandled_VecStaticRead.insert(vecHandle);
-      }
-    } else if (auto memDeclOp = dyn_cast<toucan::DefMemOp>(rawOp)) {
-      // Merge multiple writers of a same memory into 1
-      memWriters.clear();
-      for (auto userOp : memDeclOp->getUsers()) {
-        if (auto memWriteOp = dyn_cast<toucan::MemWriteOp>(userOp)) {
-          // a new write port
-          auto writerVtxId = rawOpToId[memWriteOp];
-          assert(isa<toucan::MemWriteOp>(rawGraph[writerVtxId].op));
-          memWriters.push_back(writerVtxId);
-        }
-      }
-
-      if (memWriters.size() > 1) {
-        // A memory with multiple writer. Merge.
-        auto topVtxId = memWriters.back();
-        memWriters.pop_back();
-        rawGraph.mergeVerticies(topVtxId, memWriters, true);
-        vtxToRemove.insert(memWriters.begin(), memWriters.end());
-      }
-    }
-    // else if (auto constOp = dyn_cast<toucan::ConstantOp>(rawOp)) {
-    //   // save
-    //   constOps.push_back(&constOp);
-    // } else if (auto constVecOp = dyn_cast<toucan::DefConstVectorOp>(rawOp)) {
-    //   // save
-    //   constVecOps.push_back(&constVecOp);
-    // }
-    if (auto regDeclOp = dyn_cast<toucan::DefRegOp>(rawOp)) {
-      auto regVal = regDeclOp.getHandle();
-      regs.insert(regVal);
-    }
-
-    if (opShouldRemoveInGraph(rawOp)) {
-      // Remove all defmem, defreg, const, const vec
-      vtxToRemove.insert(vtxId);
+  // Emit the contracted dependency graph directly. Keep parallel edges: they
+  // represent distinct uses and are significant to downstream partitioning.
+  // Edges internal to a merge group disappear, as do declaration dependencies.
+  for (uint32_t id = 0; id < ops.size(); ++id) {
+    auto source = finalIds[id];
+    if (source == UINT32_MAX)
+      continue;
+    for (auto *user : ops[id]->getUsers()) {
+      auto userId = opIds.lookup(user);
+      auto target = finalIds[userId];
+      // Preserve a representative's existing self-edge. Only the internal
+      // edges removed by contraction should disappear, not pre-existing cycles.
+      bool retainedSelfEdge = id == userId && representatives[id] == id;
+      if (target != UINT32_MAX && (source != target || retainedSelfEdge))
+        boost::add_edge(source, target, g);
     }
   }
 
-  // Build new graph without removed nodes, since removing them is expensive
-  SmallVector<uint32_t> oldIdToNewId;
-  oldIdToNewId.reserve(rawOpToId.size());
-  for (uint32_t vtxId = 0; vtxId < boost::num_vertices(rawGraph); vtxId++) {
-    if (vtxToRemove.contains(vtxId)) {
-      oldIdToNewId.push_back(UINT32_MAX);
-    } else {
-      // This vtx should copy to new graph
-      auto vp = rawGraph[vtxId];
-      auto newVtxId = boost::add_vertex(vp, g);
-      opToId[vp.op] = newVtxId;
-      oldIdToNewId.push_back(newVtxId);
-    }
-  }
-  assert(oldIdToNewId.size() == boost::num_vertices(rawGraph));
-
-  // copy edges
-
-  auto rawEdges = boost::edges(rawGraph);
-  for (auto ei = rawEdges.first; ei != rawEdges.second; ++ei) {
-    auto edgeSource = boost::source(*ei, rawGraph);
-    auto edgeTarget = boost::target(*ei, rawGraph);
-
-    auto newEdgeSource = oldIdToNewId[edgeSource];
-    auto newEdgeTarget = oldIdToNewId[edgeTarget];
-
-    if ((newEdgeSource != UINT32_MAX) && (newEdgeTarget != UINT32_MAX)) {
-      // Valid
-      boost::add_edge(newEdgeSource, newEdgeTarget, g);
-    }
-  }
-
-  llvm::outs() << "Raw graph has " << boost::num_vertices(rawGraph) << " vertices and " << boost::num_edges(rawGraph)
+  llvm::outs() << "Design graph has " << boost::num_vertices(g) << " vertices and " << boost::num_edges(g)
                << " edges\n";
-
-  llvm::outs() << "After removing and merging, graph has " << boost::num_vertices(g) << " vertices and "
-               << boost::num_edges(g) << " edges\n";
 
   for (auto vtx : boost::make_iterator_range(boost::vertices(g))) {
     if (g[vtx].toucanOpName == CGToucanOPName::RegRead) {

@@ -64,5 +64,6 @@ add_subdirectory(external)
 add_subdirectory(include)
 add_subdirectory(lib)
 add_subdirectory(tools)
+add_subdirectory(tests EXCLUDE_FROM_ALL)
 
 # add_executable(toucan main.cpp)
