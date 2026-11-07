@@ -338,7 +338,7 @@ void MicroPartLocalValueAllocator::allocateLocalValues() {
               }
             } else {
               // in the middle of a region
-              if (candidateValIds[i] && availableValIds_vec[i] == continuousValStartId + 1) {
+              if (candidateValIds[i] && availableValIds_vec[i] == continuousValStartId + continuousValSize) {
                 continuousValSize++;
               } else {
                 if (candidateValIds[i]) {
