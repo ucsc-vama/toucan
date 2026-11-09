@@ -4,11 +4,15 @@ Toucan is a **GPU-accelerated RTL simulator** that compiles hardware designs des
 
 Toucan lowers CIRCT's HW/Comb/Seq/SV dialects through a custom MLIR dialect pipeline, partitions the design (RepCut + micro-partitioner), and generates CUDA simulation binary.
 
-## Paper
+## Paper & Related Repositories
 
 If you use Toucan in your research, please cite:
 
 > (*placeholder — paper citation will be added upon publication*)
+
+For paper data reproduce, please check [this repo](https://github.com/ucsc-vama/toucan-demo-pure-gpu).
+
+Toucan itself is a compiler, the interpreter running on GPU is [this repo](https://github.com/ucsc-vama/toucanGPURT).
 
 ## Prerequisites
 
