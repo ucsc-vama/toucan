@@ -86,6 +86,13 @@ popd
 
 cd circt
 
+# Temporary fix:
+# The pinned LLVM/CIRCT sources use uint*_t in some headers (e.g.
+# llvm/ADT/SmallVector.h, lib/Target/X86/MCTargetDesc/X86MCTargetDesc.h) without
+# including <cstdint>. Older toolchains provided it transitively, but GCC 16+ no
+# longer does, so force-include it for the LLVM and CIRCT builds.
+CXX_FLAGS_CSTDINT="-include cstdint"
+
 # build llvm
 pushd llvm
 
@@ -96,6 +103,7 @@ cmake ../llvm \
     -DLLVM_ENABLE_PROJECTS="mlir" \
     -DLLVM_TARGETS_TO_BUILD="X86;AArch64;RISCV" \
     -DLLVM_ENABLE_ASSERTIONS=ON \
+    -DCMAKE_CXX_FLAGS="$CXX_FLAGS_CSTDINT" \
     -DCMAKE_BUILD_TYPE=$BUILD_TYPE
 make -j$(nproc) install
 
@@ -109,6 +117,7 @@ cmake .. \
     -DMLIR_DIR=$PWD/../llvm/build/lib/cmake/mlir \
     -DLLVM_DIR=$PWD/../llvm/build/lib/cmake/llvm \
     -DLLVM_ENABLE_ASSERTIONS=ON \
+    -DCMAKE_CXX_FLAGS="$CXX_FLAGS_CSTDINT" \
     -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
     -DVERILATOR_DISABLE=ON \
     -DCIRCT_LEC_DISABLE=ON \
